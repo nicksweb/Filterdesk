@@ -6,6 +6,8 @@ use App\Models\WebsiteCheck;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Website\WebsiteChecker;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class WebsiteCheckController extends Controller
@@ -17,24 +19,42 @@ class WebsiteCheckController extends Controller
 
     public function store(Request $request, DomainNormalizer $domains, WebsiteChecker $checker): View
     {
-        $validated = $request->validate(['website' => ['required', 'string', 'max:2048'], 'screenshot' => ['nullable', 'boolean']]);
-        $value = trim($validated['website']);
-        $url = str_contains($value, '://') ? $value : "https://{$value}";
-        $parts = parse_url($url);
+        $validated = $request->validate(['websites' => ['required', 'string', 'max:10000']]);
+        $values = array_values(array_unique(array_filter(array_map(
+            'trim',
+            preg_split('/[\r\n,]+/', $validated['websites']) ?: []
+        ))));
 
-        if (! in_array($parts['scheme'] ?? '', ['http', 'https'], true) || isset($parts['user']) || isset($parts['pass'])) {
-            return back()->withErrors(['website' => 'Enter an HTTP or HTTPS website without embedded credentials.'])->withInput();
+        if ($values === [] || count($values) > 10) {
+            throw ValidationException::withMessages(['websites' => 'Enter between 1 and 10 website URLs, one per line.']);
         }
 
-        $hostname = $domains->one($url);
-        $result = $checker->check($url, $request->boolean('screenshot'));
-        $storedResults = collect($result['results'])->map(fn (array $profile) => collect($profile)->except('screenshot')->all())->all();
+        $targets = [];
+        foreach ($values as $value) {
+            $url = str_contains($value, '://') ? $value : "https://{$value}";
+            $parts = parse_url($url);
+            if (! in_array($parts['scheme'] ?? '', ['http', 'https'], true) || isset($parts['user']) || isset($parts['pass'])) {
+                throw ValidationException::withMessages(['websites' => "{$value} is not an HTTP or HTTPS website URL."]);
+            }
 
-        WebsiteCheck::query()->create([
-            'user_id' => $request->user()->id, 'url' => $url, 'hostname' => $hostname,
-            'results' => $storedResults, 'duration_ms' => $result['duration_ms'],
-        ]);
+            $targets[] = ['url' => $url, 'hostname' => $domains->one($url)];
+        }
 
-        return view('checks.create', ['checkedUrl' => $url, 'results' => $result['results'], 'duration' => $result['duration_ms']]);
+        $result = $checker->checkMany($targets, true);
+
+        DB::transaction(function () use ($request, $result): void {
+            foreach ($result['checks'] as $check) {
+                $storedResults = collect($check['results'])->map(fn (array $profile) => collect($profile)->except('screenshot')->all())->all();
+                WebsiteCheck::query()->create([
+                    'user_id' => $request->user()->id,
+                    'url' => $check['url'],
+                    'hostname' => $check['hostname'],
+                    'results' => $storedResults,
+                    'duration_ms' => $check['duration_ms'],
+                ]);
+            }
+        });
+
+        return view('checks.create', ['checks' => $result['checks'], 'duration' => $result['duration_ms']]);
     }
 }

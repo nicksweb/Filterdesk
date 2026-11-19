@@ -13,6 +13,7 @@ use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class WebsiteRequestController extends Controller
@@ -27,9 +28,24 @@ class WebsiteRequestController extends Controller
         return view('requests.index', ['requests' => $query->paginate(20)]);
     }
 
-    public function create(SettingsRepository $settings): View
+    public function create(Request $request, SettingsRepository $settings, DomainNormalizer $normalizer): View
     {
-        return view('requests.create', ['categories' => $settings->get('approval.categories', ['Teaching and learning', 'Research', 'Professional development', 'Administration', 'Other'])]);
+        $requestedDomains = $request->query('domains', []);
+        $requestedDomains = is_array($requestedDomains) ? $requestedDomains : [$requestedDomains];
+        $prefillDomains = '';
+
+        if ($requestedDomains !== []) {
+            try {
+                $prefillDomains = implode("\n", $normalizer->many(implode("\n", $requestedDomains)));
+            } catch (ValidationException) {
+                $prefillDomains = '';
+            }
+        }
+
+        return view('requests.create', [
+            'categories' => $settings->get('approval.categories', ['Teaching and learning', 'Research', 'Professional development', 'Administration', 'Other']),
+            'prefillDomains' => $prefillDomains,
+        ]);
     }
 
     public function store(

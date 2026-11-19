@@ -14,6 +14,21 @@ Configure the proxy upstream as `http://it-edu-selfservice-web-1:8080`. The
 override keeps the shared network attachment across container recreations while
 the PHP upstream remains isolated behind the unique `itrequests-php` alias.
 
+## Schoolbox embedding
+
+Set the exact Schoolbox origin during installation, for example
+`https://schoolbox.example.edu.au`, then add the IT Requests URL as an embedded
+external page in Schoolbox. IT Requests permits only that configured origin in
+its Content Security Policy. When an origin is configured, session cookies are
+automatically secured with `SameSite=None` so authenticated cross-site iframe
+sessions can function.
+
+Schoolbox embedding does not bypass authentication. Users still sign in through
+the configured OIDC provider or an existing IT Requests session. Some identity
+providers do not permit their login page inside an iframe; in that case users
+must complete sign-in in a top-level browser tab before opening the Schoolbox
+embed.
+
 Set `APP_URL=https://itrequests.example.edu.au`, `SESSION_SECURE_COOKIE=true`, and `TRUSTED_PROXIES` to only the proxy container address or subnet. Never use `*` on a port reachable by untrusted clients.
 
 Nginx example:

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ConfigureSchoolboxEmbedding;
 use App\Http\Middleware\EnsureInstalled;
 use App\Http\Middleware\InstallationOnly;
 use App\Http\Middleware\RequireRole;
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RequireRole::class,
         ]);
         $middleware->prependToGroup('web', EnsureInstalled::class);
+        $middleware->prependToGroup('web', ConfigureSchoolboxEmbedding::class);
         $middleware->appendToGroup('web', SecurityHeaders::class);
         $middleware->redirectGuestsTo(fn () => route('login'));
 

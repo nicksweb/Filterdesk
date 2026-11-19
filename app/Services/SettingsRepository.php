@@ -11,14 +11,14 @@ class SettingsRepository
     public function get(string $key, mixed $default = null): mixed
     {
         try {
-            $exact = Cache::remember("setting.{$key}", 300, fn () => Setting::query()->where('key', $key)->first());
+            $exact = Cache::remember("setting.exact.{$key}", 300, fn () => Setting::query()->where('key', $key)->first());
             if ($exact) {
                 return $exact->value ?? $default;
             }
 
             if (str_contains($key, '.')) {
                 [$root, $path] = explode('.', $key, 2);
-                $rootValue = Cache::remember("setting.{$root}", 300, fn () => Setting::query()->where('key', $root)->value('value'));
+                $rootValue = Cache::remember("setting.root.{$root}", 300, fn () => Setting::query()->where('key', $root)->value('value'));
 
                 return data_get($rootValue, $path, $default);
             }
@@ -32,7 +32,8 @@ class SettingsRepository
     public function set(string $key, mixed $value): void
     {
         Setting::query()->updateOrCreate(['key' => $key], ['value' => $value]);
-        Cache::forget("setting.{$key}");
+        Cache::forget("setting.exact.{$key}");
+        Cache::forget('setting.root.'.str($key)->before('.'));
     }
 
     public function installed(): bool

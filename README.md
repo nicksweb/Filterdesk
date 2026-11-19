@@ -11,8 +11,10 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - OpenID Connect sign-in (including Microsoft Entra ID) with just-in-time users
 - Student, teacher, IT and administrator roles
 - Parallel Student/Staff network checks with a target of 1–3 seconds
-- Optional Chromium screenshots and configurable block-page detection
+- Automatic Chromium screenshots and configurable block-page detection
+- Batch website checks which feed selected domains into one access request
 - Multi-domain staff-only or staff-and-student requests
+- Schoolbox iframe embedding with an exact-origin allowlist and secure cross-site sessions
 - Approval, rejection, reassignment, information requests and manual completion
 - Temporary access windows with scheduled expiry
 - Email decision notifications through a background queue
