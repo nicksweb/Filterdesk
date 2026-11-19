@@ -20,7 +20,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Scoped: one instance per request or queued job, so long-running
+        // workers still see settings changed elsewhere.
+        $this->app->scoped(SettingsRepository::class);
     }
 
     /**
@@ -32,7 +34,7 @@ class AppServiceProvider extends ServiceProvider
         foreach ([Carbon::class, CarbonImmutable::class] as $carbon) {
             $carbon::macro('local', function () {
                 /** @var Carbon|CarbonImmutable $this */
-                return $this->copy()->setTimezone((string) config('app.display_timezone', config('app.timezone')));
+                return $this->copy()->setTimezone(app(SettingsRepository::class)->timezone());
             });
         }
 
