@@ -1,0 +1,93 @@
+<?php
+
+namespace App\Services\Requests;
+
+use App\Models\User;
+use App\Models\WebsiteRequest;
+use App\Notifications\RequestActivityNotification;
+use App\Notifications\RequestDecisionNotification;
+use App\Services\SettingsRepository;
+use Illuminate\Notifications\Notification as BaseNotification;
+use Illuminate\Support\Facades\Notification;
+use Throwable;
+
+/**
+ * Decides who hears about request activity. Each event type can be turned
+ * off in Settings → Notifications. Failures are reported, never thrown, so a
+ * mail problem cannot block an approval.
+ */
+class RequestNotifier
+{
+    public function __construct(private readonly SettingsRepository $settings) {}
+
+    public function submitted(WebsiteRequest $request): void
+    {
+        if (! $this->enabled('new_request')) {
+            return;
+        }
+
+        $this->toIt(new RequestActivityNotification($request, 'New website access request', [
+            'Use case: '.str($request->use_case)->limit(400),
+        ]), includeOptedInStaff: true);
+    }
+
+    public function replied(WebsiteRequest $request, string $reply): void
+    {
+        if (! $this->enabled('requester_reply')) {
+            return;
+        }
+
+        $notification = new RequestActivityNotification($request, 'Requester provided more information', ['Reply: '.str($reply)->limit(600)]);
+        $request->assignedTo ? $this->send($request->assignedTo, $notification) : $this->toIt($notification, includeOptedInStaff: true);
+    }
+
+    public function assigned(WebsiteRequest $request, User $assignee, User $actor): void
+    {
+        if (! $this->enabled('assignment') || $assignee->is($actor)) {
+            return;
+        }
+
+        $this->send($assignee, new RequestActivityNotification($request, "Assigned to you by {$actor->name}"));
+    }
+
+    public function decision(WebsiteRequest $request, string $message): void
+    {
+        $this->send($request->requester, new RequestDecisionNotification($request, $message));
+    }
+
+    private function toIt(BaseNotification $notification, bool $includeOptedInStaff): void
+    {
+        $address = $this->settings->get('notifications.it_address');
+        if (filled($address)) {
+            try {
+                Notification::route('mail', $address)->notify($notification);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
+
+        if ($includeOptedInStaff) {
+            User::query()->itStaff()->where('notify_new_requests', true)
+                ->when(filled($address), fn ($query) => $query->where('email', '!=', strtolower((string) $address)))
+                ->each(fn (User $user) => $this->send($user, $notification));
+        }
+    }
+
+    private function send(?User $user, BaseNotification $notification): void
+    {
+        if (! $user || ! $user->enabled) {
+            return;
+        }
+
+        try {
+            $user->notify($notification);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    private function enabled(string $event): bool
+    {
+        return (bool) $this->settings->get("notifications.events.{$event}", true);
+    }
+}

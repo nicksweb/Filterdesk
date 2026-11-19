@@ -18,7 +18,12 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - Schoolbox iframe embedding with an exact-origin allowlist and secure cross-site sessions
 - Approval, rejection, reassignment, information requests and manual completion
 - Explicit permanent access or temporary access windows with scheduled expiry
-- Daily allow/block policy reconciliation against pasted UniFi lists
+- Site-wide, audience (Staff/Student/Guest) and per-policy allow and block lists
+- Per-policy reconciliation against pasted UniFi content-filter lists, with copy-ready desired lists
+- DNS-aware approval recommendations: registrable domain plus the subdomains and CDN hosts a page loads
+- Fresh browser and uncached DNS on every check run, with Secure DNS disabled so it cannot bypass the filter
+- Assignment to IT staff, internal notes, revoke, request queue filters and IT email alerts
+- Post-install settings, OIDC role rules, audit log viewer and diagnostics
 - Email decision notifications through a background queue
 - Encrypted OIDC, SMTP and UniFi credentials
 - UniFi official API connection/capability testing, defaulting to read-only
@@ -57,7 +62,14 @@ docker compose -f compose.yml -f compose.vlan.yml up -d --build
 
 Each probe must have the intended VLAN as its default route. If a UniFi block page resolves to a private hostname, explicitly list that hostname in `STUDENT_ALLOWED_PRIVATE_HOSTS` or `STAFF_ALLOWED_PRIVATE_HOSTS`; private targets are otherwise rejected to reduce SSRF exposure.
 
-See [deployment and operations](docs/DEPLOYMENT.md), [policy reconciliation](docs/POLICY_RECONCILIATION.md), [architecture](docs/ARCHITECTURE.md), and [UniFi compatibility](docs/UNIFI.md).
+Point each probe at its VLAN's resolver for uncached lookups:
+
+```env
+STUDENT_PROBE_DNS_SERVERS=10.20.0.1
+STAFF_PROBE_DNS_SERVERS=10.10.0.1
+```
+
+See [deployment and operations](docs/DEPLOYMENT.md), [upgrading](docs/UPGRADING.md), [policy reconciliation](docs/POLICY_RECONCILIATION.md), [architecture](docs/ARCHITECTURE.md), and [UniFi compatibility](docs/UNIFI.md).
 
 ## UniFi API key required
 
@@ -68,7 +80,7 @@ Use an **official UniFi API key**, not a personal UI password.
 3. Give the associated UniFi account only the sites/permissions required.
 4. Enter the controller HTTPS URL and key in the wizard. Leave the integration in **read-only** mode until testing succeeds.
 
-The official API includes site/network discovery and firewall/ACL resources, but does not currently provide a portable content-filter *domain allowlist* operation across supported Network versions. IT Requests therefore reports that capability as unavailable and places an approved request into **Action required** for manual completion. It does not call undocumented controller endpoints. See [docs/UNIFI.md](docs/UNIFI.md).
+The official API includes site/network discovery and firewall/ACL resources, but does not currently provide a portable content-filter *domain allowlist* operation across supported Network versions. IT Requests therefore reports that capability as unavailable, adds approved hostnames to the managed **Policy lists**, and places the request into **Action required** until IT copies the change into UniFi. It does not call undocumented controller endpoints. See [docs/UNIFI.md](docs/UNIFI.md).
 
 ## Updating
 
@@ -80,7 +92,7 @@ docker compose build --pull
 docker compose up -d
 ```
 
-The one-shot `migrate` service applies migrations before workers start. Read [CHANGELOG.md](CHANGELOG.md) before each upgrade.
+The one-shot `migrate` service runs `php artisan itrequests:upgrade` (migrations, backfills, cache clearing, worker restart) before workers start. Read [CHANGELOG.md](CHANGELOG.md) and [docs/UPGRADING.md](docs/UPGRADING.md) before each upgrade.
 
 ## Development
 

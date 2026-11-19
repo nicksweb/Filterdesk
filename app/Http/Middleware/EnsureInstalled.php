@@ -11,7 +11,7 @@ class EnsureInstalled
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (! app(SettingsRepository::class)->installed() && ! $request->routeIs('install.*')) {
+        if (! app(SettingsRepository::class)->installed() && ! $request->routeIs('install.*', 'health')) {
             return redirect()->route('install.show', 1);
         }
 

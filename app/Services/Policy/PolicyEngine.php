@@ -1,0 +1,386 @@
+<?php
+
+namespace App\Services\Policy;
+
+use App\Enums\AccessScope;
+use App\Enums\Audience;
+use App\Enums\EntrySource;
+use App\Enums\ListKind;
+use App\Enums\ListScope;
+use App\Enums\RequestStatus;
+use App\Models\FilterPolicy;
+use App\Models\NetworkProfile;
+use App\Models\PolicyEntry;
+use App\Models\PolicyList;
+use App\Models\User;
+use App\Models\WebsiteRequest;
+use App\Services\Network\DomainRules;
+use App\Services\Network\NetworkProviderManager;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+/**
+ * Computes what each filter policy *should* contain and compares it with the
+ * snapshot last copied from the network provider.
+ *
+ * Desired allow list for a policy = every effective entry in every allow list
+ * that applies to it (site-wide, its audience, and its own lists). Desired
+ * block list = the same for block lists, minus anything allowed. Approved
+ * requests are materialised as entries in the default allow list of each
+ * audience they cover, so manual additions and approvals are handled the same way.
+ */
+class PolicyEngine
+{
+    public function __construct(
+        private readonly NetworkProviderManager $providers,
+        private readonly DomainRecommender $recommender,
+    ) {}
+
+    public function rules(): DomainRules
+    {
+        return $this->providers->domainRules();
+    }
+
+    /**
+     * Idempotently create the baseline policies and lists. Safe to run on
+     * every upgrade.
+     */
+    public function ensureDefaults(): void
+    {
+        DB::transaction(function (): void {
+            if (FilterPolicy::query()->doesntExist()) {
+                foreach (NetworkProfile::query()->orderBy('sort_order')->get() as $profile) {
+                    if (! in_array($profile->audience, [Audience::Staff, Audience::Student, Audience::Guest], true)) {
+                        continue;
+                    }
+                    FilterPolicy::query()->create([
+                        'name' => $profile->audience === Audience::Student ? 'Students' : ($profile->audience === Audience::Staff ? 'Staff' : 'Guests'),
+                        'slug' => $this->uniqueSlug($profile->audience->value),
+                        'audience' => $profile->audience,
+                        'network_profile_id' => $profile->id,
+                        'sort_order' => $profile->sort_order,
+                        'description' => "Content filter applied to the {$profile->name} network.",
+                    ]);
+                }
+            }
+
+            $this->ensureList(ListKind::Allow, ListScope::Site, null, 'Site-wide allow', 'Allowed on every network, including students and guests.');
+            $this->ensureList(ListKind::Block, ListScope::Site, null, 'Site-wide block', 'Blocked on every network unless allowed by a more specific list.');
+
+            $audiences = FilterPolicy::query()->pluck('audience')->push(Audience::Staff, Audience::Student)->unique(fn ($audience) => $audience->value);
+            foreach ($audiences as $audience) {
+                $this->ensureAudienceLists($audience);
+            }
+        });
+    }
+
+    public function ensureAudienceLists(Audience $audience): void
+    {
+        $name = match ($audience) {
+            Audience::Staff => 'Staff',
+            Audience::Student => 'Student',
+            Audience::Guest => 'Guest',
+            Audience::Other => 'Other networks',
+        };
+        $this->ensureList(ListKind::Allow, ListScope::Audience, $audience, "{$name} allow", "Allowed on every {$audience->label()} policy. Approved requests are added here.", true);
+        $this->ensureList(ListKind::Block, ListScope::Audience, $audience, "{$name} block", "Blocked on every {$audience->label()} policy.");
+    }
+
+    /**
+     * The allow list that receives approvals for an audience (or site-wide).
+     */
+    public function defaultAllowList(?Audience $audience): PolicyList
+    {
+        if ($audience === null) {
+            return $this->ensureList(ListKind::Allow, ListScope::Site, null, 'Site-wide allow', 'Allowed on every network.');
+        }
+
+        $list = PolicyList::query()->where('kind', ListKind::Allow)->where('scope', ListScope::Audience)
+            ->where('audience', $audience)->orderByDesc('is_default')->orderBy('id')->first();
+
+        if ($list) {
+            return $list;
+        }
+
+        $this->ensureAudienceLists($audience);
+
+        return $this->defaultAllowList($audience);
+    }
+
+    /** @return list<PolicyList> */
+    public function targetListsFor(AccessScope $scope): array
+    {
+        if ($scope === AccessScope::SiteWide) {
+            return [$this->defaultAllowList(null)];
+        }
+
+        return array_map(fn (Audience $audience) => $this->defaultAllowList($audience), $scope->audiences());
+    }
+
+    /** @return Collection<int, FilterPolicy> */
+    public function policiesFor(AccessScope $scope): Collection
+    {
+        return FilterPolicy::query()->where('enabled', true)
+            ->when($scope !== AccessScope::SiteWide, fn ($query) => $query->whereIn('audience', $scope->audiences()))
+            ->ordered()->get();
+    }
+
+    /**
+     * Place an approved request's domains into its target lists.
+     *
+     * @param  list<string>  $domains
+     */
+    public function grant(WebsiteRequest $request, array $domains, AccessScope $scope, ?User $actor): void
+    {
+        DB::transaction(function () use ($request, $domains, $scope, $actor): void {
+            foreach ($this->targetListsFor($scope) as $list) {
+                foreach ($domains as $domain) {
+                    $this->upsertEntry($list, $domain, [
+                        'source' => EntrySource::Request,
+                        'website_request_id' => $request->id,
+                        'added_by_id' => $actor?->id,
+                        'starts_at' => $request->requested_from,
+                        'expires_at' => $request->requested_until,
+                        'note' => "{$request->reference}: {$request->category}",
+                    ]);
+                }
+            }
+        });
+    }
+
+    /**
+     * Remove a request's entries, handing any shared entry to another
+     * still-granted request for the same domain and list.
+     */
+    public function withdraw(WebsiteRequest $request): int
+    {
+        return DB::transaction(function () use ($request): int {
+            $removed = 0;
+            $entries = PolicyEntry::query()->where('website_request_id', $request->id)->where('source', EntrySource::Request)->get();
+            $others = $entries->isEmpty() ? collect() : WebsiteRequest::query()
+                ->whereKeyNot($request->id)
+                ->whereIn('status', RequestStatus::granted())
+                ->where(fn ($query) => $query->whereNull('requested_until')->orWhere('requested_until', '>', now()))
+                ->get();
+
+            foreach ($entries as $entry) {
+                $successor = $others->first(fn (WebsiteRequest $other) => in_array($entry->domain, $other->effectiveDomains(), true)
+                    && collect($this->targetListsFor($other->effectiveScope()))->contains('id', $entry->policy_list_id));
+
+                if ($successor) {
+                    $entry->update([
+                        'website_request_id' => $successor->id,
+                        'starts_at' => $successor->requested_from,
+                        'expires_at' => $successor->requested_until,
+                        'note' => "{$successor->reference}: {$successor->category}",
+                    ]);
+
+                    continue;
+                }
+
+                $entry->delete();
+                $removed++;
+            }
+
+            return $removed;
+        });
+    }
+
+    /**
+     * Add or merge a domain into a list. A permanent entry is never narrowed
+     * by a later temporary one; a temporary entry is widened to the later end.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function upsertEntry(PolicyList $list, string $domain, array $attributes): PolicyEntry
+    {
+        $existing = PolicyEntry::query()->where('policy_list_id', $list->id)->where('domain', $domain)->first();
+
+        if (! $existing) {
+            return PolicyEntry::query()->create(['policy_list_id' => $list->id, 'domain' => $domain] + $attributes);
+        }
+
+        if ($existing->expires_at === null && $existing->starts_at === null) {
+            return $existing;
+        }
+
+        $expires = $attributes['expires_at'] ?? null;
+        $starts = $attributes['starts_at'] ?? null;
+        $existing->fill([
+            'expires_at' => $expires === null ? null : max($existing->expires_at, Carbon::parse($expires)),
+            'starts_at' => $starts === null || $existing->starts_at === null ? null : min($existing->starts_at, Carbon::parse($starts)),
+        ] + array_intersect_key($attributes, array_flip(['source', 'website_request_id', 'note'])))->save();
+
+        return $existing;
+    }
+
+    /**
+     * @return array{
+     *     allow: list<string>, block: list<string>, conflicts: list<string>, shadowed: list<array{block: string, allow: string}>,
+     *     sources: array<string, list<array{list: string, list_id: int, kind: string, source: string, expires_at: ?string, request: ?string}>>
+     * }
+     */
+    public function desired(FilterPolicy $policy, ?CarbonInterface $at = null): array
+    {
+        $lists = PolicyList::query()->appliesTo($policy)->with(['entries' => fn ($query) => $query->effective($at)->with('websiteRequest:id,reference')])->get();
+        $allow = [];
+        $block = [];
+        $sources = [];
+
+        foreach ($lists as $list) {
+            foreach ($list->entries as $entry) {
+                if ($list->kind === ListKind::Allow) {
+                    $allow[$entry->domain] = true;
+                } else {
+                    $block[$entry->domain] = true;
+                }
+                $sources[$entry->domain][] = [
+                    'list' => $list->name, 'list_id' => $list->id, 'kind' => $list->kind->value,
+                    'source' => $entry->source->value, 'expires_at' => $entry->expires_at?->toIso8601String(),
+                    'request' => $entry->websiteRequest?->reference,
+                ];
+            }
+        }
+
+        $rules = $this->rules();
+        $allowList = $this->recommender->compact(array_keys($allow), $rules);
+        $conflicts = array_values(array_intersect(array_keys($block), array_keys($allow)));
+        $blockList = array_values(array_diff(array_keys($block), array_keys($allow)));
+        sort($blockList);
+        sort($conflicts);
+
+        $shadowed = [];
+        foreach ($blockList as $blocked) {
+            foreach ($allowList as $allowed) {
+                if (str_ends_with($allowed, '.'.$blocked)) {
+                    $shadowed[] = ['block' => $blocked, 'allow' => $allowed];
+                }
+            }
+        }
+
+        return [
+            'allow' => $allowList,
+            'block' => $this->recommender->compact($blockList, $rules),
+            'conflicts' => $conflicts,
+            'shadowed' => $shadowed,
+            'sources' => $sources,
+        ];
+    }
+
+    /**
+     * Compare the desired state with the last pasted provider snapshot.
+     *
+     * @return array<string, mixed>
+     */
+    public function reconcile(FilterPolicy $policy): array
+    {
+        $desired = $this->desired($policy);
+        $rules = $this->rules();
+        $currentAllow = $policy->current_allowlist ?? [];
+        $currentBlock = $policy->current_blocklist ?? [];
+        $hasSnapshot = $policy->snapshot_at !== null;
+
+        $covered = fn (array $entries, string $host): bool => collect($entries)->contains(fn (string $entry) => $rules->covers($entry, $host));
+
+        $allowAdd = array_values(array_filter($desired['allow'], fn (string $domain) => ! $covered($currentAllow, $domain)));
+        $allowExtra = array_values(array_filter($currentAllow, fn (string $domain) => ! in_array($domain, $desired['allow'], true)));
+        $blockAdd = array_values(array_filter($desired['block'], fn (string $domain) => ! in_array($domain, $currentBlock, true)));
+        $blockExtra = array_values(array_diff($currentBlock, $desired['block']));
+
+        $known = PolicyEntry::query()->whereIn('domain', $allowExtra)->pluck('domain')
+            ->merge(WebsiteRequest::query()->whereIn('status', [RequestStatus::Expired, RequestStatus::Revoked])->latest()->limit(2000)->get()->flatMap->effectiveDomains())
+            ->unique()->all();
+
+        return $desired + [
+            'has_snapshot' => $hasSnapshot,
+            'current_allow' => $currentAllow,
+            'current_block' => $currentBlock,
+            'allow_add' => $hasSnapshot ? $allowAdd : $desired['allow'],
+            'allow_remove' => array_values(array_intersect($allowExtra, $known)),
+            'allow_review' => array_values(array_diff($allowExtra, $known)),
+            'block_add' => $hasSnapshot ? $blockAdd : $desired['block'],
+            'block_remove' => array_values($blockExtra),
+            'in_sync' => $hasSnapshot && $allowAdd === [] && $allowExtra === [] && $blockAdd === [] && $blockExtra === [],
+        ];
+    }
+
+    /**
+     * Where a hostname is allowed or blocked, including parent-domain entries.
+     *
+     * @return Collection<int, PolicyEntry>
+     */
+    public function locate(string $domain): Collection
+    {
+        $labels = explode('.', $domain);
+        $candidates = [];
+        for ($index = 0; $index < count($labels) - 1; $index++) {
+            $candidates[] = implode('.', array_slice($labels, $index));
+        }
+
+        return PolicyEntry::query()->whereIn('domain', $candidates)
+            ->with(['policyList.filterPolicy', 'websiteRequest:id,reference', 'addedBy:id,name'])
+            ->orderByRaw('length(domain) desc')->get();
+    }
+
+    /**
+     * Hostnames already allowed for every policy in a scope (used to avoid
+     * recommending entries that already exist).
+     *
+     * @return list<string>
+     */
+    public function alreadyAllowed(AccessScope $scope): array
+    {
+        $policies = $this->policiesFor($scope);
+        if ($policies->isEmpty()) {
+            return [];
+        }
+
+        $sets = $policies->map(fn (FilterPolicy $policy) => $this->desired($policy)['allow']);
+
+        return array_values(array_intersect(...$sets->push($sets->first())->all()));
+    }
+
+    /**
+     * Entries starting or ending within a window, so IT knows what changes
+     * the next reconciliation will produce.
+     *
+     * @return array{starting: Collection<int, PolicyEntry>, expiring: Collection<int, PolicyEntry>}
+     */
+    public function upcoming(int $hours = 24): array
+    {
+        $until = now()->addHours($hours);
+
+        return [
+            'starting' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('starts_at', [now(), $until])->orderBy('starts_at')->get(),
+            'expiring' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('expires_at', [now(), $until])->orderBy('expires_at')->get(),
+        ];
+    }
+
+    public function uniqueSlug(string $name, ?int $ignoreId = null): string
+    {
+        $base = Str::slug($name) ?: 'policy';
+        $slug = $base;
+        $suffix = 2;
+        while (FilterPolicy::query()->where('slug', $slug)->when($ignoreId, fn ($query) => $query->whereKeyNot($ignoreId))->exists()) {
+            $slug = "{$base}-{$suffix}";
+            $suffix++;
+        }
+
+        return $slug;
+    }
+
+    private function ensureList(ListKind $kind, ListScope $scope, ?Audience $audience, string $name, string $description, bool $default = false): PolicyList
+    {
+        $list = PolicyList::query()->where('kind', $kind)->where('scope', $scope)
+            ->when($audience, fn ($query) => $query->where('audience', $audience), fn ($query) => $query->whereNull('audience'))
+            ->orderBy('id')->first();
+
+        return $list ?? PolicyList::query()->create([
+            'name' => $name, 'kind' => $kind, 'scope' => $scope, 'audience' => $audience,
+            'description' => $description, 'is_default' => $default || $scope === ListScope::Site,
+        ]);
+    }
+}

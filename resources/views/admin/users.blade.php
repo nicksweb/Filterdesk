@@ -25,10 +25,16 @@
         </form>
     </section>
 
+    <form method="get" class="filter-bar">
+        <label class="grow">Search<input name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Name or email"></label>
+        <label>Role<select name="role"><option value="">All roles</option>@foreach(['student','teacher','it','admin'] as $role)<option value="{{ $role }}" @selected(($filters['role'] ?? '') === $role)>{{ ucfirst($role) }} ({{ $counts[$role] ?? 0 }})</option>@endforeach</select></label>
+        <button class="button secondary">Filter</button>
+    </form>
+
     <section class="panel table-wrap users-table">
         <table><thead><tr><th>User</th><th>Role and access</th></tr></thead><tbody>
             @foreach($users as $user)
-                <tr><td><strong>{{ $user->name }}</strong><small>{{ $user->email }}</small></td><td><form class="inline-form" method="post" action="{{ route('admin.users.update', $user) }}">@csrf @method('PUT')<select name="role">@foreach(['student','teacher','it','admin'] as $role)<option value="{{ $role }}" @selected($user->role===$role)>{{ ucfirst($role) }}</option>@endforeach</select><label class="toggle"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($user->enabled)> Enabled</label><span>{{ $user->last_login_at?->diffForHumans() ?? 'Never signed in' }}</span><button class="button small secondary">Save</button></form></td></tr>
+                <tr><td><strong>{{ $user->name }}</strong><small>{{ $user->email }} · {{ $user->auth_source === 'oidc' ? 'SSO' : 'Local' }}</small></td><td><form class="inline-form" method="post" action="{{ route('admin.users.update', $user) }}">@csrf @method('PUT')<select name="role">@foreach(['student','teacher','it','admin'] as $role)<option value="{{ $role }}" @selected($user->role===$role)>{{ ucfirst($role) }}</option>@endforeach</select><label class="toggle"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($user->enabled)> Enabled</label><span>{{ $user->last_login_at?->diffForHumans() ?? 'Never signed in' }}</span><button class="button small secondary">Save</button></form></td></tr>
             @endforeach
         </tbody></table>
         {{ $users->links() }}

@@ -47,7 +47,7 @@ services:
   migrate:
     <<: *app
     restart: "no"
-    command: ["php", "artisan", "migrate", "--force"]
+    command: ["php", "artisan", "itrequests:upgrade"]
     depends_on:
       db: { condition: service_healthy }
 
@@ -99,6 +99,9 @@ services:
       PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
       BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
       ALLOWED_PRIVATE_HOSTS: ${STUDENT_ALLOWED_PRIVATE_HOSTS:-}
+      PROBE_DNS_SERVERS: ${STUDENT_PROBE_DNS_SERVERS:-}
+      BLOCK_PAGE_ADDRESSES: ${BLOCK_PAGE_ADDRESSES:-}
+      PROBE_REUSE_BROWSER: ${PROBE_REUSE_BROWSER:-false}
 
   probe-staff:
     <<: *probe
@@ -107,6 +110,9 @@ services:
       PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
       BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
       ALLOWED_PRIVATE_HOSTS: ${STAFF_ALLOWED_PRIVATE_HOSTS:-}
+      PROBE_DNS_SERVERS: ${STAFF_PROBE_DNS_SERVERS:-}
+      BLOCK_PAGE_ADDRESSES: ${BLOCK_PAGE_ADDRESSES:-}
+      PROBE_REUSE_BROWSER: ${PROBE_REUSE_BROWSER:-false}
 
 networks:
   app: { internal: true }

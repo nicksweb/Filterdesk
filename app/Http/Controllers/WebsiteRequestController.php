@@ -4,16 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Enums\AccessScope;
 use App\Enums\RequestStatus;
-use App\Models\RequestEvent;
+use App\Models\User;
 use App\Models\WebsiteRequest;
-use App\Services\AuditLogger;
 use App\Services\Domains\DomainNormalizer;
+use App\Services\Policy\DomainRecommender;
+use App\Services\Policy\PolicyEngine;
+use App\Services\Requests\InvalidRequestTransition;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -21,16 +23,53 @@ class WebsiteRequestController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = WebsiteRequest::query()->with(['requester', 'assignedTo'])->latest();
-        if (! $request->user()->isIt()) {
-            $query->where('requester_id', $request->user()->id);
-        }
+        $user = $request->user();
+        $filters = $request->validate([
+            'status' => ['nullable', 'in:open,granted,action_required,closed,all'],
+            'assigned' => ['nullable', 'in:me,unassigned,all'],
+            'q' => ['nullable', 'string', 'max:120'],
+        ]);
+        $status = $filters['status'] ?? ($user->isIt() ? 'open' : 'all');
+        $assigned = $filters['assigned'] ?? 'all';
+        $search = trim($filters['q'] ?? '');
 
-        return view('requests.index', ['requests' => $query->paginate(20)]);
+        $base = WebsiteRequest::query()->when(! $user->isIt(), fn (Builder $query) => $query->where('requester_id', $user->id));
+        $statusGroups = [
+            'open' => RequestStatus::open(),
+            'action_required' => [RequestStatus::Approved, RequestStatus::ActionRequired, RequestStatus::Failed],
+            'granted' => [RequestStatus::Active],
+            'closed' => [RequestStatus::Rejected, RequestStatus::Expired, RequestStatus::Revoked],
+        ];
+
+        $query = (clone $base)->with(['requester', 'assignedTo'])
+            ->when($status !== 'all', fn (Builder $query) => $query->whereIn('status', $statusGroups[$status]))
+            ->when($user->isIt() && $assigned === 'me', fn (Builder $query) => $query->where('assigned_to_id', $user->id))
+            ->when($user->isIt() && $assigned === 'unassigned', fn (Builder $query) => $query->whereNull('assigned_to_id'))
+            ->when($search !== '', function (Builder $query) use ($search, $user): void {
+                $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], strtolower($search)).'%';
+                $query->where(fn (Builder $query) => $query
+                    ->whereRaw('lower(reference) like ?', [$like])
+                    ->orWhereRaw('lower(cast(domains as text)) like ?', [$like])
+                    ->when($user->isIt(), fn (Builder $query) => $query->orWhereHas('requester', fn (Builder $query) => $query->whereRaw('lower(name) like ?', [$like])->orWhereRaw('lower(email) like ?', [$like]))));
+            })
+            ->orderByRaw("case when status in ('pending','needs_information') then 0 when status in ('approved','action_required','failed') then 1 else 2 end")
+            ->latest('updated_at');
+
+        $counts = collect($statusGroups)->map(fn (array $statuses) => (clone $base)->whereIn('status', $statuses)->count());
+
+        return view('requests.index', [
+            'requests' => $query->paginate(20)->withQueryString(),
+            'counts' => $counts,
+            'filters' => ['status' => $status, 'assigned' => $assigned, 'q' => $search],
+        ]);
     }
 
-    public function create(Request $request, SettingsRepository $settings, DomainNormalizer $normalizer): View
+    public function create(Request $request, SettingsRepository $settings, DomainNormalizer $normalizer): View|RedirectResponse
     {
+        if (! $this->canRequest($request->user(), $settings)) {
+            return redirect()->route('checks.create')->with('error', 'Students cannot submit website requests. Ask a teacher to request access.');
+        }
+
         $requestedDomains = $request->query('domains', []);
         $requestedDomains = is_array($requestedDomains) ? $requestedDomains : [$requestedDomains];
         $prefillDomains = '';
@@ -46,61 +85,50 @@ class WebsiteRequestController extends Controller
         return view('requests.create', [
             'categories' => $settings->get('approval.categories', ['Teaching and learning', 'Research', 'Professional development', 'Administration', 'Other']),
             'prefillDomains' => $prefillDomains,
+            'defaultTemporaryDays' => (int) $settings->get('approval.default_temporary_days', 30),
         ]);
     }
 
-    public function store(
-        Request $request,
-        DomainNormalizer $normalizer,
-        AuditLogger $audit,
-        RequestWorkflow $workflow,
-        SettingsRepository $settings,
-    ): RedirectResponse {
+    public function store(Request $request, DomainNormalizer $normalizer, RequestWorkflow $workflow, SettingsRepository $settings): RedirectResponse
+    {
+        abort_unless($this->canRequest($request->user(), $settings), 403);
+
+        $categories = $settings->get('approval.categories', []);
         $validated = $request->validate([
             'domains' => ['required', 'string', 'max:4000'],
-            'access_scope' => ['required', 'in:staff,staff_students'],
-            'category' => ['required', 'string', 'max:100'],
+            'access_scope' => ['required', Rule::in(array_map(fn (AccessScope $scope) => $scope->value, AccessScope::requestable()))],
+            'category' => ['required', 'string', 'max:100', ...($categories ? [Rule::in($categories)] : [])],
             'use_case' => ['required', 'string', 'min:20', 'max:5000'],
             'standards_confirmed' => ['accepted'],
             'access_duration' => ['required', 'in:permanent,temporary'],
             'requested_from' => ['nullable', 'date'],
-            'requested_until' => ['nullable', 'required_if:access_duration,temporary', 'date', 'after:now'],
+            'requested_until' => ['nullable', 'required_if:access_duration,temporary', 'date'],
         ]);
 
-        if ($validated['access_duration'] === 'temporary' && filled($validated['requested_from'] ?? null) && Carbon::parse($validated['requested_until'])->lte(Carbon::parse($validated['requested_from']))) {
+        $temporary = $validated['access_duration'] === 'temporary';
+        $from = $temporary ? $settings->parseLocal($validated['requested_from'] ?? null) : null;
+        $until = $temporary ? $settings->parseLocal($validated['requested_until'] ?? null) : null;
+        if ($until && $until->isPast()) {
+            throw ValidationException::withMessages(['requested_until' => 'The end time must be in the future.']);
+        }
+        if ($from && $until && $until->lte($from)) {
             throw ValidationException::withMessages(['requested_until' => 'The end time must be after the start time.']);
         }
 
-        $websiteRequest = DB::transaction(function () use ($request, $validated, $normalizer): WebsiteRequest {
-            $websiteRequest = WebsiteRequest::query()->create([
-                'reference' => 'PENDING-'.str()->uuid(),
-                'requester_id' => $request->user()->id,
-                'domains' => $normalizer->many($validated['domains']),
-                'access_scope' => AccessScope::from($validated['access_scope']),
-                'category' => $validated['category'], 'use_case' => $validated['use_case'],
-                'standards_confirmed' => true, 'status' => RequestStatus::Pending,
-                'requested_from' => $validated['access_duration'] === 'temporary' ? ($validated['requested_from'] ?? null) : null,
-                'requested_until' => $validated['access_duration'] === 'temporary' ? $validated['requested_until'] : null,
-            ]);
-            $websiteRequest->forceFill([
-                'reference' => sprintf('WEB-%s-%05d', now()->format('Y'), $websiteRequest->id),
-            ])->save();
-            RequestEvent::query()->create(['website_request_id' => $websiteRequest->id, 'actor_id' => $request->user()->id, 'type' => 'submitted', 'message' => 'Website access request submitted.']);
-
-            return $websiteRequest;
-        });
-
-        $audit->log('website_request.created', $websiteRequest, ['scope' => $websiteRequest->access_scope->value]);
+        $websiteRequest = $workflow->submit($request->user(), [
+            'domains' => $normalizer->many($validated['domains']),
+            'access_scope' => AccessScope::from($validated['access_scope']),
+            'category' => $validated['category'],
+            'use_case' => $validated['use_case'],
+            'requested_from' => $from,
+            'requested_until' => $until,
+        ]);
 
         $automaticallyApproved = $websiteRequest->access_scope === AccessScope::Staff
             && (bool) $settings->get('approval.auto_approve_staff', false);
 
         if ($automaticallyApproved) {
-            $workflow->approve(
-                $websiteRequest,
-                $request->user(),
-                'Automatically approved under the configured staff-only access policy.'
-            );
+            $workflow->approve($websiteRequest, $request->user(), 'Automatically approved under the configured staff-only access policy.');
         }
 
         return redirect()->route('requests.show', $websiteRequest)->with(
@@ -109,20 +137,47 @@ class WebsiteRequestController extends Controller
         );
     }
 
-    public function show(Request $request, WebsiteRequest $websiteRequest): View
+    public function show(Request $request, WebsiteRequest $websiteRequest, PolicyEngine $policy, DomainRecommender $recommender): View
     {
-        abort_unless($request->user()->isIt() || $websiteRequest->requester_id === $request->user()->id, 403);
+        $user = $request->user();
+        abort_unless($user->isIt() || $websiteRequest->requester_id === $user->id, 403);
 
-        return view('requests.show', ['websiteRequest' => $websiteRequest->load(['requester', 'assignedTo', 'events.actor'])]);
+        $websiteRequest->load(['requester', 'assignedTo', 'approvedBy', 'events' => fn ($query) => $query->when(! $user->isIt(), fn ($query) => $query->where('internal', false))->with('actor')]);
+        $data = ['websiteRequest' => $websiteRequest];
+
+        if ($user->isIt()) {
+            $rules = $policy->rules();
+            $data += [
+                'itStaff' => User::query()->itStaff()->get(['id', 'name', 'email', 'role']),
+                'rules' => $rules,
+                'recommendations' => $websiteRequest->status->isOpen()
+                    ? $recommender->recommend($websiteRequest->domains, $websiteRequest->related_domains ?? [], $rules, $policy->alreadyAllowed($websiteRequest->access_scope))
+                    : [],
+                'existing' => collect($websiteRequest->domains)->mapWithKeys(fn (string $domain) => [$domain => $policy->locate($domain)])->filter->isNotEmpty(),
+                'policies' => $policy->policiesFor($websiteRequest->effectiveScope()),
+                'entries' => $websiteRequest->policyEntries()->with('policyList')->get(),
+            ];
+        }
+
+        return view('requests.show', $data);
     }
 
-    public function reply(Request $request, WebsiteRequest $websiteRequest): RedirectResponse
+    public function reply(Request $request, WebsiteRequest $websiteRequest, RequestWorkflow $workflow): RedirectResponse
     {
-        abort_unless($websiteRequest->requester_id === $request->user()->id && $websiteRequest->status === RequestStatus::NeedsInformation, 403);
+        abort_unless($websiteRequest->requester_id === $request->user()->id, 403);
         $validated = $request->validate(['message' => ['required', 'string', 'min:10', 'max:5000']]);
-        RequestEvent::query()->create(['website_request_id' => $websiteRequest->id, 'actor_id' => $request->user()->id, 'type' => 'information_provided', 'message' => $validated['message']]);
-        $websiteRequest->forceFill(['status' => RequestStatus::Pending])->save();
+
+        try {
+            $workflow->reply($websiteRequest, $request->user(), $validated['message']);
+        } catch (InvalidRequestTransition $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
 
         return back()->with('success', 'Your response has been sent to IT.');
+    }
+
+    private function canRequest(User $user, SettingsRepository $settings): bool
+    {
+        return ! $user->isStudent() || (bool) $settings->get('approval.students_can_request', false);
     }
 }

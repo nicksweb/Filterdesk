@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? 'IT Requests' }} · {{ config('app.name') }}</title>
-    <link rel="stylesheet" href="{{ asset('app.css') }}">
+    <link rel="stylesheet" href="{{ asset('app.css') }}?v={{ config('version.app') }}">
+    <link rel="stylesheet" href="{{ asset('ui.css') }}?v={{ config('version.app') }}">
+    <script src="{{ asset('app.js') }}?v={{ config('version.app') }}" defer></script>
     {{ $head ?? '' }}
 </head>
 <body>
@@ -16,14 +18,16 @@
                 <a href="{{ route('dashboard') }}" @class(['active' => request()->routeIs('dashboard')])>Overview</a>
                 <a href="{{ route('checks.create') }}" @class(['active' => request()->routeIs('checks.*')])>Check a website</a>
                 <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*')])>Requests</a>
+                @if(auth()->user()->isIt())
+                    <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*')])>Policy lists</a>
+                @endif
                 @if(auth()->user()->isAdmin())
                     <a href="{{ route('admin.users.index') }}" @class(['active' => request()->routeIs('admin.users.*')])>Users</a>
-                    <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*')])>Policy lists</a>
-                    <a href="{{ route('admin.integrations.index') }}" @class(['active' => request()->routeIs('admin.integrations.*')])>Integrations</a>
+                    <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*', 'admin.audit', 'admin.diagnostics')])>Settings</a>
                 @endif
             </nav>
             <div class="account">
-                <span><strong>{{ auth()->user()->name }}</strong><small>{{ ucfirst(auth()->user()->role) }}</small></span>
+                <a class="account-link" href="{{ route('profile.edit') }}"><span><strong>{{ auth()->user()->name }}</strong><small>{{ ucfirst(auth()->user()->role) }}</small></span></a>
                 <form method="post" action="{{ route('logout') }}">@csrf<button class="link-button">Sign out</button></form>
             </div>
         @endauth
@@ -35,7 +39,15 @@
         @if($errors->any())
             <div class="alert error" role="alert"><strong>Please check the form.</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
         @endif
+        @if(auth()->check() && auth()->user()->isAdmin() && request()->routeIs('admin.settings.*', 'admin.audit', 'admin.diagnostics'))
+            <nav class="subnav" aria-label="Administration">
+                <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*')])>Settings</a>
+                <a href="{{ route('admin.audit') }}" @class(['active' => request()->routeIs('admin.audit')])>Audit log</a>
+                <a href="{{ route('admin.diagnostics') }}" @class(['active' => request()->routeIs('admin.diagnostics')])>Diagnostics</a>
+            </nav>
+        @endif
         {{ $slot }}
+        <footer class="app-footer">IT Requests {{ config('version.app') }}</footer>
     </main>
 </body>
 </html>

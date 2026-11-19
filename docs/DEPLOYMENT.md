@@ -83,6 +83,11 @@ Without the original `APP_KEY`, encrypted credentials cannot be recovered.
 
 ## Health and troubleshooting
 
+- *Settings → Diagnostics* checks the database, version, scheduler heartbeat, queue backlog, email, SSO, network provider and each probe.
+- `GET /health` returns `{"status":"ok","database":"ok","version":"…"}` for uptime monitors, with no configuration details.
+- A check shows *DNS blocked* hosts that should be allowed: the probe is probably resolving through the Docker host's DNS rather than the VLAN gateway. Set `*_PROBE_DNS_SERVERS` or attach the probe to the VLAN.
+- A re-run still shows the old result: check Diagnostics reports *fresh browser per run* and that `PROBE_REUSE_BROWSER` is not `true`. Remember UniFi may take a few seconds to push a filter change.
+
 - `docker compose ps` should show `db`, `web`, and probes healthy.
 - `curl -I http://127.0.0.1:8088/up` checks the web/app path.
 - `docker compose logs app queue scheduler probe-student probe-staff` shows operational errors.

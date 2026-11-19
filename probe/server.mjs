@@ -8,11 +8,48 @@ const port = Number(process.env.PORT || 3000);
 const secret = process.env.PROBE_SHARED_KEY || '';
 const timeout = Math.min(Number(process.env.PROBE_TIMEOUT_MS || 2800), 5000);
 const blockPattern = new RegExp(process.env.BLOCK_PAGE_PATTERN || 'blocked|access denied|not permitted|content filter|unifi', 'i');
-const allowedPrivateHosts = new Set((process.env.ALLOWED_PRIVATE_HOSTS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+const list = value => (value || '').split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
+const allowedPrivateHosts = new Set(list(process.env.ALLOWED_PRIVATE_HOSTS));
+const blockPageAddresses = new Set(list(process.env.BLOCK_PAGE_ADDRESSES));
+const dnsServers = list(process.env.PROBE_DNS_SERVERS);
+const maxBatch = 10;
+const maxHosts = 60;
 
 if (secret.length < 24) throw new Error('PROBE_SHARED_KEY must contain at least 24 characters.');
 
-const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage', '--no-sandbox'] });
+/**
+ * DNS freshness
+ * -------------
+ * Every check run must see the network's *current* DNS answer, otherwise a
+ * re-test after IT changes a UniFi list can show a stale result.
+ *
+ * - When PROBE_DNS_SERVERS is set, lookups go straight to those resolvers via
+ *   a c-ares Resolver, which keeps no cache. Point it at the VLAN gateway (the
+ *   resolver UniFi filters on).
+ * - A fresh Chromium process is started per run, so its in-process host cache
+ *   never carries answers between runs.
+ * - Chromium's Secure DNS (DoH) and built-in async resolver are disabled, so
+ *   the browser resolves through the same system path as the check and cannot
+ *   bypass a DNS-based content filter.
+ */
+const resolver = dnsServers.length ? new dns.Resolver({ timeout: 1500, tries: 1 }) : null;
+if (resolver) resolver.setServers(dnsServers);
+
+const chromiumArgs = [
+  '--disable-dev-shm-usage',
+  '--no-sandbox',
+  '--disable-features=DnsOverHttps,AsyncDns,NetworkPrediction',
+  '--dns-prefetch-disable',
+];
+
+let warmBrowser = null;
+
+/** A browser is only reused between runs when explicitly allowed. */
+const reuseBrowser = process.env.PROBE_REUSE_BROWSER === 'true';
+
+async function launchBrowser() {
+  return chromium.launch({ headless: true, args: chromiumArgs });
+}
 
 function authorised(value = '') {
   const supplied = Buffer.from(value);
@@ -20,10 +57,14 @@ function authorised(value = '') {
   return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
 }
 
+function sinkholed(address) {
+  return address === '0.0.0.0' || address === '::' || blockPageAddresses.has(address.toLowerCase());
+}
+
 function privateOrSpecial(address) {
   if (net.isIP(address) === 6) {
     const value = address.toLowerCase();
-    return value === '::1' || value.startsWith('fe80:') || value.startsWith('fc') || value.startsWith('fd');
+    return value === '::1' || value === '::' || value.startsWith('fe80:') || value.startsWith('fc') || value.startsWith('fd');
   }
   const octets = address.split('.').map(Number);
   return octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
@@ -32,33 +73,86 @@ function privateOrSpecial(address) {
     (octets[0] === 192 && octets[1] === 168) || octets[0] >= 224;
 }
 
+/** Resolve without any cache in this process. */
+async function resolve(hostname) {
+  if (!resolver) {
+    const records = await dns.lookup(hostname, { all: true, verbatim: true });
+    return { addresses: records.map(record => record.address), resolver: 'system' };
+  }
+
+  const settled = await Promise.allSettled([resolver.resolve4(hostname), resolver.resolve6(hostname)]);
+  const addresses = settled.filter(result => result.status === 'fulfilled').flatMap(result => result.value);
+  if (!addresses.length) {
+    const reason = settled.find(result => result.status === 'rejected')?.reason;
+    const error = new Error(reason?.code === 'ENOTFOUND' || reason?.code === 'ENODATA' ? 'The hostname did not resolve.' : 'DNS lookup failed.');
+    error.code = reason?.code;
+    throw error;
+  }
+  return { addresses, resolver: dnsServers.join(', ') };
+}
+
+/** @returns {{url: URL, addresses: string[], resolver: string, dnsBlocked: boolean}} */
 async function validateTarget(rawUrl) {
   const url = new URL(rawUrl);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Only HTTP(S) URLs without credentials are allowed.');
-  if (net.isIP(url.hostname)) throw new Error('IP-literal targets are not allowed.');
-  const records = await dns.lookup(url.hostname, { all: true, verbatim: true });
-  if (!records.length) throw new Error('The hostname did not resolve.');
-  if (records.some(record => privateOrSpecial(record.address)) && !allowedPrivateHosts.has(url.hostname.toLowerCase())) {
+  if (net.isIP(url.hostname.replace(/^\[|\]$/g, ''))) throw new Error('IP-literal targets are not allowed.');
+  const { addresses, resolver: usedResolver } = await resolve(url.hostname);
+  if (!addresses.length) throw new Error('The hostname did not resolve.');
+  if (addresses.every(sinkholed)) return { url, addresses, resolver: usedResolver, dnsBlocked: true };
+  if (addresses.some(privateOrSpecial) && !allowedPrivateHosts.has(url.hostname.toLowerCase())) {
     throw new Error('The hostname resolves to a private or special-use address not present in ALLOWED_PRIVATE_HOSTS.');
   }
-  return { url, addresses: records.map(record => record.address) };
+  return { url, addresses, resolver: usedResolver, dnsBlocked: false };
 }
 
-async function inspectAttempt(rawUrl, screenshot, ignoreHTTPSErrors = false) {
+async function inspectAttempt(browser, rawUrl, screenshot, ignoreHTTPSErrors = false) {
   const initial = await validateTarget(rawUrl);
   const started = performance.now();
+
+  if (initial.dnsBlocked) {
+    return {
+      status: 'blocked',
+      block_method: 'dns',
+      message: 'DNS returned a sinkhole or block-page address for this hostname.',
+      http_status: null,
+      final_url: initial.url.href,
+      addresses: initial.addresses,
+      resolver: initial.resolver,
+      hosts: [{ host: initial.url.hostname, requests: 0, failed: true, reason: 'dns_blocked' }],
+      duration_ms: Math.round(performance.now() - started),
+      screenshot: null,
+    };
+  }
+
   const context = await browser.newContext({ viewport: { width: 1120, height: 630 }, ignoreHTTPSErrors, serviceWorkers: 'block' });
   const page = await context.newPage();
+  const hosts = new Map();
+  const touch = (host, failed = false, reason = null) => {
+    if (!host || (hosts.size >= maxHosts && !hosts.has(host))) return;
+    const entry = hosts.get(host) || { host, requests: 0, failed: false, reason: null };
+    if (!failed) entry.requests += 1;
+    if (failed) { entry.failed = true; entry.reason = entry.reason || reason; }
+    hosts.set(host, entry);
+  };
 
   await page.route('**/*', async route => {
     const requestUrl = new URL(route.request().url());
     if (!['http:', 'https:'].includes(requestUrl.protocol)) return route.abort('blockedbyclient');
+    touch(requestUrl.hostname);
     try {
-      await validateTarget(requestUrl.href);
+      const target = await validateTarget(requestUrl.href);
+      if (target.dnsBlocked) {
+        touch(requestUrl.hostname, true, 'dns_blocked');
+        return route.abort('namenotresolved');
+      }
       await route.continue();
-    } catch {
+    } catch (error) {
+      touch(requestUrl.hostname, true, /resolve/i.test(String(error?.message)) ? 'dns_failed' : 'refused');
       await route.abort('blockedbyclient');
     }
+  });
+  page.on('requestfailed', request => {
+    try { touch(new URL(request.url()).hostname, true, (request.failure()?.errorText || 'failed').slice(0, 60)); } catch { /* ignore */ }
   });
 
   try {
@@ -72,10 +166,13 @@ async function inspectAttempt(rawUrl, screenshot, ignoreHTTPSErrors = false) {
 
     return {
       status: blocked ? 'blocked' : (statusCode && statusCode >= 500 ? 'unavailable' : 'allowed'),
+      block_method: blocked ? 'page' : null,
       http_status: statusCode,
       page_title: title,
       final_url: finalUrl,
       addresses: initial.addresses,
+      resolver: initial.resolver,
+      hosts: [...hosts.values()],
       duration_ms: Math.round(performance.now() - started),
       screenshot: image,
     };
@@ -84,14 +181,14 @@ async function inspectAttempt(rawUrl, screenshot, ignoreHTTPSErrors = false) {
   }
 }
 
-async function inspect(rawUrl, screenshot) {
+async function inspect(browser, rawUrl, screenshot) {
   try {
-    return await inspectAttempt(rawUrl, screenshot, false);
+    return await inspectAttempt(browser, rawUrl, screenshot, false);
   } catch (error) {
     const message = String(error?.message || error);
     if (!/net::ERR_CERT_(AUTHORITY_INVALID|COMMON_NAME_INVALID|DATE_INVALID|INVALID)/.test(message)) throw error;
 
-    const result = await inspectAttempt(rawUrl, screenshot, true);
+    const result = await inspectAttempt(browser, rawUrl, screenshot, true);
     const blocked = result.status === 'blocked';
 
     return {
@@ -105,32 +202,81 @@ async function inspect(rawUrl, screenshot) {
   }
 }
 
-const server = http.createServer((request, response) => {
+async function safeInspect(browser, rawUrl, screenshot) {
+  try {
+    return await inspect(browser, String(rawUrl || ''), screenshot);
+  } catch (error) {
+    const message = String(error?.message || 'Check failed.');
+    const dnsFailure = /did not resolve|ERR_NAME_NOT_RESOLVED|DNS lookup failed/i.test(message);
+    return {
+      status: dnsFailure ? 'dns_failed' : 'probe_error',
+      message: (dnsFailure ? 'DNS could not resolve this hostname from this network. It may be filtered at DNS or not exist.' : message).slice(0, 300),
+    };
+  }
+}
+
+/** Runs one check run with its own browser so DNS state cannot leak between runs. */
+async function withRunBrowser(task) {
+  if (reuseBrowser) {
+    warmBrowser ??= await launchBrowser();
+    return task(warmBrowser);
+  }
+  const browser = await launchBrowser();
+  try {
+    return await task(browser);
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+function readJson(request, limit) {
+  return new Promise((resolveBody, reject) => {
+    let body = '';
+    request.on('data', chunk => {
+      body += chunk;
+      if (body.length > limit) { request.destroy(); reject(new Error('Request too large.')); }
+    });
+    request.on('end', () => {
+      try { resolveBody(JSON.parse(body || '{}')); } catch { reject(new Error('Invalid JSON.')); }
+    });
+    request.on('error', reject);
+  });
+}
+
+const server = http.createServer(async (request, response) => {
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
-  if (request.url === '/health') return response.end(JSON.stringify({ ok: true }));
-  if (request.method !== 'POST' || request.url !== '/check') { response.statusCode = 404; return response.end(JSON.stringify({ message: 'Not found.' })); }
+  if (request.url === '/health') {
+    return response.end(JSON.stringify({ ok: true, dns: resolver ? 'direct' : 'system', fresh_browser_per_run: !reuseBrowser }));
+  }
+  if (request.method !== 'POST' || !['/check', '/check-batch'].includes(request.url)) {
+    response.statusCode = 404;
+    return response.end(JSON.stringify({ message: 'Not found.' }));
+  }
   if (!authorised(request.headers['x-probe-key'])) { response.statusCode = 401; return response.end(JSON.stringify({ message: 'Unauthorised.' })); }
 
-  let body = '';
-  request.on('data', chunk => {
-    body += chunk;
-    if (body.length > 8192) request.destroy();
-  });
-  request.on('end', async () => {
-    try {
-      const payload = JSON.parse(body);
-      const result = await inspect(String(payload.url || ''), Boolean(payload.screenshot));
-      response.end(JSON.stringify(result));
-    } catch (error) {
-      response.statusCode = 422;
-      response.end(JSON.stringify({ status: 'probe_error', message: String(error.message || 'Check failed.').slice(0, 300) }));
+  try {
+    const payload = await readJson(request, 16384);
+    const screenshot = Boolean(payload.screenshot);
+
+    if (request.url === '/check') {
+      const result = await withRunBrowser(browser => safeInspect(browser, payload.url, screenshot));
+      if (result.status === 'probe_error') response.statusCode = 422;
+      return response.end(JSON.stringify(result));
     }
-  });
+
+    const urls = Array.isArray(payload.urls) ? payload.urls.slice(0, maxBatch) : [];
+    if (!urls.length) { response.statusCode = 422; return response.end(JSON.stringify({ message: 'No URLs supplied.' })); }
+    const results = await withRunBrowser(browser => Promise.all(urls.map(url => safeInspect(browser, url, screenshot))));
+    return response.end(JSON.stringify({ results }));
+  } catch (error) {
+    response.statusCode = 422;
+    response.end(JSON.stringify({ status: 'probe_error', message: String(error.message || 'Check failed.').slice(0, 300) }));
+  }
 });
 
 server.listen(port, '0.0.0.0');
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
-  process.on(signal, async () => { server.close(); await browser.close(); process.exit(0); });
+  process.on(signal, async () => { server.close(); if (warmBrowser) await warmBrowser.close(); process.exit(0); });
 }

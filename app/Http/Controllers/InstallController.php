@@ -5,7 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkProfile;
 use App\Models\User;
+use App\Services\Auth\UserProvisioningService;
 use App\Services\Oidc\OidcDiscoveryService;
+use App\Services\Policy\PolicyBackfill;
+use App\Services\Policy\PolicyEngine;
 use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -47,6 +50,8 @@ class InstallController extends Controller
                 'oidc_client_id' => ['nullable', 'required_if:oidc_enabled,1', 'string'],
                 'oidc_client_secret' => ['nullable', 'required_if:oidc_enabled,1', 'string'],
                 'oidc_allowed_domains' => ['nullable', 'string'],
+                'role_rules' => ['nullable', 'string', 'max:5000'],
+                'default_role' => ['nullable', 'in:student,teacher,deny'],
                 'emergency_local_login' => ['nullable', 'boolean'],
             ]),
             4 => $request->validate([
@@ -56,6 +61,7 @@ class InstallController extends Controller
                 'unifi_site_id' => ['nullable', 'string'],
                 'unifi_verify_tls' => ['nullable', 'boolean'],
                 'unifi_mode' => ['required', 'in:read_only,active'],
+                'entry_matching' => ['nullable', 'in:exact,includes_subdomains'],
             ]),
             5 => $request->validate([
                 'student_probe_url' => ['required', 'url'],
@@ -70,6 +76,7 @@ class InstallController extends Controller
             ]),
             7 => $request->validate([
                 'auto_approve_staff' => ['nullable', 'boolean'],
+                'students_can_request' => ['nullable', 'boolean'],
                 'default_temporary_days' => ['required', 'integer', 'min:1', 'max:365'],
                 'categories' => ['required', 'string'],
             ]),
@@ -77,7 +84,16 @@ class InstallController extends Controller
             default => abort(404),
         };
 
-        foreach (['oidc_enabled', 'emergency_local_login', 'unifi_enabled', 'unifi_verify_tls', 'auto_approve_staff'] as $boolean) {
+        if ($step === 3 && filled($validated['role_rules'] ?? null)) {
+            UserProvisioningService::parseRules($validated['role_rules']);
+        }
+
+        if ($step === 3) {
+            unset($validated['admin_password_confirmation']);
+            $validated['admin_password'] = Hash::make($validated['admin_password']);
+        }
+
+        foreach (['oidc_enabled', 'emergency_local_login', 'unifi_enabled', 'unifi_verify_tls', 'auto_approve_staff', 'students_can_request'] as $boolean) {
             if (array_key_exists($boolean, $request->all())) {
                 $validated[$boolean] = $request->boolean($boolean);
             }
@@ -107,7 +123,8 @@ class InstallController extends Controller
             DB::select('select 1');
             $database = ['ok' => true, 'message' => 'Database connection is ready.'];
         } catch (Throwable $exception) {
-            $database = ['ok' => false, 'message' => 'Database unavailable: '.$exception->getMessage()];
+            report($exception);
+            $database = ['ok' => false, 'message' => 'Database unavailable. Check DB_* settings and that the migrate service completed.'];
         }
 
         return [
@@ -127,15 +144,21 @@ class InstallController extends Controller
                 'app_url' => $data['app_url'], 'schoolbox_origin' => $data['schoolbox_origin'] ?? null,
             ]);
             $settings->set('auth.emergency_local_login', (bool) ($data['emergency_local_login'] ?? false));
-            $settings->set('notifications', ['it_address' => $data['it_notification_address']]);
+            $settings->set('notifications', [
+                'it_address' => strtolower($data['it_notification_address']),
+                'events' => ['new_request' => true, 'requester_reply' => true, 'assignment' => true],
+                'daily_digest' => true,
+                'digest_time' => '07:30',
+            ]);
             $settings->set('approval', [
                 'auto_approve_staff' => (bool) ($data['auto_approve_staff'] ?? false),
+                'students_can_request' => (bool) ($data['students_can_request'] ?? false),
                 'default_temporary_days' => (int) $data['default_temporary_days'],
                 'categories' => array_values(array_filter(array_map('trim', explode(',', $data['categories'])))),
             ]);
 
             User::query()->updateOrCreate(['email' => strtolower($data['admin_email'])], [
-                'name' => $data['admin_name'], 'password' => Hash::make($data['admin_password']),
+                'name' => $data['admin_name'], 'password' => $data['admin_password'],
                 'role' => 'admin', 'enabled' => true, 'email_verified_at' => now(),
             ]);
 
@@ -144,7 +167,10 @@ class InstallController extends Controller
                     'provider' => 'oidc', 'name' => 'OpenID Connect', 'mode' => 'active', 'enabled' => true,
                     'configuration' => [
                         'issuer' => $data['oidc_issuer'], 'client_id' => $data['oidc_client_id'],
-                        'allowed_domains' => array_values(array_filter(array_map('trim', explode(',', $data['oidc_allowed_domains'] ?? '')))),
+                        'allowed_domains' => array_values(array_filter(array_map(fn ($value) => strtolower(trim($value)), explode(',', $data['oidc_allowed_domains'] ?? '')))),
+                        'role_rules' => UserProvisioningService::parseRules($data['role_rules'] ?? ''),
+                        'default_role' => $data['default_role'] ?? 'teacher',
+                        'sync_roles' => false,
                     ],
                     'credentials' => ['client_secret' => $data['oidc_client_secret']],
                 ]);
@@ -167,6 +193,7 @@ class InstallController extends Controller
                     'configuration' => [
                         'controller_url' => $data['unifi_controller_url'], 'site_id' => $data['unifi_site_id'] ?? null,
                         'verify_tls' => (bool) ($data['unifi_verify_tls'] ?? true), 'api_prefix' => '/proxy/network/integration/v1',
+                        'entry_matching' => $data['entry_matching'] ?? 'exact',
                     ],
                     'credentials' => ['api_key' => $data['unifi_api_key']],
                 ]);
@@ -174,8 +201,11 @@ class InstallController extends Controller
                 IntegrationConfig::query()->create(['provider' => 'mock', 'name' => 'Simulation', 'mode' => 'read_only', 'enabled' => true]);
             }
 
-            NetworkProfile::query()->create(['key' => 'student', 'name' => 'Student Access', 'probe_url' => $data['student_probe_url'], 'unifi_network_id' => $data['student_network_id'] ?? null]);
-            NetworkProfile::query()->create(['key' => 'staff', 'name' => 'Staff Access', 'probe_url' => $data['staff_probe_url'], 'unifi_network_id' => $data['staff_network_id'] ?? null]);
+            NetworkProfile::query()->create(['key' => 'student', 'name' => 'Student Access', 'audience' => 'student', 'sort_order' => 1, 'probe_url' => $data['student_probe_url'], 'unifi_network_id' => $data['student_network_id'] ?? null]);
+            NetworkProfile::query()->create(['key' => 'staff', 'name' => 'Staff Access', 'audience' => 'staff', 'sort_order' => 2, 'probe_url' => $data['staff_probe_url'], 'unifi_network_id' => $data['staff_network_id'] ?? null]);
+            app(PolicyEngine::class)->ensureDefaults();
+            $settings->set(config('version.stored_version_key'), config('version.app'));
+            $settings->set(PolicyBackfill::WINDOW_FIX_FLAG, true);
             $settings->set('installation.completed', true);
         });
     }
