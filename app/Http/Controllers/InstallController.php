@@ -14,6 +14,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Throwable;
 
@@ -56,7 +57,9 @@ class InstallController extends Controller
             ]),
             4 => $request->validate([
                 'unifi_enabled' => ['nullable', 'boolean'],
-                'unifi_controller_url' => ['nullable', 'required_if:unifi_enabled,1', 'url', 'starts_with:https://'],
+                'unifi_connection' => ['nullable', 'in:local,cloud'],
+                'unifi_controller_url' => ['nullable', Rule::requiredIf(fn () => $request->boolean('unifi_enabled') && $request->input('unifi_connection', 'local') === 'local'), 'url', 'starts_with:https://'],
+                'unifi_console_id' => ['nullable', 'string', 'max:200', 'regex:/^[A-Za-z0-9:_-]+$/'],
                 'unifi_api_key' => ['nullable', 'required_if:unifi_enabled,1', 'string'],
                 'unifi_site_id' => ['nullable', 'string'],
                 'unifi_verify_tls' => ['nullable', 'boolean'],
@@ -191,7 +194,8 @@ class InstallController extends Controller
                 IntegrationConfig::query()->create([
                     'provider' => 'unifi', 'name' => 'UniFi Network', 'mode' => $data['unifi_mode'], 'enabled' => true,
                     'configuration' => [
-                        'controller_url' => $data['unifi_controller_url'], 'site_id' => $data['unifi_site_id'] ?? null,
+                        'connection' => $data['unifi_connection'] ?? 'local', 'console_id' => $data['unifi_console_id'] ?? null,
+                        'controller_url' => $data['unifi_controller_url'] ?? null, 'site_id' => $data['unifi_site_id'] ?? null,
                         'verify_tls' => (bool) ($data['unifi_verify_tls'] ?? true), 'api_prefix' => '/proxy/network/integration/v1',
                         'entry_matching' => $data['entry_matching'] ?? 'exact',
                     ],

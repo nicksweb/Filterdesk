@@ -88,15 +88,25 @@
                 <label>Provider<select name="provider"><option value="unifi" @selected(($network?->provider ?? 'unifi') === 'unifi')>Ubiquiti UniFi Network</option><option value="mock" @selected($network?->provider === 'mock')>Simulation (testing only)</option></select></label>
                 <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: allow provider writes where supported</option></select></label>
             </div>
-            <label>Controller URL<input name="controller_url" type="url" placeholder="https://unifi.example.edu.au" value="{{ old('controller_url', $network?->configuration['controller_url'] ?? '') }}"></label>
+            @php($connection = old('connection', $network?->configuration['connection'] ?? 'local'))
+            <label>Connection
+                <select name="connection" data-scope-select>
+                    <option value="local" @selected($connection === 'local')>Local console key: the app calls the console directly</option>
+                    <option value="cloud" @selected($connection === 'cloud')>Site Manager key (unifi.ui.com): through Ubiquiti's cloud connector</option>
+                </select>
+                <small>Keys made at unifi.ui.com only work with the cloud connector. Keys made on the console (Network → Settings → Control Plane → Integrations) only work locally.</small>
+            </label>
+            <label data-scope-field="local">Controller URL<input name="controller_url" type="url" placeholder="https://unifi.example.edu.au" value="{{ old('controller_url', $network?->configuration['controller_url'] ?? '') }}"></label>
+            <label data-scope-field="cloud">Console ID <span class="optional">use Discover to list your consoles</span><input name="console_id" list="discovered-consoles" value="{{ old('console_id', $network?->configuration['console_id'] ?? '') }}"><small>The connector requires the key's owner to be an owner of the console, and the console to be online.</small></label>
+            @if($discovery && !empty($discovery['consoles']))<datalist id="discovered-consoles">@foreach($discovery['consoles'] as $console)<option value="{{ $console['id'] }}">{{ $console['name'] }}</option>@endforeach</datalist>@endif
             <div class="fields two">
-                <label>API key <span class="optional">{{ $networkHasKey ? 'stored · blank keeps it' : 'not set' }}</span><input name="api_key" type="password" autocomplete="new-password"><small>Control Plane → Integrations. Use a dedicated key.</small></label>
+                <label>API key <span class="optional">{{ $networkHasKey ? 'stored · blank keeps it' : 'not set' }}</span><input name="api_key" type="password" autocomplete="new-password"><small>Use a dedicated key for IT Requests.</small></label>
                 <label>Site ID<input name="site_id" value="{{ old('site_id', $network?->configuration['site_id'] ?? '') }}" list="discovered-sites"><small>Use Discover to list sites.</small></label>
             </div>
             @if($discovery && $discovery['sites'])<datalist id="discovered-sites">@foreach($discovery['sites'] as $site)<option value="{{ $site['id'] }}">{{ $site['name'] }}</option>@endforeach</datalist>@endif
             <div class="fields two">
                 <label>API prefix<input name="api_prefix" value="{{ old('api_prefix', $network?->configuration['api_prefix'] ?? '/proxy/network/integration/v1') }}"></label>
-                <label class="choice compact"><input type="hidden" name="verify_tls" value="0"><input type="checkbox" name="verify_tls" value="1" @checked(old('verify_tls', $network?->configuration['verify_tls'] ?? true))><span><strong>Verify TLS certificate</strong><small>Turn off only for a self-signed controller while you install its CA.</small></span></label>
+                <label class="choice compact" data-scope-field="local"><input type="hidden" name="verify_tls" value="0"><input type="checkbox" name="verify_tls" value="1" @checked(old('verify_tls', $network?->configuration['verify_tls'] ?? true))><span><strong>Verify TLS certificate</strong><small>Local only; the cloud connector is always verified. Turn off only for a self-signed console while you install its CA.</small></span></label>
             </div>
             <label>DNS filter entry matching
                 <select name="entry_matching">
@@ -114,6 +124,11 @@
                 <form method="post" action="{{ route('admin.settings.test-network') }}">@csrf<button class="button secondary">Test connection</button></form>
                 <form method="post" action="{{ route('admin.settings.discover') }}">@csrf<input type="hidden" name="site_id" value="{{ $network?->configuration['site_id'] ?? '' }}"><button class="button secondary">Discover sites and networks</button></form>
             </div>
+            @if($discovery && !empty($discovery['consoles']))
+                <h3>Consoles visible to this Site Manager key</h3>
+                @foreach($discovery['consoles'] as $console)<div class="list-row static"><span><strong>{{ $console['name'] }}</strong><small><code>{{ $console['id'] }}</code></small></span></div>@endforeach
+                <p class="hint">Paste the console's ID into Console ID above, save, then test and discover again.</p>
+            @endif
             @if($discovery)
                 <div class="fields two policy-editors">
                     <div><h3>Sites</h3>@forelse($discovery['sites'] as $site)<div class="list-row static"><span><strong>{{ $site['name'] }}</strong><small><code>{{ $site['id'] }}</code></small></span></div>@empty<p class="hint">None returned.</p>@endforelse</div>

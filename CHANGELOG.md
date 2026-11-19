@@ -17,6 +17,7 @@ All notable changes to this project are documented here. Versions follow [Semant
 - Admin settings for school, authentication, email (with test send), network provider (test and discovery), network profiles and approval policy.
 - OIDC role rules by email domain or group/role claim, default role or deny, optional sync at sign-in.
 - Audit log viewer, diagnostics page and `/health` endpoint.
+- UniFi Site Manager (unifi.ui.com) keys via Ubiquiti's cloud connector, with console discovery; clear guidance when a Site Manager key is used locally.
 - `itrequests:upgrade`, `itrequests:admin-password` and `policy:digest` commands; versioned upgrades.
 
 ### Fixed

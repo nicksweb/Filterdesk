@@ -18,7 +18,7 @@ interface NetworkProvider
     /**
      * Sites and networks available for mapping, where the provider can list them.
      *
-     * @return array{sites: list<array{id: string, name: string}>, networks: list<array{id: string, name: string, vlan?: int|null}>, message?: string}
+     * @return array{consoles?: list<array{id: string, name: string}>, sites: list<array{id: string, name: string}>, networks: list<array{id: string, name: string, vlan?: int|null}>, message?: string|null}
      */
     public function discover(?string $siteId = null): array;
 

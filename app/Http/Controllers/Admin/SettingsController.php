@@ -119,7 +119,9 @@ class SettingsController extends Controller
             $result = ['sites' => [], 'networks' => [], 'message' => 'Discovery failed. Check the application log.'];
         }
 
-        return back()->with('discovery', $result)->with($result['message'] ?? false ? 'error' : 'success', $result['message'] ?? 'Discovery complete.');
+        $message = $result['message'] ?? null;
+
+        return back()->with('discovery', $result)->with($message ? 'error' : 'success', $message ?? 'Discovery complete.');
     }
 
     private function updateGeneral(Request $request, SettingsRepository $settings): void
@@ -234,7 +236,9 @@ class SettingsController extends Controller
     {
         $validated = $request->validate([
             'provider' => ['required', Rule::in(NetworkProviderManager::PROVIDERS)],
-            'controller_url' => ['nullable', 'required_if:provider,unifi', 'url', 'starts_with:https://'],
+            'connection' => ['nullable', 'in:local,cloud'],
+            'controller_url' => ['nullable', Rule::requiredIf(fn () => $request->input('provider') === 'unifi' && $request->input('connection', 'local') === 'local'), 'url', 'starts_with:https://'],
+            'console_id' => ['nullable', 'string', 'max:200', 'regex:/^[A-Za-z0-9:_-]+$/'],
             'api_key' => ['nullable', 'string', 'max:500'],
             'site_id' => ['nullable', 'string', 'max:120'],
             'api_prefix' => ['nullable', 'string', 'max:120', 'regex:/^\/[A-Za-z0-9\/_-]*$/'],
@@ -256,6 +260,8 @@ class SettingsController extends Controller
             'enabled' => true,
             'mode' => $validated['mode'],
             'configuration' => [
+                'connection' => $validated['connection'] ?? 'local',
+                'console_id' => $validated['console_id'] ?? null,
                 'controller_url' => isset($validated['controller_url']) ? rtrim($validated['controller_url'], '/') : null,
                 'site_id' => $validated['site_id'] ?? null,
                 'verify_tls' => $request->boolean('verify_tls'),

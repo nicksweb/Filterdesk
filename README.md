@@ -73,12 +73,14 @@ See [deployment and operations](docs/DEPLOYMENT.md), [upgrading](docs/UPGRADING.
 
 ## UniFi API key required
 
-Use an **official UniFi API key**, not a personal UI password.
+Use an **official UniFi API key**, never a UI password. There are two kinds, and they are not interchangeable:
 
-1. Sign in to UniFi Site Manager and open **Settings → API Keys**, or open the local Network application's **Control Plane → Integrations** page.
-2. Create a dedicated key for IT Requests and copy it immediately; it is shown once.
-3. Give the associated UniFi account only the sites/permissions required.
-4. Enter the controller HTTPS URL and key in the wizard. Leave the integration in **read-only** mode until testing succeeds.
+| Key | Where to create it | Connection setting | Reaches the console via |
+| --- | --- | --- | --- |
+| **Local key** | On the console: Network → Settings → Control Plane → Integrations | *Local console key* | `https://<console>/proxy/network/integration/v1` |
+| **Site Manager key** | unifi.ui.com → API | *Site Manager cloud connector* | `https://api.ui.com/v1/connector/consoles/<id>/…` |
+
+A Site Manager key sent to the local endpoint is rejected with HTTP 401. With the cloud connector, the key's owner must own the console and the console must be online. Use **Discover** in *Settings → Network provider* to list consoles, sites and networks. Keep the integration **read-only** until testing succeeds.
 
 The official API includes site/network discovery and firewall/ACL resources, but does not currently provide a portable content-filter *domain allowlist* operation across supported Network versions. IT Requests therefore reports that capability as unavailable, adds approved hostnames to the managed **Policy lists**, and places the request into **Action required** until IT copies the change into UniFi. It does not call undocumented controller endpoints. See [docs/UNIFI.md](docs/UNIFI.md).
 

@@ -1,16 +1,17 @@
 # UniFi integration and compatibility
 
-## Credential
+## Credential and connection
 
-IT Requests expects an official UniFi API key in the `X-API-Key` header. Generate it in UniFi Site Manager **Settings → API Keys** or the local Network application's **Control Plane → Integrations** area. Use a dedicated least-privilege identity. Do not supply a UI password, session cookie or owner/super-admin key.
+IT Requests sends an official API key in the `X-API-Key` header. Choose the connection that matches the key:
 
-For a local UniFi OS console, the default Network integration prefix is:
+- **Local console key** (Network → Settings → Control Plane → Integrations). Called directly at `https://<console>/proxy/network/integration/v1`. Keep TLS verification on and install your internal CA for private PKI.
+- **Site Manager key** (unifi.ui.com → API). Called through Ubiquiti's cloud connector at `https://api.ui.com/v1/connector/consoles/<consoleId>/proxy/network/integration/v1`. The key's owner must be an owner of the console (otherwise `403 forbidden`), and the console must be online (otherwise `404 device_offline`). Use **Discover** to list consoles.
 
-```text
-/proxy/network/integration/v1
-```
+Site Manager keys do not work against the local endpoint (HTTP 401), and local keys do not work against `api.ui.com`. Use a dedicated key, not a personal session or password.
 
-The app initially calls `GET /sites`. Keep TLS verification enabled and install your internal CA in the container for private PKI; disabling verification is only a temporary diagnostic.
+## What the official API covers
+
+Checked against UniFi Network 11.0: sites, networks/VLANs, Wi-Fi broadcasts, clients, firewall zones and policies, ACL rules, traffic matching lists and DNS policies (local records and forwarding) are available. **There is no content-filtering endpoint**, so the app cannot read or write content-filter allow/block lists. That is why reconciliation is copy-and-paste.
 
 ## Discovery
 
@@ -60,4 +61,4 @@ Approval records the decision, adds the hostnames to the managed policy lists an
 
 UniFi local API documentation is version-specific. Open **Network → Control Plane → Integrations** on the target controller, compare its resources with this adapter, then use the read-only connection test. Test all write behavior in a non-production site before active mode.
 
-Cloud Connector use is a future adapter option and should not be assumed equivalent to the local integration URL.
+The cloud connector exposes the same integration API as the local endpoint. It does not add content-filter access.
