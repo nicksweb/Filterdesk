@@ -1,0 +1,21 @@
+# Copy to compose.vlan.yml and replace these external network names with
+# Docker macvlan/ipvlan networks that egress through the relevant VLAN.
+services:
+  probe-student:
+    networks:
+      probe_control: {}
+      student_vlan:
+        gw_priority: 1
+  probe-staff:
+    networks:
+      probe_control: {}
+      staff_vlan:
+        gw_priority: 1
+
+networks:
+  student_vlan:
+    external: true
+    name: ${STUDENT_DOCKER_NETWORK}
+  staff_vlan:
+    external: true
+    name: ${STAFF_DOCKER_NETWORK}

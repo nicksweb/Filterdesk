@@ -1,0 +1,113 @@
+name: it-edu-selfservice
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: runtime
+  image: it-edu-selfservice-app:${APP_IMAGE_TAG:-local}
+  env_file: .env
+  restart: unless-stopped
+  networks: [app, outbound]
+  volumes:
+    - app_storage:/var/www/html/storage
+
+x-probe: &probe
+  build:
+    context: probe
+  image: it-edu-selfservice-probe:${APP_IMAGE_TAG:-local}
+  env_file: .env
+  restart: unless-stopped
+  shm_size: 256mb
+  networks: [probe_control, probe_egress]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+    interval: 20s
+    timeout: 3s
+    retries: 5
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes: [db_data:/var/lib/postgresql/data]
+    networks: [app]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["php", "artisan", "migrate", "--force"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  app:
+    <<: *app
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  queue:
+    <<: *app
+    command: ["php", "artisan", "queue:work", "--sleep=2", "--tries=3", "--timeout=60", "--max-time=3600"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  scheduler:
+    <<: *app
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: webserver
+    image: it-edu-selfservice-web:${APP_IMAGE_TAG:-local}
+    ports: ["127.0.0.1:${APP_PORT:-8088}:8080"]
+    networks: [app, frontend]
+    restart: unless-stopped
+    depends_on: [app]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/up"]
+      interval: 20s
+      timeout: 3s
+      retries: 5
+
+  probe-student:
+    <<: *probe
+    environment:
+      PROBE_SHARED_KEY: ${PROBE_SHARED_KEY}
+      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
+      BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
+      ALLOWED_PRIVATE_HOSTS: ${STUDENT_ALLOWED_PRIVATE_HOSTS:-}
+
+  probe-staff:
+    <<: *probe
+    environment:
+      PROBE_SHARED_KEY: ${PROBE_SHARED_KEY}
+      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
+      BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
+      ALLOWED_PRIVATE_HOSTS: ${STAFF_ALLOWED_PRIVATE_HOSTS:-}
+
+networks:
+  app: { internal: true }
+  frontend: {}
+  outbound: {}
+  probe_control: { internal: true }
+  probe_egress: {}
+
+volumes:
+  db_data: {}
+  app_storage: {}

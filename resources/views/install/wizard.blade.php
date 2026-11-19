@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Install IT Requests</title><link rel="stylesheet" href="{{ asset('app.css') }}"></head>
+<body class="install-page">
+@php($titles = [1 => 'Welcome and system checks', 2 => 'School configuration', 3 => 'Administrator and authentication', 4 => 'UniFi integration', 5 => 'Network access profiles', 6 => 'Email and notifications', 7 => 'Approval policies', 8 => 'Review and complete'])
+<main class="install-shell">
+    <aside class="install-aside">
+        <div class="brand"><span class="brand-mark">IT</span><span>IT Requests</span></div>
+        <p>A secure self-service hub for your school community.</p>
+        <ol>@foreach($titles as $number => $label)<li @class(['current' => $number === $step, 'done' => $number < $step])><span>{{ $number }}</span>{{ $label }}</li>@endforeach</ol>
+    </aside>
+    <section class="install-card">
+        <p class="eyebrow">Step {{ $step }} of 8</p>
+        <h1>{{ $titles[$step] }}</h1>
+        @if($errors->any())<div class="alert error"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+        <form method="post" action="{{ route('install.store', $step) }}">@csrf
+            @if($step === 1)
+                <p>IT Requests checks website access from staff and student networks, manages approval, and records every decision. Docker migrations must run before this wizard.</p>
+                <div class="check-list">@foreach($checks as $name => $check)<div><span class="check-icon {{ $check['ok'] ? 'ok' : 'bad' }}">{{ $check['ok'] ? '✓' : '!' }}</span><span><strong>{{ str($name)->replace('_', ' ')->title() }}</strong><small>{{ $check['message'] }}</small></span></div>@endforeach</div>
+            @elseif($step === 2)
+                <label>School or organisation name<input name="school_name" required value="{{ old('school_name', $data['school_name'] ?? '') }}"></label>
+                <div class="fields two"><label>Timezone<input name="timezone" required value="{{ old('timezone', $data['timezone'] ?? 'Australia/Brisbane') }}"></label><label>Public application URL<input name="app_url" type="url" required placeholder="https://itrequests.example.edu.au" value="{{ old('app_url', $data['app_url'] ?? '') }}"></label></div>
+                <label>Schoolbox origin <span class="optional">optional</span><input name="schoolbox_origin" type="url" placeholder="https://schoolbox.example.edu.au" value="{{ old('schoolbox_origin', $data['schoolbox_origin'] ?? '') }}"><small>Allows this application to be embedded only by this exact Schoolbox origin.</small></label>
+            @elseif($step === 3)
+                <div class="fields two"><label>Initial administrator name<input name="admin_name" required value="{{ old('admin_name', $data['admin_name'] ?? '') }}"></label><label>Administrator email<input name="admin_email" type="email" required value="{{ old('admin_email', $data['admin_email'] ?? '') }}"></label></div>
+                <div class="fields two"><label>Emergency password<input name="admin_password" type="password" minlength="14" required></label><label>Confirm password<input name="admin_password_confirmation" type="password" minlength="14" required></label></div>
+                <label class="choice"><input type="hidden" name="emergency_local_login" value="0"><input type="checkbox" name="emergency_local_login" value="1" @checked(old('emergency_local_login', $data['emergency_local_login'] ?? true))><span><strong>Keep emergency local sign-in</strong><small>Recommended for recovery. Restrict it at your reverse proxy if possible.</small></span></label>
+                <label class="choice"><input type="hidden" name="oidc_enabled" value="0"><input type="checkbox" name="oidc_enabled" value="1" @checked(old('oidc_enabled', $data['oidc_enabled'] ?? true))><span><strong>Configure OpenID Connect</strong><small>Works with Microsoft Entra ID and standards-compliant providers.</small></span></label>
+                <label>Issuer URL<input name="oidc_issuer" type="url" placeholder="https://login.microsoftonline.com/tenant-id/v2.0" value="{{ old('oidc_issuer', $data['oidc_issuer'] ?? '') }}"></label>
+                <div class="fields two"><label>Client ID<input name="oidc_client_id" value="{{ old('oidc_client_id', $data['oidc_client_id'] ?? '') }}"></label><label>Client secret<input name="oidc_client_secret" type="password"></label></div>
+                <label>Allowed email domains <span class="optional">comma separated</span><input name="oidc_allowed_domains" placeholder="example.edu.au" value="{{ old('oidc_allowed_domains', $data['oidc_allowed_domains'] ?? '') }}"></label>
+            @elseif($step === 4)
+                <label class="choice"><input type="hidden" name="unifi_enabled" value="0"><input type="checkbox" name="unifi_enabled" value="1" @checked(old('unifi_enabled', $data['unifi_enabled'] ?? true))><span><strong>Configure UniFi Network</strong><small>You can install in simulation mode and configure it later.</small></span></label>
+                <label>Controller URL<input name="unifi_controller_url" type="url" placeholder="https://unifi-console.example.edu.au" value="{{ old('unifi_controller_url', $data['unifi_controller_url'] ?? '') }}"></label>
+                <div class="fields two"><label>Official API key<input name="unifi_api_key" type="password"></label><label>Site ID <span class="optional">optional initially</span><input name="unifi_site_id" value="{{ old('unifi_site_id', $data['unifi_site_id'] ?? '') }}"></label></div>
+                <div class="fields two"><label>Integration mode<select name="unifi_mode"><option value="read_only" @selected(($data['unifi_mode'] ?? '') === 'read_only')>Read-only (recommended)</option><option value="active" @selected(($data['unifi_mode'] ?? '') === 'active')>Active changes</option></select></label><label class="choice compact"><input type="hidden" name="unifi_verify_tls" value="0"><input type="checkbox" name="unifi_verify_tls" value="1" @checked(old('unifi_verify_tls', $data['unifi_verify_tls'] ?? true))><span><strong>Verify TLS certificate</strong><small>Disable only for a private controller using a documented internal CA exception.</small></span></label></div>
+                <div class="notice">Domain allowlisting is capability-checked. Current official UniFi APIs do not expose this consistently, so unsupported controllers remain a manual IT action.</div>
+            @elseif($step === 5)
+                <p>Each probe is a separate, isolated container. The defaults work for initial testing; a Compose override attaches each probe to the appropriate VLAN.</p>
+                <div class="fields two"><label>Student probe URL<input name="student_probe_url" required value="{{ old('student_probe_url', $data['student_probe_url'] ?? 'http://probe-student:3000') }}"></label><label>Staff probe URL<input name="staff_probe_url" required value="{{ old('staff_probe_url', $data['staff_probe_url'] ?? 'http://probe-staff:3000') }}"></label></div>
+                <div class="fields two"><label>UniFi student network ID <span class="optional">optional</span><input name="student_network_id" value="{{ old('student_network_id', $data['student_network_id'] ?? '') }}"></label><label>UniFi staff network ID <span class="optional">optional</span><input name="staff_network_id" value="{{ old('staff_network_id', $data['staff_network_id'] ?? '') }}"></label></div>
+            @elseif($step === 6)
+                <div class="fields two"><label>SMTP host <span class="optional">optional</span><input name="mail_host" value="{{ old('mail_host', $data['mail_host'] ?? '') }}"></label><label>SMTP port<input name="mail_port" type="number" value="{{ old('mail_port', $data['mail_port'] ?? 587) }}"></label></div>
+                <div class="fields two"><label>SMTP username<input name="mail_username" value="{{ old('mail_username', $data['mail_username'] ?? '') }}"></label><label>SMTP password<input name="mail_password" type="password"></label></div>
+                <div class="fields two"><label>From address<input name="mail_from_address" type="email" value="{{ old('mail_from_address', $data['mail_from_address'] ?? '') }}"></label><label>IT notification address<input name="it_notification_address" type="email" required value="{{ old('it_notification_address', $data['it_notification_address'] ?? '') }}"></label></div>
+            @elseif($step === 7)
+                <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked(old('auto_approve_staff', $data['auto_approve_staff'] ?? false))><span><strong>Allow policy-based staff-only auto approval</strong><small>Automation is only used when the provider reports the required capability.</small></span></label>
+                <label>Default temporary access duration (days)<input name="default_temporary_days" type="number" min="1" max="365" value="{{ old('default_temporary_days', $data['default_temporary_days'] ?? 30) }}"></label>
+                <label>Website categories <span class="optional">comma separated</span><textarea name="categories" rows="3" required>{{ old('categories', $data['categories'] ?? 'Teaching and learning, Research, Professional development, Administration, Other') }}</textarea></label>
+            @else
+                <div class="review-grid"><div><span>School</span><strong>{{ $data['school_name'] ?? 'Not set' }}</strong></div><div><span>Authentication</span><strong>{{ ($data['oidc_enabled'] ?? false) ? 'OIDC + emergency admin' : 'Emergency admin only' }}</strong></div><div><span>Network provider</span><strong>{{ ($data['unifi_enabled'] ?? false) ? 'UniFi · '.str($data['unifi_mode'] ?? 'read_only')->replace('_', ' ')->title() : 'Simulation' }}</strong></div><div><span>Network profiles</span><strong>Student and Staff</strong></div><div><span>Notifications</span><strong>{{ $data['it_notification_address'] ?? 'Not set' }}</strong></div><div><span>Timezone</span><strong>{{ $data['timezone'] ?? 'Not set' }}</strong></div></div>
+                <div class="notice">Completing installation encrypts saved secrets, creates the administrator, and permanently locks this wizard.</div>
+            @endif
+            <div class="form-actions">@if($step > 1)<a class="button secondary" href="{{ route('install.show', $step - 1) }}">Back</a>@endif<button class="button primary" type="submit">{{ $step === 8 ? 'Complete installation' : 'Continue' }}</button></div>
+        </form>
+    </section>
+</main>
+</body></html>

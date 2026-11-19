@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+env_file="$project_dir/.env"
+
+if [ ! -f "$env_file" ]; then
+    cp "$project_dir/.env.example" "$env_file"
+fi
+
+if grep -q '^APP_KEY=$' "$env_file"; then
+    app_key=$(openssl rand -base64 32)
+    sed -i "s|^APP_KEY=$|APP_KEY=base64:$app_key|" "$env_file"
+fi
+
+if grep -q '^DB_PASSWORD=$' "$env_file"; then
+    db_password=$(openssl rand -hex 24)
+    sed -i "s|^DB_PASSWORD=$|DB_PASSWORD=$db_password|" "$env_file"
+fi
+
+if grep -q '^PROBE_SHARED_KEY=$' "$env_file"; then
+    probe_key=$(openssl rand -hex 32)
+    sed -i "s|^PROBE_SHARED_KEY=$|PROBE_SHARED_KEY=$probe_key|" "$env_file"
+fi
+chmod 600 "$env_file"
+
+echo "Configuration created at $env_file"
+echo "Review APP_URL, TRUSTED_PROXIES and VLAN settings, then run: docker compose up -d --build"
