@@ -2,6 +2,18 @@
 
 ## Reverse proxy
 
+When Nginx Proxy Manager runs in Docker, copy `compose.proxy.example.yml` to
+`compose.proxy.yml`, set `REVERSE_PROXY_NETWORK` if its shared network is not
+named `frontend`, and include the override whenever the stack is started:
+
+```bash
+docker compose -f compose.yml -f compose.proxy.yml up -d --build
+```
+
+Configure the proxy upstream as `http://it-edu-selfservice-web-1:8080`. The
+override keeps the shared network attachment across container recreations while
+the PHP upstream remains isolated behind the unique `itrequests-php` alias.
+
 Set `APP_URL=https://itrequests.example.edu.au`, `SESSION_SECURE_COOKIE=true`, and `TRUSTED_PROXIES` to only the proxy container address or subnet. Never use `*` on a port reachable by untrusted clients.
 
 Nginx example:

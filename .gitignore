@@ -4,6 +4,7 @@
 .env.*
 !.env.example
 /compose.vlan.yml
+/compose.proxy.yml
 .phpactor.json
 .phpunit.result.cache
 /.codex

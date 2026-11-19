@@ -1,0 +1,11 @@
+services:
+  web:
+    networks:
+      - app
+      - frontend
+      - reverse_proxy
+
+networks:
+  reverse_proxy:
+    external: true
+    name: ${REVERSE_PROXY_NETWORK:-frontend}
