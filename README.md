@@ -9,14 +9,16 @@ The application is school-neutral: branding, identity, network profiles, policy 
 ## Current capabilities
 
 - OpenID Connect sign-in (including Microsoft Entra ID) with just-in-time users
+- Administrator-created local test users and passwordless OIDC placeholders
 - Student, teacher, IT and administrator roles
 - Parallel Student/Staff network checks with a target of 1–3 seconds
 - Automatic Chromium screenshots and configurable block-page detection
-- Batch website checks which feed selected domains into one access request
+- Batch website checks with blocked domains preselected into one access request
 - Multi-domain staff-only or staff-and-student requests
 - Schoolbox iframe embedding with an exact-origin allowlist and secure cross-site sessions
 - Approval, rejection, reassignment, information requests and manual completion
-- Temporary access windows with scheduled expiry
+- Explicit permanent access or temporary access windows with scheduled expiry
+- Daily allow/block policy reconciliation against pasted UniFi lists
 - Email decision notifications through a background queue
 - Encrypted OIDC, SMTP and UniFi credentials
 - UniFi official API connection/capability testing, defaulting to read-only
@@ -55,7 +57,7 @@ docker compose -f compose.yml -f compose.vlan.yml up -d --build
 
 Each probe must have the intended VLAN as its default route. If a UniFi block page resolves to a private hostname, explicitly list that hostname in `STUDENT_ALLOWED_PRIVATE_HOSTS` or `STAFF_ALLOWED_PRIVATE_HOSTS`; private targets are otherwise rejected to reduce SSRF exposure.
 
-See [deployment and operations](docs/DEPLOYMENT.md), [architecture](docs/ARCHITECTURE.md), and [UniFi compatibility](docs/UNIFI.md).
+See [deployment and operations](docs/DEPLOYMENT.md), [policy reconciliation](docs/POLICY_RECONCILIATION.md), [architecture](docs/ARCHITECTURE.md), and [UniFi compatibility](docs/UNIFI.md).
 
 ## UniFi API key required
 

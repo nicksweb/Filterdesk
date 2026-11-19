@@ -1,0 +1,1 @@
+.temporary-fields{margin-top:14px;padding:15px;border:1px solid var(--line);border-radius:10px;background:#f8fafc;transition:opacity .15s ease}fieldset:has(input[name=access_duration][value=permanent]:checked) .temporary-fields{opacity:.5}fieldset:has(input[name=access_duration][value=temporary]:checked) .temporary-fields{border-color:#8bb9f0;background:#f3f8ff}

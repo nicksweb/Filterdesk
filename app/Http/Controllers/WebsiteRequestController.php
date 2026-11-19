@@ -12,6 +12,7 @@ use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -61,9 +62,14 @@ class WebsiteRequestController extends Controller
             'category' => ['required', 'string', 'max:100'],
             'use_case' => ['required', 'string', 'min:20', 'max:5000'],
             'standards_confirmed' => ['accepted'],
+            'access_duration' => ['required', 'in:permanent,temporary'],
             'requested_from' => ['nullable', 'date'],
-            'requested_until' => ['nullable', 'date', 'after:requested_from'],
+            'requested_until' => ['nullable', 'required_if:access_duration,temporary', 'date', 'after:now'],
         ]);
+
+        if ($validated['access_duration'] === 'temporary' && filled($validated['requested_from'] ?? null) && Carbon::parse($validated['requested_until'])->lte(Carbon::parse($validated['requested_from']))) {
+            throw ValidationException::withMessages(['requested_until' => 'The end time must be after the start time.']);
+        }
 
         $websiteRequest = DB::transaction(function () use ($request, $validated, $normalizer): WebsiteRequest {
             $websiteRequest = WebsiteRequest::query()->create([
@@ -73,8 +79,8 @@ class WebsiteRequestController extends Controller
                 'access_scope' => AccessScope::from($validated['access_scope']),
                 'category' => $validated['category'], 'use_case' => $validated['use_case'],
                 'standards_confirmed' => true, 'status' => RequestStatus::Pending,
-                'requested_from' => $validated['requested_from'] ?? null,
-                'requested_until' => $validated['requested_until'] ?? null,
+                'requested_from' => $validated['access_duration'] === 'temporary' ? ($validated['requested_from'] ?? null) : null,
+                'requested_until' => $validated['access_duration'] === 'temporary' ? $validated['requested_until'] : null,
             ]);
             $websiteRequest->forceFill([
                 'reference' => sprintf('WEB-%s-%05d', now()->format('Y'), $websiteRequest->id),

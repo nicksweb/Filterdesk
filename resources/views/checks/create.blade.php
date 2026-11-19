@@ -30,18 +30,14 @@
                     <h2>Check results</h2>
                     <p>{{ count($checks) }} {{ str('website')->plural(count($checks)) }} checked in {{ $duration }} ms</p>
                 </div>
-                <button class="button primary" type="submit">Request access for selected</button>
             </div>
 
             @foreach($checks as $check)
-                @php($needsAccess = collect($check['results'])->contains(fn ($result) => ($result['status'] ?? '') !== 'allowed'))
+                @php($isBlocked = collect($check['results'])->contains(fn ($result) => ($result['status'] ?? '') === 'blocked'))
                 <section class="site-result">
                     <div class="site-result-heading">
-                        <label class="site-selector">
-                            <input type="checkbox" name="domains[]" value="{{ $check['hostname'] }}" @checked($needsAccess)>
-                            <span><strong>{{ $check['hostname'] }}</strong><small>{{ $check['url'] }}</small></span>
-                        </label>
-                        <span>{{ $check['duration_ms'] }} ms</span>
+                        <span class="site-domain"><strong>{{ $check['hostname'] }}</strong><small>{{ $check['url'] }}</small></span>
+                        @if($isBlocked)<span class="selection-hint blocked">Blocked · added to shortlist</span>@else<span>{{ $check['duration_ms'] }} ms</span>@endif
                     </div>
 
                     <div class="result-grid">
@@ -74,6 +70,19 @@
                     </div>
                 </section>
             @endforeach
+
+            <section class="panel request-shortlist">
+                <div class="panel-heading"><div><h2>Build access request</h2><p>Select every domain to include. Domains detected as blocked are selected automatically.</p></div></div>
+                <div class="shortlist-grid">
+                    @foreach($checks as $check)
+                        @php($isBlocked = collect($check['results'])->contains(fn ($result) => ($result['status'] ?? '') === 'blocked'))
+                        <label class="choice shortlist-option">
+                            <input type="checkbox" name="domains[]" value="{{ $check['hostname'] }}" @checked($isBlocked)>
+                            <span><strong>{{ $check['hostname'] }}</strong><small>{{ $isBlocked ? 'Blocked on at least one network — automatically selected' : 'Not identified as blocked — select to include' }}</small></span>
+                        </label>
+                    @endforeach
+                </div>
+            </section>
 
             <div class="batch-request-bar">
                 <p>Selected domains will be combined into one access request.</p>

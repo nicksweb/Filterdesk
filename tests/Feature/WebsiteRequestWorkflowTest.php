@@ -31,6 +31,7 @@ class WebsiteRequestWorkflowTest extends TestCase
             'access_scope' => 'staff_students', 'category' => 'Teaching and learning',
             'use_case' => 'Students need these resources for a supervised media literacy lesson.',
             'standards_confirmed' => '1',
+            'access_duration' => 'permanent',
         ]);
 
         $request = WebsiteRequest::query()->firstOrFail();
@@ -54,6 +55,7 @@ class WebsiteRequestWorkflowTest extends TestCase
             'category' => 'Teaching and learning',
             'use_case' => 'Staff require this resource for curriculum planning and lesson preparation.',
             'standards_confirmed' => '1',
+            'access_duration' => 'permanent',
         ])->assertRedirect();
 
         $websiteRequest = WebsiteRequest::query()->firstOrFail();
@@ -79,6 +81,24 @@ class WebsiteRequestWorkflowTest extends TestCase
         $this->assertSame(RequestStatus::Active, $websiteRequest->refresh()->status);
         $this->assertTrue($websiteRequest->provider_state['simulated']);
         Notification::assertSentTo($teacher, RequestDecisionNotification::class);
+    }
+
+    public function test_teacher_can_explicitly_request_temporary_access(): void
+    {
+        $teacher = User::factory()->create(['role' => 'teacher']);
+        $until = now()->addDays(7)->format('Y-m-d H:i:s');
+
+        $this->actingAs($teacher)->post(route('requests.store'), [
+            'domains' => 'temporary.example.org',
+            'access_scope' => 'staff_students',
+            'category' => 'Teaching and learning',
+            'use_case' => 'Students require temporary access during a scheduled classroom unit.',
+            'standards_confirmed' => '1',
+            'access_duration' => 'temporary',
+            'requested_until' => $until,
+        ])->assertRedirect();
+
+        $this->assertNotNull(WebsiteRequest::query()->firstOrFail()->requested_until);
     }
 
     public function test_teacher_cannot_action_a_request(): void

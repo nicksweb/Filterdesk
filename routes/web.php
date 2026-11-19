@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\IntegrationController;
+use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
@@ -37,9 +38,13 @@ Route::middleware('installed')->group(function (): void {
 
         Route::prefix('admin')->middleware('role:admin')->name('admin.')->group(function (): void {
             Route::get('/users', [UserController::class, 'index'])->name('users.index');
+            Route::post('/users', [UserController::class, 'store'])->name('users.store');
             Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
             Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
             Route::post('/integrations/test', [IntegrationController::class, 'test'])->name('integrations.test');
+            Route::get('/policy', [PolicyController::class, 'index'])->name('policy.index');
+            Route::post('/policy/master', [PolicyController::class, 'master'])->name('policy.master');
+            Route::post('/policy/compare', [PolicyController::class, 'compare'])->name('policy.compare');
         });
     });
 });

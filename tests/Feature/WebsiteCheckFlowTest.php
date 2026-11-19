@@ -43,7 +43,7 @@ class WebsiteCheckFlowTest extends TestCase
         $response->assertOk()
             ->assertSee('2 websites checked')
             ->assertSee('data:image/jpeg;base64,'.base64_encode('jpeg'), false)
-            ->assertSee('Request access for selected');
+            ->assertSee('automatically selected');
         $this->assertSame(2, WebsiteCheck::query()->count());
     }
 

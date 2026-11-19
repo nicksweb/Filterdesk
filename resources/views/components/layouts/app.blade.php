@@ -18,6 +18,7 @@
                 <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*')])>Requests</a>
                 @if(auth()->user()->isAdmin())
                     <a href="{{ route('admin.users.index') }}" @class(['active' => request()->routeIs('admin.users.*')])>Users</a>
+                    <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*')])>Policy lists</a>
                     <a href="{{ route('admin.integrations.index') }}" @class(['active' => request()->routeIs('admin.integrations.*')])>Integrations</a>
                 @endif
             </nav>
