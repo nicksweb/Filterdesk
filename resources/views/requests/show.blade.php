@@ -155,7 +155,13 @@
                 @if(in_array($status, [\App\Enums\RequestStatus::Approved, \App\Enums\RequestStatus::ActionRequired, \App\Enums\RequestStatus::Failed], true))
                     <section class="panel action-panel highlight">
                         <h2>Apply in the controller</h2>
-                        <p class="section-copy">Add these hostnames to the content-filter allow list of each policy below, then mark the request applied.</p>
+                        @if($canPush)
+                            <p class="section-copy">Push the change to every linked content filter. The request is marked applied once each one allows these hostnames.</p>
+                            <form method="post" action="{{ route('admin.policy.networks.push') }}">@csrf<button class="button primary full" data-confirm="Push pending changes to every linked content filter?">Push to linked filters</button></form>
+                            <p class="hint">Or apply by hand:</p>
+                        @else
+                            <p class="section-copy">Add these hostnames to the content-filter allow list of each policy below, then mark the request applied.</p>
+                        @endif
                         <ul class="policy-targets">@foreach($policies as $target)<li><a href="{{ route('admin.policy.policies.show', $target) }}">{{ $target->name }}</a> <small>{{ $target->audience->label() }}{{ $target->provider_reference ? ' · '.$target->provider_reference : '' }}</small></li>@endforeach</ul>
                         <textarea class="mono" rows="4" readonly id="apply-domains">{{ implode("\n", $websiteRequest->effectiveDomains()) }}</textarea>
                         <button type="button" class="button small secondary" data-copy="#apply-domains">Copy hostnames</button>

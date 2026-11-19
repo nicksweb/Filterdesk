@@ -19,7 +19,9 @@ class AuditLogger
             'subject_id' => $subject?->getKey(),
             'ip_address' => $request?->ip(),
             'user_agent' => str($request?->userAgent() ?? '')->limit(1000),
-            'metadata' => $metadata,
+            'metadata' => $request?->hasSession() && $request->session()->has('impersonator_id')
+                ? $metadata + ['impersonator_id' => $request->session()->get('impersonator_id')]
+                : $metadata,
         ]);
     }
 }

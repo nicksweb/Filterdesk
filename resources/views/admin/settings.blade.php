@@ -66,7 +66,7 @@
             <h2>Notifications</h2>
             <label>IT notification address<input name="it_notification_address" type="email" required value="{{ old('it_notification_address', $settings->get('notifications.it_address')) }}"></label>
             <fieldset><legend>Email IT when</legend>
-                @foreach(['new_request' => 'A new request is submitted', 'requester_reply' => 'A requester answers a question (sent to the assignee, or IT if unassigned)', 'assignment' => 'A request is assigned to someone'] as $event => $label)
+                @foreach(['new_request' => 'A new request is submitted', 'requester_reply' => 'A requester answers a question (sent to the assignee, or IT if unassigned)', 'assignment' => 'A request is assigned to someone', 'filter_sync' => 'A controller content filter is changed outside IT Requests, or cannot be read'] as $event => $label)
                     <label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked($settings->get("notifications.events.{$event}", true))><span>{{ $label }}</span></label>
                 @endforeach
             </fieldset>
@@ -86,7 +86,7 @@
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'network') }}">@csrf @method('PUT')
             <div class="fields two">
                 <label>Provider<select name="provider"><option value="unifi" @selected(($network?->provider ?? 'unifi') === 'unifi')>Ubiquiti UniFi Network</option><option value="mock" @selected($network?->provider === 'mock')>Simulation (testing only)</option></select></label>
-                <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: allow provider writes where supported</option></select></label>
+                <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: push list changes to linked content filters</option></select><small>Active lets IT push allow and block list changes to the content filters linked under Policy lists → Networks &amp; filters. Each push only changes those lists, is read back, recorded and can be rolled back.</small></label>
             </div>
             @php($connection = old('connection', $network?->configuration['connection'] ?? 'local'))
             <label>Connection
@@ -115,6 +115,7 @@
                 </select>
                 <small>UniFi content filtering is DNS based and only sees hostnames. The explicit setting is safe on every controller version. Choose the second only after confirming the controller matches subdomains of a listed domain.</small>
             </label>
+            <label class="choice compact"><input type="hidden" name="auto_push" value="0"><input type="checkbox" name="auto_push" value="1" @checked(old('auto_push', $network?->configuration['auto_push'] ?? false))><span><strong>Push automatically</strong><small>Active mode only. Approvals and revocations are pushed straight away; expiries, scheduled starts and list edits within five minutes. Entries added in UniFi by hand are never removed.</small></span></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
         <section class="panel form-panel">
@@ -136,7 +137,7 @@
                 </div>
                 <p class="hint">Copy network IDs into Network profiles to map each probe to its UniFi network.</p>
             @endif
-            <div class="notice">The official UniFi API does not expose content-filter domain lists, so approvals go into <a href="{{ route('admin.policy.index') }}">Policy lists</a> for IT to copy into each content filter. The app never calls undocumented controller endpoints.</div>
+            <div class="notice">The official UniFi API does not expose content-filter domain lists. The app reads them, and in Active mode updates them, through the Network application's own content-filter endpoint. Link filters to policies under <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a>, then use <strong>Verify write access</strong> on a policy before the first push.</div>
         </section>
 
     @elseif($section === 'profiles')

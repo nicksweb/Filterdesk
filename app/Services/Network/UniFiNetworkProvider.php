@@ -5,6 +5,7 @@ namespace App\Services\Network;
 use App\Models\IntegrationConfig;
 use App\Models\WebsiteRequest;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -18,12 +19,22 @@ use Throwable;
  *   connector at https://api.ui.com/v1/connector/consoles/<id>/proxy/network/integration/v1.
  *   Site Manager keys are rejected (HTTP 401) by the local endpoint.
  *
- * Discovery is read-only. Content-filter domain lists are not exposed by the
- * official API (checked against Network 11.0), so approvals are reconciled
- * through Policy lists rather than undocumented controller endpoints.
+ * Content-filter domain lists are not exposed by the official integration
+ * API (checked against Network 11.0). They are read from the Network
+ * application's own v2 endpoint (/proxy/network/v2/api/site/<site>/content-filtering),
+ * which accepts the same key. Writes use the same endpoint (PUT of the full
+ * filter record with only the lists changed) and only happen when the
+ * integration is in active mode; every write is read back and verified. If a
+ * release changes the endpoint, calls fail with a clear message and IT can
+ * still paste the lists by hand.
  */
-class UniFiNetworkProvider implements NetworkProvider
+class UniFiNetworkProvider implements NetworkProvider, ReadsContentFilters, WritesContentFilters
 {
+    /** Network purposes a content filter can apply to. */
+    private const FILTERABLE_PURPOSES = ['corporate', 'guest', 'vlan-only', 'remote-user-vpn'];
+
+    private ?string $siteReference = null;
+
     public function __construct(private readonly IntegrationConfig $integration) {}
 
     public function capabilities(): array
@@ -32,6 +43,8 @@ class UniFiNetworkProvider implements NetworkProvider
             'site_discovery' => true,
             'network_discovery' => true,
             'firewall_policies' => true,
+            'content_filter_read' => true,
+            'content_filter_write' => ($this->integration->mode ?? 'read_only') === 'active',
             // The official API currently has no portable content-filter domain
             // allowlist operation. Never claim automation without a supported API.
             'domain_allowlist' => false,
@@ -82,6 +95,7 @@ class UniFiNetworkProvider implements NetworkProvider
 
             return ['ok' => false, 'message' => match (true) {
                 $code === 'device_offline' => 'Site Manager reports this console is offline.',
+                $code === 'forbidden' && str_contains((string) $response->json('message'), 'host not found') => 'Site Manager has no console with this ID. Use Discover and copy the full ID, including the part after the colon.',
                 $code === 'forbidden' => 'Site Manager denied access: the key owner must be an owner of this console.',
                 in_array($response->status(), [401, 403], true) && ! $this->isCloud() => "The console rejected the API key (HTTP {$response->status()}). Keys created at unifi.ui.com are Site Manager keys: either switch the connection to \"Site Manager cloud connector\", or create a local key under Network → Settings → Control Plane → Integrations.",
                 in_array($response->status(), [401, 403], true) => "Site Manager rejected the API key (HTTP {$response->status()}).",
@@ -161,6 +175,185 @@ class UniFiNetworkProvider implements NetworkProvider
         }
     }
 
+    /**
+     * The UniFi web UI shows console IDs without the ":<number>" suffix that
+     * the connector requires. Resolve a shortened ID to the full one.
+     */
+    public function resolveConsoleId(string $consoleId): string
+    {
+        $consoleId = trim($consoleId);
+        if ($consoleId === '' || str_contains($consoleId, ':')) {
+            return $consoleId;
+        }
+
+        $match = collect($this->consoles() ?? [])->first(fn (array $console) => strcasecmp(strtok($console['id'], ':'), $consoleId) === 0);
+
+        return $match['id'] ?? $consoleId;
+    }
+
+    public function contentFilters(): array
+    {
+        return collect($this->rawContentFilters())->filter(fn ($filter) => is_array($filter) && isset($filter['_id']))->map(fn (array $filter) => [
+            'id' => (string) $filter['_id'],
+            'name' => (string) ($filter['name'] ?? $filter['_id']),
+            'enabled' => (bool) ($filter['enabled'] ?? true),
+            'allow' => array_values(array_map('strval', $filter['allow_list'] ?? [])),
+            'block' => array_values(array_map('strval', $filter['block_list'] ?? [])),
+            'network_ids' => array_values(array_map('strval', $filter['network_ids'] ?? [])),
+            'categories' => array_values(array_map('strval', $filter['categories'] ?? [])),
+            'safe_search' => array_values(array_map('strval', $filter['safe_search'] ?? [])),
+        ])->values()->all();
+    }
+
+    public function writeContentFilterLists(string $filterId, array $allow, array $block): void
+    {
+        $record = $this->rawContentFilter($filterId);
+        $record['allow_list'] = array_values($allow);
+        $record['block_list'] = array_values($block);
+
+        $response = $this->client()->timeout(25)->put($this->contentFilterPath('/'.rawurlencode($filterId)), $record);
+        $this->ensureSuccessful($response, 'content filter changes', writing: true);
+
+        $saved = $this->rawContentFilter($filterId);
+        $normalise = fn (array $values): array => collect($values)->map(fn ($value) => strtolower((string) $value))->unique()->sort()->values()->all();
+        if ($normalise($saved['allow_list'] ?? []) !== $normalise($allow) || $normalise($saved['block_list'] ?? []) !== $normalise($block)) {
+            throw new ProviderRequestFailed('UniFi accepted the change but the filter read back differently. Check the filter in UniFi before trying again.');
+        }
+    }
+
+    public function availableCategories(): array
+    {
+        $response = $this->client()->timeout(20)->get($this->contentFilterPath('/categories'));
+        $this->ensureSuccessful($response, 'content categories');
+
+        return collect($response->json() ?? [])->filter(fn ($category) => is_string($category) && $category !== '')->values()->all();
+    }
+
+    public function writeContentFilterCategories(string $filterId, array $categories): void
+    {
+        $record = $this->rawContentFilter($filterId);
+        $record['categories'] = array_values($categories);
+
+        $response = $this->client()->timeout(25)->put($this->contentFilterPath('/'.rawurlencode($filterId)), $record);
+        $this->ensureSuccessful($response, 'content categories', writing: true);
+
+        $saved = collect($this->rawContentFilter($filterId)['categories'] ?? [])->sort()->values()->all();
+        if ($saved !== collect($categories)->unique()->sort()->values()->all()) {
+            throw new ProviderRequestFailed('UniFi accepted the category change but the filter read back differently. Check the filter in UniFi.');
+        }
+    }
+
+    public function verifyContentFilterWrite(string $filterId): array
+    {
+        try {
+            $record = $this->rawContentFilter($filterId);
+            $response = $this->client()->timeout(25)->put($this->contentFilterPath('/'.rawurlencode($filterId)), $record);
+            $this->ensureSuccessful($response, 'content filter changes', writing: true);
+            $saved = $this->rawContentFilter($filterId);
+        } catch (ProviderRequestFailed $exception) {
+            return ['ok' => false, 'message' => $exception->getMessage()];
+        }
+
+        $same = ($saved['allow_list'] ?? []) === ($record['allow_list'] ?? []) && ($saved['block_list'] ?? []) === ($record['block_list'] ?? [])
+            && ($saved['network_ids'] ?? []) === ($record['network_ids'] ?? []);
+
+        return $same
+            ? ['ok' => true, 'message' => "UniFi accepted an unchanged save of {$record['name']}: this key can update content filters."]
+            : ['ok' => false, 'message' => 'UniFi accepted the save but the filter read back differently. Check it in UniFi.'];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function rawContentFilters(): array
+    {
+        $response = $this->client()->timeout(20)->get($this->contentFilterPath());
+        $this->ensureSuccessful($response, 'content filters');
+
+        $filters = $response->json();
+        if (! is_array($filters) || ! array_is_list($filters)) {
+            throw new ProviderRequestFailed('UniFi returned content filters in an unexpected format. Paste the lists instead.');
+        }
+
+        return $filters;
+    }
+
+    /** @return array<string, mixed> */
+    private function rawContentFilter(string $filterId): array
+    {
+        $record = collect($this->rawContentFilters())->first(fn ($filter) => is_array($filter) && ($filter['_id'] ?? null) === $filterId);
+        if (! $record) {
+            throw new ProviderRequestFailed('That content filter no longer exists in UniFi. Re-link the policy under Networks & filters.');
+        }
+
+        return $record;
+    }
+
+    private function contentFilterPath(string $suffix = ''): string
+    {
+        return $this->networkPath('/v2/api/site/'.rawurlencode($this->siteReference()).'/content-filtering'.$suffix);
+    }
+
+    public function networks(): array
+    {
+        $response = $this->client()->timeout(20)->get($this->networkPath('/api/s/'.rawurlencode($this->siteReference()).'/rest/networkconf'));
+        $this->ensureSuccessful($response, 'networks');
+
+        return collect($response->json('data', []))
+            ->filter(fn ($network) => is_array($network) && isset($network['_id']) && in_array($network['purpose'] ?? 'corporate', self::FILTERABLE_PURPOSES, true))
+            ->map(fn (array $network) => [
+                'id' => (string) $network['_id'],
+                'name' => (string) ($network['name'] ?? $network['_id']),
+                'vlan' => isset($network['vlan']) && $network['vlan'] !== '' ? (int) $network['vlan'] : null,
+                'purpose' => isset($network['purpose']) ? (string) $network['purpose'] : null,
+                'subnet' => filled($network['ip_subnet'] ?? null) ? (string) $network['ip_subnet'] : null,
+            ])
+            ->sortBy(fn (array $network) => [$network['vlan'] ?? 0, $network['name']])
+            ->values()->all();
+    }
+
+    /**
+     * The short site name ("default") the Network application's own API
+     * uses, looked up from the configured site ID when one is set.
+     */
+    private function siteReference(): string
+    {
+        if ($this->siteReference !== null) {
+            return $this->siteReference;
+        }
+
+        $configured = $this->integration->configuration['site_reference'] ?? null;
+        if (filled($configured)) {
+            return $this->siteReference = (string) $configured;
+        }
+
+        $siteId = $this->integration->configuration['site_id'] ?? null;
+        if (filled($siteId)) {
+            $site = collect($this->client()->get($this->path('/sites'))->json('data', []))->firstWhere('id', $siteId);
+            if (filled($site['internalReference'] ?? null)) {
+                return $this->siteReference = (string) $site['internalReference'];
+            }
+        }
+
+        return $this->siteReference = 'default';
+    }
+
+    private function ensureSuccessful(Response $response, string $what, bool $writing = false): void
+    {
+        if ($response->successful()) {
+            return;
+        }
+
+        $code = (string) $response->json('code', '');
+        throw new ProviderRequestFailed(match (true) {
+            $code === 'device_offline' => 'Site Manager reports this console is offline.',
+            $writing && in_array($response->status(), [401, 403], true) => "UniFi refused to save {$what} (HTTP {$response->status()}). The key's owner needs Network admin rights, and some Site Manager keys are read-only.",
+            $writing && in_array($response->status(), [404, 405], true) => "This UniFi Network version does not accept {$what} at the expected address (HTTP {$response->status()}). Apply changes by hand.",
+            str_contains((string) $response->json('message'), 'host not found') => 'Site Manager has no console with this ID. Use the full console ID from Discover.',
+            in_array($response->status(), [401, 403], true) => "UniFi refused to list {$what} (HTTP {$response->status()}). The key needs Network admin access.",
+            $response->status() === 404 => "This UniFi Network version does not expose {$what} at the expected address. Paste the lists instead.",
+            default => "UniFi returned HTTP {$response->status()} when listing {$what}.",
+        });
+    }
+
     public function apply(WebsiteRequest $request): array
     {
         throw new UnsupportedProviderOperation(
@@ -203,16 +396,27 @@ class UniFiNetworkProvider implements NetworkProvider
             ->timeout(8);
     }
 
-    private function path(string $endpoint): string
+    /** Paths under the Network application itself (/proxy/network). */
+    private function networkPath(string $endpoint): string
     {
         $prefix = rtrim((string) ($this->integration->configuration['api_prefix'] ?? '/proxy/network/integration/v1'), '/');
 
-        if ($this->isCloud()) {
-            $console = rawurlencode((string) ($this->integration->configuration['console_id'] ?? ''));
+        return $this->wrap((string) preg_replace('#/integration/v\d+$#', '', $prefix).$endpoint);
+    }
 
-            return "/v1/connector/consoles/{$console}{$prefix}{$endpoint}";
+    private function wrap(string $path): string
+    {
+        if (! $this->isCloud()) {
+            return $path;
         }
 
-        return $prefix.$endpoint;
+        $console = rawurlencode((string) ($this->integration->configuration['console_id'] ?? ''));
+
+        return "/v1/connector/consoles/{$console}{$path}";
+    }
+
+    private function path(string $endpoint): string
+    {
+        return $this->wrap(rtrim((string) ($this->integration->configuration['api_prefix'] ?? '/proxy/network/integration/v1'), '/').$endpoint);
     }
 }

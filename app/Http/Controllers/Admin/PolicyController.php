@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\EntrySource;
+use App\Enums\ListKind;
 use App\Enums\RequestStatus;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
@@ -35,6 +36,7 @@ class PolicyController extends Controller
             'lists' => PolicyList::query()->ordered()->withCount(['entries', 'entries as request_entries_count' => fn ($query) => $query->where('source', EntrySource::Request)])->with('filterPolicy')->get(),
             'actionRequired' => WebsiteRequest::query()->whereIn('status', [RequestStatus::Approved, RequestStatus::ActionRequired, RequestStatus::Failed])->count(),
             'upcoming' => $engine->upcoming(48),
+            'recent' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference', 'addedBy:id,name')->latest()->limit(8)->get(),
             'lookup' => $lookup,
             'rules' => $engine->rules(),
         ]);
@@ -44,7 +46,9 @@ class PolicyController extends Controller
     {
         $validated = $request->validate([
             'policy_list_id' => ['required', 'exists:policy_lists,id'],
-            'domains' => ['required', 'string', 'max:20000'],
+            'domains' => ['required_without:hosts', 'nullable', 'string', 'max:20000'],
+            'hosts' => ['required_without:domains', 'array', 'max:1000'],
+            'hosts.*' => ['string', 'max:253'],
             'note' => ['nullable', 'string', 'max:500'],
             'starts_at' => ['nullable', 'date'],
             'expires_at' => ['nullable', 'date'],
@@ -56,9 +60,19 @@ class PolicyController extends Controller
         }
 
         $list = PolicyList::query()->findOrFail($validated['policy_list_id']);
-        $parsed = $parser->parseDetailed($validated['domains'], 'domains');
+        $parsed = $parser->parseDetailed(implode("\n", [$validated['domains'] ?? '', ...($validated['hosts'] ?? [])]), 'domains');
         if ($parsed['entries'] === []) {
             throw ValidationException::withMessages(['domains' => 'Enter at least one hostname.']);
+        }
+
+        $alreadyInList = $list->entries()->whereIn('domain', $parsed['entries'])->pluck('domain')->all();
+        $elsewhere = [];
+        foreach ($parsed['entries'] as $domain) {
+            foreach ($engine->locate($domain) as $found) {
+                if ($found->policy_list_id !== $list->id) {
+                    $elsewhere[] = "{$domain} is also in {$found->policyList->name}".($found->domain !== $domain ? " (as {$found->domain})" : '');
+                }
+            }
         }
 
         foreach ($parsed['entries'] as $domain) {
@@ -73,7 +87,24 @@ class PolicyController extends Controller
 
         $audit->log('policy.entries_added', $list, ['domains' => $parsed['entries']]);
 
-        return back()->with('success', count($parsed['entries'])." hostname(s) added to {$list->name}.".($parsed['notes'] ? ' '.implode(' ', $parsed['notes']) : ''));
+        $added = count($parsed['entries']) - count($alreadyInList);
+        $messages = ["{$added} hostname(s) added to {$list->name}."];
+        if ($alreadyInList) {
+            $messages[] = 'Already in this list: '.implode(', ', $alreadyInList).'.';
+        }
+        if ($elsewhere) {
+            $messages[] = implode('; ', array_unique($elsewhere)).'.';
+        }
+        if ($list->kind === ListKind::Allow) {
+            foreach (FilterPolicy::query()->where('enabled', true)->get() as $policy) {
+                $blocked = array_intersect($parsed['entries'], $policy->current_blocklist ?? []);
+                if ($blocked && $list->appliesTo($policy)) {
+                    $messages[] = 'The controller filter for '.$policy->name.' blocks '.implode(', ', $blocked).': remove it there when you next reconcile.';
+                }
+            }
+        }
+
+        return redirect()->route('admin.policy.lists.show', $list)->with('success', implode(' ', [...$messages, ...$parsed['notes']]));
     }
 
     public function destroyEntry(Request $request, PolicyEntry $entry, AuditLogger $audit): RedirectResponse

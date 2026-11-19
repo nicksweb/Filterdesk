@@ -10,32 +10,89 @@
         @if($report['in_sync'])<span class="status status-ok">In sync</span>@elseif($report['has_snapshot'])<span class="status status-action_required">Changes due</span>@else<span class="status status-pending">No snapshot</span>@endif
     </div>
 
-    <section class="panel policy-section">
-        <div class="panel-heading"><div><h2>1. Paste the controller's current lists</h2><p>Copy the allow and block lists from this content filter in the controller. Escaped dots, schemes, paths and wildcard prefixes are normalised.</p></div>@if($policy->snapshot_at)<small>Last compared {{ $policy->snapshot_at->diffForHumans() }}{{ $policy->snapshotBy ? ' by '.$policy->snapshotBy->name : '' }}</small>@endif</div>
-        <form method="post" action="{{ route('admin.policy.policies.snapshot', $policy) }}">@csrf
-            <div class="fields two policy-editors">
-                <label>Current allow list<textarea name="current_allowlist" rows="10">{{ implode("\n", $report['current_allow']) }}</textarea></label>
-                <label>Current block list<textarea name="current_blocklist" rows="10">{{ implode("\n", $report['current_block']) }}</textarea></label>
+    @if(filled($policy->provider_reference))
+        @php($details = $policy->sync_details ?? [])
+        <section @class(['panel', 'policy-section', 'sync-panel', 'sync-'.($policy->sync_status ?? 'unknown')])>
+            <div class="panel-heading">
+                <div><h2>Sync with {{ $policy->provider_name ?: 'the controller' }} <x-sync-status :policy="$policy" /></h2>
+                    <p>{{ $details['summary'] ?? 'Not checked yet.' }} {{ $policy->sync_checked_at ? 'Checked '.$policy->sync_checked_at->diffForHumans().'.' : '' }} Checked automatically every 15 minutes.</p></div>
+                <div class="button-row">
+                    <form method="post" action="{{ route('admin.policy.policies.pull', $policy) }}">@csrf<button class="button secondary">Check now</button></form>
+                    @if($policy->sync_status === 'drift' && collect($details['changed_in_controller'] ?? [])->flatten()->isNotEmpty())
+                        <form method="post" action="{{ route('admin.policy.policies.accept-controller', $policy) }}">@csrf<button class="button secondary" data-confirm="Accept the controller's current lists as intended? Entries added there stay unmanaged unless you import them below.">Accept controller changes</button></form>
+                    @endif
+                </div>
             </div>
-            <div class="form-actions"><button class="button primary">Save snapshot and compare</button></div>
-        </form>
+            @if(collect($details['changed_in_controller'] ?? [])->flatten()->isNotEmpty())
+                <div class="sync-changes">
+                    <p><strong>Edited directly in the controller</strong> since {{ isset($policy->sync_baseline['at']) ? \Illuminate\Support\Carbon::parse($policy->sync_baseline['at'])->local()->format('j M g:i a') : 'the last push' }}:</p>
+                    @foreach(['allow_added' => 'Allowed in the controller', 'allow_removed' => 'Allow entries removed in the controller', 'block_added' => 'Blocked in the controller', 'block_removed' => 'Block entries removed in the controller', 'categories_added' => 'Categories blocked in the controller', 'categories_removed' => 'Categories unblocked in the controller'] as $key => $label)
+                        @if(!empty($details['changed_in_controller'][$key]))<p class="hint"><strong>{{ $label }}:</strong> {{ implode(', ', $details['changed_in_controller'][$key]) }}</p>@endif
+                    @endforeach
+                    <p class="hint">Import entries you want to keep (below), push to restore removed managed entries, or accept the controller's state.</p>
+                </div>
+            @endif
+            @if(!empty($details['networks']))<p class="hint"><strong>Mapped networks not using this filter:</strong> {{ implode(', ', $details['networks']) }}. Attach the filter to them in the controller, or change the mapping under <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a>.</p>@endif
+        </section>
+    @endif
+
+    <section class="panel policy-section">
+        <div class="panel-heading">
+            <div><h2>1. Current controller lists</h2><p>
+                @if($canPull)Fetched from the controller filter <strong>{{ $policy->provider_name ?: $policy->provider_reference }}</strong>@if($policy->networkAssignments->isNotEmpty()) · mapped networks: {{ $policy->networkAssignments->map(fn ($network) => $network->name.($network->vlan ? ' (VLAN '.$network->vlan.')' : ''))->join(', ') }}@endif. You can also paste them below.
+                @else Copy the allow and block lists from this content filter in the controller, or link it under <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a> to fetch them. Escaped dots, schemes, paths and wildcard prefixes are normalised.@endif
+            </p></div>
+            <div class="button-row">
+                @if($policy->snapshot_at)<small>Last compared {{ $policy->snapshot_at->diffForHumans() }}{{ $policy->snapshotBy ? ' by '.$policy->snapshotBy->name : '' }}</small>@endif
+                @if($canPull)<form method="post" action="{{ route('admin.policy.policies.pull', $policy) }}">@csrf<button class="button primary">Fetch from controller</button></form>@endif
+            </div>
+        </div>
+        <details @if(!$canPull) open @endif>
+            <summary>Paste lists manually</summary>
+            <form method="post" action="{{ route('admin.policy.policies.snapshot', $policy) }}">@csrf
+                <div class="fields two policy-editors">
+                    <label>Current allow list<textarea name="current_allowlist" rows="10">{{ implode("\n", $report['current_allow']) }}</textarea></label>
+                    <label>Current block list<textarea name="current_blocklist" rows="10">{{ implode("\n", $report['current_block']) }}</textarea></label>
+                </div>
+                <div class="form-actions"><button class="button secondary">Save snapshot and compare</button></div>
+            </form>
+        </details>
     </section>
 
     <section class="panel policy-section">
-        <div class="panel-heading"><div><h2>2. Change set</h2><p>{{ $report['has_snapshot'] ? 'Differences between the snapshot and the desired state.' : 'No snapshot yet, so everything desired is shown as an addition.' }}</p></div></div>
+        <div class="panel-heading"><div><h2>2. Change set</h2><p>{{ $report['has_snapshot'] ? 'Differences between the controller and the desired state.' : 'No snapshot yet, so everything desired is shown as an addition.' }}</p></div></div>
+        @if($report['controller_blocks_allowed'])
+            <div class="alert error"><strong>The controller blocks hostnames that are allowed here:</strong> {{ implode(', ', $report['controller_blocks_allowed']) }}. Remove them from the controller's block list, or remove the allow entry if the block is intended.</div>
+        @endif
         <div class="change-grid">
             @foreach([
-                ['Add to allow list', 'allow_add', 'positive', 'Desired but missing from the controller.'],
-                ['Remove from allow list', 'allow_remove', 'negative', 'Previously managed here (expired, revoked or removed).'],
-                ['Review in allow list', 'allow_review', 'neutral', 'In the controller but never managed here. Import it into a list or remove it.'],
-                ['Add to block list', 'block_add', 'negative', 'Desired blocks missing from the controller.'],
-                ['Remove from block list', 'block_remove', 'positive', 'Blocked in the controller but not desired.'],
-            ] as [$label, $key, $tone, $help])
+                ['Add to allow list', 'allow_add', 'positive', 'Desired but missing from the controller.', null],
+                ['Remove from allow list', 'allow_remove', 'negative', 'Previously managed here (expired, revoked or removed).', null],
+                ['Only in the controller: allowed', 'allow_review', 'neutral', 'Added in the controller by hand. Import them to keep them, or remove them from the controller.', 'allow'],
+                ['Add to block list', 'block_add', 'negative', 'Desired blocks missing from the controller.', null],
+                ['Remove from block list', 'block_remove', 'positive', 'Blocked in the controller but removed here or allowed by a managed list.', null],
+                ['Only in the controller: blocked', 'block_review', 'neutral', 'Blocked in the controller by hand. Import them to keep them, or remove them from the controller.', 'block'],
+            ] as [$label, $key, $tone, $help, $adoptKind])
                 <article class="change-card {{ $tone }}">
                     <div><h3>{{ $label }}</h3><span>{{ count($report[$key]) }}</span></div>
                     <p class="hint">{{ $help }}</p>
-                    <textarea rows="6" readonly id="change-{{ $key }}">{{ implode("\n", $report[$key]) }}</textarea>
-                    @if(count($report[$key]))<button type="button" class="button small secondary" data-copy="#change-{{ $key }}">Copy</button>@endif
+                    @if($adoptKind && count($report[$key]) && $adoptTargets[$adoptKind]->isNotEmpty())
+                        <form method="post" action="{{ route('admin.policy.policies.adopt', $policy) }}" class="adopt-form">@csrf
+                            <input type="hidden" name="kind" value="{{ $adoptKind }}">
+                            <div class="check-scroll">
+                                @foreach($report[$key] as $domain)<label><input type="checkbox" name="domains[]" value="{{ $domain }}" checked> {{ $domain }}</label>@endforeach
+                            </div>
+                            <label>Import into
+                                <select name="policy_list_id">
+                                    @foreach($adoptTargets[$adoptKind] as $target)<option value="{{ $target->id }}" @selected($target->scope === \App\Enums\ListScope::Audience)>{{ $target->name }} ({{ $target->scopeLabel() }})</option>@endforeach
+                                </select>
+                            </label>
+                            <button class="button small primary">Import selected</button>
+                        </form>
+                    @else
+                        <textarea rows="6" readonly id="change-{{ $key }}">{{ implode("\n", $report[$key]) }}</textarea>
+                        @if(count($report[$key]))<button type="button" class="button small secondary" data-copy="#change-{{ $key }}">Copy</button>@endif
+                    @endif
                 </article>
             @endforeach
         </div>
@@ -43,9 +100,61 @@
         @if($report['shadowed'])<div class="notice"><strong>Blocked parent domains with allowed subdomains:</strong> @foreach($report['shadowed'] as $pair){{ $pair['allow'] }} (under blocked {{ $pair['block'] }})@if(!$loop->last), @endif @endforeach. Check the controller gives allow-list entries priority.</div>@endif
     </section>
 
+    @php($pending = count($report['allow_add']) + count($report['allow_remove']) + count($report['block_add']) + count($report['block_remove']))
+    <section class="panel policy-section push-panel">
+        <div class="panel-heading">
+            <div><h2>Push to the controller</h2><p>
+                @if($canPush)
+                    Applies the change set above to <strong>{{ $policy->provider_name ?: $policy->provider_reference }}</strong>. The live filter is re-read first; entries added in UniFi by hand are kept, and the result is read back and recorded.{{ $autoPush ? ' Automatic pushing is on.' : '' }}
+                @elseif(blank($policy->provider_reference))
+                    Link this policy to a controller filter under <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a> to push changes.
+                @else
+                    Pushing is off. @if(auth()->user()->isAdmin())Set the network provider to <a href="{{ route('admin.settings.show', 'network') }}">Active</a> to enable it.@else An admin can enable it.@endif
+                @endif
+            </p></div>
+            <div class="button-row">
+                @if(auth()->user()->isAdmin() && filled($policy->provider_reference) && $canPull)
+                    <form method="post" action="{{ route('admin.policy.policies.verify-write', $policy) }}">@csrf<button class="button secondary" data-confirm="Save {{ $policy->provider_name ?: 'the linked filter' }} back to UniFi unchanged to check this key can write it?">Verify write access</button></form>
+                @endif
+                @if($canPush)
+                    <form method="post" action="{{ route('admin.policy.policies.push', $policy) }}">@csrf<button class="button primary" data-confirm="Push to {{ $policy->provider_name }}: allow +{{ count($report['allow_add']) }} / −{{ count($report['allow_remove']) }}, block +{{ count($report['block_add']) }} / −{{ count($report['block_remove']) }} (based on the last fetch; the live filter is re-read first)?">{{ $pending ? 'Push '.$pending.' change(s)' : 'Push now' }}</button></form>
+                @endif
+            </div>
+        </div>
+        @if($pushes->isNotEmpty())
+            <div class="table-wrap compact"><table><thead><tr><th>When</th><th>By</th><th>Result</th><th>Changes</th><th></th></tr></thead><tbody>
+                @foreach($pushes as $push)
+                    <tr>
+                        <td>{{ $push->created_at->local()->format('j M g:i a') }}<small>{{ ucfirst($push->trigger) }}</small></td>
+                        <td>{{ $push->user?->name ?? 'Automatic' }}</td>
+                        <td><span class="status status-{{ $push->status === 'ok' ? 'ok' : 'failed' }}">{{ $push->status === 'ok' ? 'Applied' : 'Failed' }}</span><small>{{ $push->message }}</small></td>
+                        <td>@foreach(['allow_add' => 'Allowed', 'allow_remove' => 'Unallowed', 'block_add' => 'Blocked', 'block_remove' => 'Unblocked'] as $key => $label)@if(!empty($push->changes[$key]))<small><strong>{{ $label }}:</strong> {{ implode(', ', $push->changes[$key]) }}</small>@endif @endforeach</td>
+                        <td>@if($canPush && $push->status === 'ok' && !$push->rollback_of_id && $push->changeCount())<form method="post" action="{{ route('admin.policy.pushes.rollback', $push) }}">@csrf<button class="button small secondary" data-confirm="Put {{ $push->provider_name }} back to its lists from before this push?">Roll back</button></form>@endif</td>
+                    </tr>
+                @endforeach
+            </tbody></table></div>
+        @endif
+    </section>
+
+    @if($categories && auth()->user()->isAdmin())
+        <details class="panel policy-section categories-panel">
+            <summary><strong>Content categories</strong> · {{ count($categories['blocked']) }} of {{ count($categories['available']) }} blocked in {{ $policy->provider_name }}</summary>
+            <form method="post" action="{{ route('admin.policy.policies.categories', $policy) }}">@csrf
+                <p class="hint">Categories are blocked by the controller's category database for every network this filter applies to. Allow-list entries still override them. Changes are saved straight to the controller, read back, and recorded in the audit log.</p>
+                <div class="button-row"><button type="button" class="button small secondary" data-check-all="category">Select all</button><button type="button" class="button small secondary" data-check-none="category">Select none</button></div>
+                <div class="category-grid">
+                    @foreach($categories['available'] as $category)
+                        <label class="choice compact"><input type="checkbox" name="categories[]" value="{{ $category }}" data-group="category" @checked(in_array($category, $categories['blocked'], true))><span>{{ str($category)->replace('_', ' ')->lower()->ucfirst() }}</span></label>
+                    @endforeach
+                </div>
+                <div class="form-actions"><button class="button primary" data-confirm="Save the blocked categories to {{ $policy->provider_name }}? This changes filtering on every network it applies to.">Save categories to controller</button></div>
+            </form>
+        </details>
+    @endif
+
     <section class="panel policy-section">
         <div class="panel-heading">
-            <div><h2>3. Desired lists</h2><p>Copy-ready, one hostname per line. Paste the full lists into the controller, then record the policy as in sync.</p></div>
+            <div><h2>3. Desired lists</h2><p>Everything this policy should allow and block, one hostname per line. Useful for checking, or for pasting by hand when pushing is off.</p></div>
             <form method="post" action="{{ route('admin.policy.policies.synced', $policy) }}">@csrf<button class="button secondary" data-confirm="Record that the controller now matches these desired lists?">Mark controller in sync</button></form>
         </div>
         <div class="fields two policy-editors">

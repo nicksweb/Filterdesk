@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\RequestStatus;
+use App\Models\FilterPolicy;
 use App\Models\WebsiteCheck;
 use App\Models\WebsiteRequest;
 use Illuminate\View\View;
@@ -21,6 +22,7 @@ class DashboardController extends Controller
             'mine' => $user->isIt() ? WebsiteRequest::query()->where('assigned_to_id', $user->id)->whereIn('status', RequestStatus::open())->count() : 0,
             'active' => (clone $requests)->where('status', RequestStatus::Active)->count(),
             'recentRequests' => $requests->with('requester')->latest('updated_at')->limit(6)->get(),
+            'filtersOutOfSync' => $user->isIt() ? FilterPolicy::query()->where('enabled', true)->whereIn('sync_status', ['drift', 'error'])->ordered()->get() : collect(),
             'recentChecks' => WebsiteCheck::query()->where('user_id', $user->id)->latest()->limit(5)->get(),
         ]);
     }

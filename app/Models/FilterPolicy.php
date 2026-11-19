@@ -15,8 +15,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class FilterPolicy extends Model
 {
     protected $fillable = [
-        'name', 'slug', 'audience', 'description', 'network_profile_id', 'provider_reference',
+        'name', 'slug', 'audience', 'description', 'network_profile_id', 'provider_reference', 'provider_name',
         'enabled', 'sort_order', 'current_allowlist', 'current_blocklist', 'snapshot_at', 'snapshot_by_id',
+        'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline',
     ];
 
     protected function casts(): array
@@ -27,6 +28,9 @@ class FilterPolicy extends Model
             'current_allowlist' => 'array',
             'current_blocklist' => 'array',
             'snapshot_at' => 'datetime',
+            'sync_checked_at' => 'datetime',
+            'sync_details' => 'array',
+            'sync_baseline' => 'array',
         ];
     }
 
@@ -38,6 +42,11 @@ class FilterPolicy extends Model
     public function snapshotBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'snapshot_by_id');
+    }
+
+    public function networkAssignments(): HasMany
+    {
+        return $this->hasMany(NetworkAssignment::class);
     }
 
     public function ownLists(): HasMany

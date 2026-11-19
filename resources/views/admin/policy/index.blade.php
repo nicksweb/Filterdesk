@@ -13,7 +13,7 @@
         <article><span>Filter policies</span><strong>{{ $policies->count() }}</strong></article>
         <article><span>Managed lists</span><strong>{{ $lists->count() }}</strong></article>
         <article><span>Approvals to apply</span><strong>{{ $actionRequired }}</strong>@if($actionRequired)<a href="{{ route('requests.index', ['status' => 'action_required']) }}">Review</a>@endif</article>
-        <article><span>Policies out of sync</span><strong>{{ $policies->reject(fn ($item) => $item['report']['in_sync'])->count() }}</strong></article>
+        <article><span>Policies out of sync</span><strong>{{ $policies->reject(fn ($item) => $item['policy']->sync_status ? $item['policy']->sync_status === 'in_sync' : $item['report']['in_sync'])->count() }}</strong>@if($policies->contains(fn ($item) => $item['policy']->sync_status === 'drift'))<a href="{{ route('admin.policy.networks.index') }}">Changed in controller</a>@endif</article>
     </div>
 
     <section class="policy-section">
@@ -21,8 +21,8 @@
         <div class="policy-cards">
             @foreach($policies as ['policy' => $policy, 'report' => $report])
                 <a class="panel policy-card" href="{{ route('admin.policy.policies.show', $policy) }}">
-                    <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->audience->label() }}{{ $policy->networkProfile ? ' · '.$policy->networkProfile->name : '' }}</small></span>
-                        @if(!$policy->enabled)<x-status status="disabled" />@elseif(!$report['has_snapshot'])<span class="status status-pending">No snapshot</span>@elseif($report['in_sync'])<span class="status status-ok">In sync</span>@else<span class="status status-action_required">Changes due</span>@endif
+                    <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->audience->label() }}{{ $policy->provider_name ? ' · '.$policy->provider_name : '' }}{{ $policy->networkProfile ? ' · '.$policy->networkProfile->name : '' }}</small></span>
+                        @if(!$policy->enabled)<x-status status="disabled" />@elseif(filled($policy->provider_reference))<x-sync-status :policy="$policy" />@elseif(!$report['has_snapshot'])<span class="status status-pending">No snapshot</span>@elseif($report['in_sync'])<span class="status status-ok">In sync</span>@else<span class="status status-action_required">Changes due</span>@endif
                     </div>
                     <dl class="mini-stats">
                         <div><dt>Allow</dt><dd>{{ count($report['allow']) }}</dd></div>
@@ -30,7 +30,7 @@
                         <div><dt>To add</dt><dd>{{ count($report['allow_add']) + count($report['block_add']) }}</dd></div>
                         <div><dt>To remove</dt><dd>{{ count($report['allow_remove']) + count($report['block_remove']) }}</dd></div>
                     </dl>
-                    <small>{{ $policy->snapshot_at ? 'Compared '.$policy->snapshot_at->diffForHumans() : 'Paste the controller lists to compare' }}</small>
+                    <small>@if($policy->sync_checked_at){{ $policy->sync_details['summary'] ?? '' }} Checked {{ $policy->sync_checked_at->diffForHumans() }}.@else{{ $policy->snapshot_at ? 'Compared '.$policy->snapshot_at->diffForHumans() : 'Paste the controller lists to compare' }}@endif</small>
                 </a>
             @endforeach
         </div>
@@ -52,7 +52,7 @@
 
     <div class="content-grid">
         <section class="panel policy-section">
-            <div class="panel-heading"><div><h2>Add hostnames</h2><p>Add domains directly when there is no request. Site-wide entries reach every policy, including students.</p></div></div>
+            <div class="panel-heading"><div><h2>Add hostnames</h2><p>Add domains directly when there is no request. Site-wide entries reach every policy, including students. To find every hostname a site uses, try the <a href="{{ route('admin.policy.scan.show') }}">domain scanner</a>.</p></div></div>
             <form method="post" action="{{ route('admin.policy.entries.store') }}">@csrf
                 <label>List
                     <select name="policy_list_id" required>
@@ -82,6 +82,14 @@
                         @endforeach
                     @endif
                 @endif
+            </section>
+            <section class="panel policy-section">
+                <h2>Recently added</h2>
+                @forelse($recent as $entry)
+                    <div class="list-row static"><span><strong>{{ $entry->domain }}</strong><small><a href="{{ route('admin.policy.lists.show', $entry->policyList) }}">{{ $entry->policyList->name }}</a> · {{ $entry->source->label() }}{{ $entry->websiteRequest ? ' '.$entry->websiteRequest->reference : ($entry->addedBy ? ' by '.$entry->addedBy->name : '') }}</small></span><small>{{ $entry->created_at->diffForHumans() }}</small></div>
+                @empty
+                    <p class="hint">No entries yet.</p>
+                @endforelse
             </section>
             <section class="panel policy-section">
                 <h2>Next 48 hours</h2>

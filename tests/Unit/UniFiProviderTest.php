@@ -3,16 +3,17 @@
 namespace Tests\Unit;
 
 use App\Models\IntegrationConfig;
+use App\Services\Network\ProviderRequestFailed;
 use App\Services\Network\UniFiNetworkProvider;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class UniFiProviderTest extends TestCase
 {
-    private function provider(array $configuration): UniFiNetworkProvider
+    private function provider(array $configuration, string $mode = 'read_only'): UniFiNetworkProvider
     {
         return new UniFiNetworkProvider(new IntegrationConfig([
-            'provider' => 'unifi', 'configuration' => $configuration, 'credentials' => ['api_key' => 'test-key'],
+            'provider' => 'unifi', 'mode' => $mode, 'configuration' => $configuration, 'credentials' => ['api_key' => 'test-key'],
         ]));
     }
 
@@ -51,5 +52,72 @@ class UniFiProviderTest extends TestCase
 
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('unifi.ui.com', $result['message']);
+    }
+
+    public function test_short_console_ids_from_the_web_ui_resolve_to_the_full_connector_id(): void
+    {
+        Http::fake(['api.ui.com/v1/hosts' => Http::response(['data' => [
+            ['id' => 'ABC123:999', 'type' => 'console', 'reportedState' => ['name' => 'School UDM']],
+        ]])]);
+
+        $provider = $this->provider(['connection' => 'cloud']);
+
+        $this->assertSame('ABC123:999', $provider->resolveConsoleId('abc123'));
+        $this->assertSame('OTHER', $provider->resolveConsoleId('OTHER'));
+        $this->assertSame('X:1', $provider->resolveConsoleId('X:1'));
+    }
+
+    public function test_content_filter_failures_raise_a_readable_error(): void
+    {
+        Http::fake(['api.ui.com/*' => Http::response(['code' => 'forbidden', 'message' => 'forbidden: host not found'], 403)]);
+
+        $this->expectException(ProviderRequestFailed::class);
+        $this->expectExceptionMessage('no console with this ID');
+
+        $this->provider(['connection' => 'cloud', 'console_id' => 'NOPE'])->contentFilters();
+    }
+
+    public function test_writing_lists_puts_the_full_record_with_only_the_lists_changed_and_verifies_it(): void
+    {
+        $record = ['_id' => 'cf1', 'name' => 'Students', 'enabled' => true, 'allow_list' => ['a.example.org'], 'block_list' => [], 'network_ids' => ['n1'], 'categories' => ['ADULT'], 'schedule' => ['mode' => 'ALWAYS']];
+        $saved = $record;
+        Http::fake(function ($request) use (&$saved) {
+            if ($request->method() === 'PUT') {
+                $saved = $request->data();
+
+                return Http::response($saved);
+            }
+
+            return Http::response([$saved]);
+        });
+
+        $this->provider(['connection' => 'cloud', 'console_id' => 'C:1'], 'active')->writeContentFilterLists('cf1', ['a.example.org', 'b.example.org'], ['bad.example.org']);
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && str_ends_with($request->url(), '/v1/connector/consoles/C%3A1/proxy/network/v2/api/site/default/content-filtering/cf1')
+            && $request['allow_list'] === ['a.example.org', 'b.example.org'] && $request['block_list'] === ['bad.example.org']
+            && $request['network_ids'] === ['n1'] && $request['categories'] === ['ADULT'] && $request['schedule'] === ['mode' => 'ALWAYS']);
+    }
+
+    public function test_a_write_that_reads_back_differently_or_is_refused_raises_an_error(): void
+    {
+        $record = ['_id' => 'cf1', 'name' => 'Students', 'allow_list' => [], 'block_list' => []];
+        Http::fake(fn ($request) => $request->method() === 'PUT' ? Http::response([], 200) : Http::response([$record]));
+
+        try {
+            $this->provider(['connection' => 'cloud', 'console_id' => 'C:1'], 'active')->writeContentFilterLists('cf1', ['x.example.org'], []);
+            $this->fail('A write that did not stick must fail.');
+        } catch (ProviderRequestFailed $exception) {
+            $this->assertStringContainsString('read back differently', $exception->getMessage());
+        }
+    }
+
+    public function test_verify_write_reports_a_refused_save(): void
+    {
+        $record = ['_id' => 'cf1', 'name' => 'Students', 'allow_list' => [], 'block_list' => []];
+        Http::fake(fn ($request) => $request->method() === 'PUT' ? Http::response('Method Not Allowed', 405) : Http::response([$record]));
+        $result = $this->provider(['connection' => 'cloud', 'console_id' => 'C:1'], 'active')->verifyContentFilterWrite('cf1');
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('HTTP 405', $result['message']);
     }
 }

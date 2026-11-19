@@ -55,6 +55,14 @@ class RequestNotifier
         $this->send($request->requester, new RequestDecisionNotification($request, $message));
     }
 
+    /** A controller filter drifted from its policy or cannot be read. */
+    public function filterSyncAlert(BaseNotification $notification): void
+    {
+        if ($this->enabled('filter_sync')) {
+            $this->toIt($notification, true);
+        }
+    }
+
     private function toIt(BaseNotification $notification, bool $includeOptedInStaff): void
     {
         $address = $this->settings->get('notifications.it_address');

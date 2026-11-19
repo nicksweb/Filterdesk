@@ -16,6 +16,13 @@
       return;
     }
 
+    const bulk = event.target.closest('[data-check-all],[data-check-none]');
+    if (bulk) {
+      const group = bulk.dataset.checkAll ?? bulk.dataset.checkNone;
+      bulk.closest('form').querySelectorAll(`input[type="checkbox"][data-group="${group}"]`).forEach(box => { box.checked = 'checkAll' in bulk.dataset; });
+      return;
+    }
+
     const confirmable = event.target.closest('[data-confirm]');
     if (confirmable && !window.confirm(confirmable.dataset.confirm)) {
       event.preventDefault();

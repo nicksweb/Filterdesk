@@ -6,6 +6,10 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('requests:expire')->everyMinute()->withoutOverlapping();
 
+Schedule::command('policy:push')->everyFiveMinutes()->withoutOverlapping();
+
+Schedule::command('policy:check-sync')->everyFifteenMinutes()->withoutOverlapping();
+
 Schedule::call(fn () => Cache::forever('heartbeat.scheduler', now()->toIso8601String()))->name('scheduler-heartbeat')->everyMinute();
 
 Schedule::command('policy:digest')

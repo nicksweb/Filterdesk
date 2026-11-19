@@ -7,6 +7,7 @@ use App\Enums\RequestStatus;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Domains\DomainNormalizer;
+use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\InvalidRequestTransition;
@@ -148,6 +149,7 @@ class WebsiteRequestController extends Controller
         if ($user->isIt()) {
             $rules = $policy->rules();
             $data += [
+                'canPush' => app(ControllerPusher::class)->enabled(),
                 'itStaff' => User::query()->itStaff()->get(['id', 'name', 'email', 'role']),
                 'rules' => $rules,
                 'recommendations' => $websiteRequest->status->isOpen()

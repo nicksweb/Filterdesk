@@ -33,6 +33,13 @@
         @endauth
     </header>
 
+    @if(session()->has('impersonator_id') && auth()->check())
+        <div class="impersonation-bar" role="status">
+            <span>Viewing as <strong>{{ auth()->user()->name }}</strong> · {{ \App\Http\Controllers\Admin\ImpersonationController::PREVIEW_ROLES[auth()->user()->role] ?? ucfirst(auth()->user()->role) }} view. Actions you take are real and recorded against this account.</span>
+            <form method="post" action="{{ route('impersonation.stop') }}">@csrf<button class="button small">Return to my account</button></form>
+        </div>
+    @endif
+
     <main class="shell">
         @if(session('success'))<div class="alert success" role="status">{{ session('success') }}</div>@endif
         @if(session('error'))<div class="alert error" role="alert">{{ session('error') }}</div>@endif
@@ -44,6 +51,13 @@
                 <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*')])>Settings</a>
                 <a href="{{ route('admin.audit') }}" @class(['active' => request()->routeIs('admin.audit')])>Audit log</a>
                 <a href="{{ route('admin.diagnostics') }}" @class(['active' => request()->routeIs('admin.diagnostics')])>Diagnostics</a>
+            </nav>
+        @endif
+        @if(auth()->check() && auth()->user()->isIt() && request()->routeIs('admin.policy.*'))
+            <nav class="subnav" aria-label="Web filtering">
+                <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.index', 'admin.policy.lists.*', 'admin.policy.policies.*')])>Policies &amp; lists</a>
+                <a href="{{ route('admin.policy.networks.index') }}" @class(['active' => request()->routeIs('admin.policy.networks.*')])>Networks &amp; filters</a>
+                <a href="{{ route('admin.policy.scan.show') }}" @class(['active' => request()->routeIs('admin.policy.scan.*')])>Domain scanner</a>
             </nav>
         @endif
         {{ $slot }}

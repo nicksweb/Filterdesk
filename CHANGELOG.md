@@ -5,6 +5,16 @@ All notable changes to this project are documented here. Versions follow [Semant
 ## 0.2.0
 
 ### Added
+- Networks & filters: live UniFi content filters and VLANs, link filters to policies, map each VLAN to a staff, student or guest policy, mismatch warnings.
+- Push policy changes to linked UniFi content filters (Active mode): change sets only, hand-made entries kept, read-back verification, push history and rollback, push all policies at once, optional automatic pushing on approval, revocation, expiry and schedule (`policy:push`), and a no-change write check.
+- Guided setup from the controller: create or link a policy per content filter, import its entries into policy-owned lists, map its networks, and get per-policy probe container recommendations (macvlan command, DNS, compose snippet) with one-click probe profiles.
+- Sync checks every 15 minutes: in sync, changes to push, changed in controller (entries, categories, network attachments) or cannot check; email alert on drift, dashboard banner, accept-controller-changes action.
+- Networks attached to more than one content filter are detected and reported.
+- Manage a linked filter's blocked content categories (Active mode).
+- Fetch a policy's current lists straight from the controller, and import entries added in the controller by hand (allow and block) into a managed list.
+- Domain scanner: hostnames a page loads on each network plus optional certificate-transparency subdomains, added to any allow or block list in one step.
+- Administrators can view the app as a staff member or student (or built-in preview accounts), with a banner to return and the real actor recorded in the audit log.
+- Adding hostnames reports where they are already listed and whether a controller filter blocks them.
 - Audience-aware filter policies (Staff, Student, Guest, Other) with site-wide, audience and per-policy allow/block lists.
 - Per-policy reconciliation: paste the controller lists, review add/remove/review sets, copy or download the desired lists, mark in sync.
 - Manual hostname entries with optional start and expiry. Site-wide entries reach every policy, including students.
@@ -17,10 +27,11 @@ All notable changes to this project are documented here. Versions follow [Semant
 - Admin settings for school, authentication, email (with test send), network provider (test and discovery), network profiles and approval policy.
 - OIDC role rules by email domain or group/role claim, default role or deny, optional sync at sign-in.
 - Audit log viewer, diagnostics page and `/health` endpoint.
-- UniFi Site Manager (unifi.ui.com) keys via Ubiquiti's cloud connector, with console discovery; clear guidance when a Site Manager key is used locally.
+- UniFi Site Manager (unifi.ui.com) keys via Ubiquiti's cloud connector, with console discovery; clear guidance when a Site Manager key is used locally. Short console IDs from the web UI are resolved to the full connector ID.
 - `itrequests:upgrade`, `itrequests:admin-password` and `policy:digest` commands; versioned upgrades.
 
 ### Fixed
+- Docker build: the Composer stage ignores only upper-bound PHP constraints, so builds keep working when the `composer:2` image moves to a newer PHP than the 8.5 runtime.
 - Settings were cached as Eloquent objects and silently fell back to defaults (school name, URL, timezone, Schoolbox origin, local login flag).
 - Temporary windows were stored as wall-clock time in a UTC column; times displayed in UTC.
 - New OIDC users were created with a null `enabled` attribute and refused at first sign-in.

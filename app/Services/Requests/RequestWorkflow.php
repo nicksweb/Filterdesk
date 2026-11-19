@@ -11,6 +11,7 @@ use App\Models\WebsiteRequest;
 use App\Services\AuditLogger;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\UnsupportedProviderOperation;
+use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Website\WebsiteChecker;
 use Illuminate\Support\Facades\DB;
@@ -81,6 +82,9 @@ class RequestWorkflow
 
             try {
                 $integration = $this->providers->integration();
+                if ($this->pusher()->automatic()) {
+                    throw new UnsupportedProviderOperation('Approved and added to the policy lists. Pushing to the linked controller filters.');
+                }
                 if (! $integration || $integration->mode !== 'active') {
                     throw new UnsupportedProviderOperation('Approved and added to the policy lists. IT will apply the change in the network controller.');
                 }
@@ -113,7 +117,66 @@ class RequestWorkflow
 
         $this->notifier->decision($websiteRequest, $note ? "{$note}\n\nAllowed: ".implode(', ', $domains) : 'Your request was approved. Allowed: '.implode(', ', $domains));
 
+        if ($websiteRequest->status === RequestStatus::ActionRequired && $this->pusher()->automatic()) {
+            $this->pushAfter($websiteRequest, $actor, $scope, 'approval');
+        }
+
         return $websiteRequest->refresh();
+    }
+
+    /**
+     * Mark requests awaiting action as applied once every policy they target
+     * is linked to a controller filter that now allows all their hostnames.
+     */
+    public function settlePushed(?User $actor): int
+    {
+        $settled = 0;
+        $rules = $this->policy->rules();
+        $waiting = WebsiteRequest::query()->whereIn('status', [RequestStatus::Approved, RequestStatus::ActionRequired, RequestStatus::Failed])->get();
+
+        foreach ($waiting as $websiteRequest) {
+            $policies = $this->policy->policiesFor($websiteRequest->effectiveScope());
+            if ($policies->isEmpty() || $policies->contains(fn ($policy) => blank($policy->provider_reference) || $policy->snapshot_at === null)) {
+                continue;
+            }
+
+            $applied = $policies->every(fn ($policy) => collect($websiteRequest->effectiveDomains())->every(
+                fn (string $domain) => collect($policy->current_allowlist ?? [])->contains(fn (string $entry) => $rules->covers($entry, $domain))
+            ));
+            if (! $applied) {
+                continue;
+            }
+
+            $names = $policies->map(fn ($policy) => $policy->provider_name ?: $policy->name)->join(', ');
+            $websiteRequest->forceFill(['status' => RequestStatus::Active, 'resolved_at' => now()])->save();
+            $this->event($websiteRequest, $actor, 'applied', "Applied automatically to the controller content filters: {$names}.");
+            $this->audit->log('website_request.applied', $websiteRequest, ['automatic' => true]);
+            $this->notifier->decision($websiteRequest, 'Your approved access is now live on the network.');
+            $settled++;
+        }
+
+        return $settled;
+    }
+
+    private function pushAfter(WebsiteRequest $websiteRequest, ?User $actor, AccessScope $scope, string $trigger): void
+    {
+        try {
+            $results = $this->pusher()->pushAll($actor, $trigger, $scope);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return;
+        }
+
+        $failed = $results->reject(fn (array $result) => $result['ok']);
+        if ($failed->isNotEmpty()) {
+            $this->event($websiteRequest, $actor, 'push_failed', 'Automatic push did not complete: '.$failed->pluck('message')->join(' ').' IT will apply the change.', internal: true);
+        }
+    }
+
+    private function pusher(): ControllerPusher
+    {
+        return app(ControllerPusher::class);
     }
 
     public function reject(WebsiteRequest $websiteRequest, User $actor, string $reason): WebsiteRequest
@@ -180,7 +243,8 @@ class RequestWorkflow
     {
         $this->guard($websiteRequest, RequestStatus::granted(), 'Only granted requests can be revoked.');
 
-        return DB::transaction(function () use ($websiteRequest, $actor, $reason): WebsiteRequest {
+        $automatic = $this->pusher()->automatic();
+        $websiteRequest = DB::transaction(function () use ($websiteRequest, $actor, $reason, $automatic): WebsiteRequest {
             try {
                 $this->providers->current()->revoke($websiteRequest);
             } catch (Throwable $exception) {
@@ -189,12 +253,19 @@ class RequestWorkflow
 
             $removed = $this->policy->withdraw($websiteRequest);
             $websiteRequest->forceFill(['status' => RequestStatus::Revoked, 'resolution' => $reason, 'resolved_at' => now()])->save();
-            $this->event($websiteRequest, $actor, 'revoked', "{$reason}\n\n{$removed} policy entr".($removed === 1 ? 'y' : 'ies').' removed. Remove them from the network controller at the next reconciliation.');
+            $this->event($websiteRequest, $actor, 'revoked', "{$reason}\n\n{$removed} policy entr".($removed === 1 ? 'y' : 'ies').' removed. '
+                .($automatic ? 'Removing them from the linked controller filters.' : 'Remove them from the network controller at the next reconciliation.'));
             $this->audit->log('website_request.revoked', $websiteRequest, ['entries_removed' => $removed]);
             $this->notifier->decision($websiteRequest, $reason);
 
             return $websiteRequest;
         });
+
+        if ($automatic) {
+            $this->pushAfter($websiteRequest, $actor, $websiteRequest->effectiveScope(), 'revocation');
+        }
+
+        return $websiteRequest;
     }
 
     public function note(WebsiteRequest $websiteRequest, User $actor, string $note): WebsiteRequest
@@ -211,7 +282,11 @@ class RequestWorkflow
 
         try {
             $this->providers->current()->revoke($websiteRequest);
-            $message = $automated ? 'Temporary access expired and was removed from the network provider.' : 'Temporary access expired. It has left the desired policy lists; remove it from the network controller at the next reconciliation.';
+            $message = match (true) {
+                $automated => 'Temporary access expired and was removed from the network provider.',
+                $this->pusher()->automatic() => 'Temporary access expired. It has left the desired policy lists and will be removed from the linked controller filters.',
+                default => 'Temporary access expired. It has left the desired policy lists; remove it from the network controller at the next reconciliation.',
+            };
         } catch (Throwable $exception) {
             report($exception);
             $message = 'Temporary access expired; IT must remove it from the network controller manually.';

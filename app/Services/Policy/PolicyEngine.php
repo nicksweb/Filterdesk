@@ -290,6 +290,11 @@ class PolicyEngine
         $blockAdd = array_values(array_filter($desired['block'], fn (string $domain) => ! in_array($domain, $currentBlock, true)));
         $blockExtra = array_values(array_diff($currentBlock, $desired['block']));
 
+        $managedBlocks = PolicyEntry::query()->whereIn('domain', $blockExtra)
+            ->whereHas('policyList', fn ($query) => $query->where('kind', ListKind::Block))->pluck('domain')->all();
+        $blockRemove = array_values(array_filter($blockExtra, fn (string $domain) => in_array($domain, $managedBlocks, true)
+            || collect($desired['allow'])->contains(fn (string $allowed) => $rules->covers($domain, $allowed) || $rules->covers($allowed, $domain))));
+
         $known = PolicyEntry::query()->whereIn('domain', $allowExtra)->pluck('domain')
             ->merge(WebsiteRequest::query()->whereIn('status', [RequestStatus::Expired, RequestStatus::Revoked])->latest()->limit(2000)->get()->flatMap->effectiveDomains())
             ->unique()->all();
@@ -302,7 +307,9 @@ class PolicyEngine
             'allow_remove' => array_values(array_intersect($allowExtra, $known)),
             'allow_review' => array_values(array_diff($allowExtra, $known)),
             'block_add' => $hasSnapshot ? $blockAdd : $desired['block'],
-            'block_remove' => array_values($blockExtra),
+            'block_remove' => $blockRemove,
+            'block_review' => array_values(array_diff($blockExtra, $blockRemove)),
+            'controller_blocks_allowed' => array_values(array_intersect($currentBlock, $desired['allow'])),
             'in_sync' => $hasSnapshot && $allowAdd === [] && $allowExtra === [] && $blockAdd === [] && $blockExtra === [],
         ];
     }

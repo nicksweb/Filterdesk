@@ -55,7 +55,7 @@ class User extends Authenticatable
     /** @param Builder<self> $query */
     public function scopeItStaff(Builder $query): void
     {
-        $query->whereIn('role', ['it', 'admin'])->where('enabled', true)->orderBy('name');
+        $query->whereIn('role', ['it', 'admin'])->where('enabled', true)->where('auth_source', '!=', 'preview')->orderBy('name');
     }
 
     public function isAdmin(): bool

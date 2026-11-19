@@ -1,8 +1,12 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\ControllerSetupController;
 use App\Http\Controllers\Admin\DiagnosticsController;
+use App\Http\Controllers\Admin\DomainScanController;
 use App\Http\Controllers\Admin\FilterPolicyController;
+use App\Http\Controllers\Admin\ImpersonationController;
+use App\Http\Controllers\Admin\NetworkMapController;
 use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\PolicyListController;
 use App\Http\Controllers\Admin\SettingsController;
@@ -32,6 +36,7 @@ Route::middleware('installed')->group(function (): void {
 
     Route::middleware(['auth', 'enabled'])->group(function (): void {
         Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+        Route::post('/impersonation/stop', [ImpersonationController::class, 'stop'])->name('impersonation.stop');
         Route::get('/', DashboardController::class)->name('dashboard');
         Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
         Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -50,6 +55,11 @@ Route::middleware('installed')->group(function (): void {
                 Route::post('/entries', [PolicyController::class, 'storeEntries'])->name('entries.store');
                 Route::delete('/entries/{entry}', [PolicyController::class, 'destroyEntry'])->name('entries.destroy');
 
+                Route::get('/networks', [NetworkMapController::class, 'index'])->name('networks.index');
+                Route::post('/networks/pull', [NetworkMapController::class, 'pullAll'])->middleware('throttle:10,1')->name('networks.pull');
+                Route::get('/scan', [DomainScanController::class, 'show'])->name('scan.show');
+                Route::post('/scan', [DomainScanController::class, 'store'])->middleware('throttle:10,1')->name('scan.store');
+
                 Route::get('/lists/{list}', [PolicyListController::class, 'show'])->name('lists.show');
                 Route::post('/lists/{list}/import', [PolicyListController::class, 'import'])->name('lists.import');
                 Route::get('/lists/{list}/export', [PolicyListController::class, 'export'])->name('lists.export');
@@ -57,9 +67,23 @@ Route::middleware('installed')->group(function (): void {
                 Route::get('/policies/{policy}', [FilterPolicyController::class, 'show'])->name('policies.show');
                 Route::post('/policies/{policy}/snapshot', [FilterPolicyController::class, 'snapshot'])->name('policies.snapshot');
                 Route::post('/policies/{policy}/synced', [FilterPolicyController::class, 'markSynced'])->name('policies.synced');
+                Route::post('/policies/{policy}/pull', [FilterPolicyController::class, 'pull'])->middleware('throttle:20,1')->name('policies.pull');
+                Route::post('/policies/{policy}/adopt', [FilterPolicyController::class, 'adopt'])->name('policies.adopt');
+                Route::post('/policies/{policy}/push', [FilterPolicyController::class, 'push'])->middleware('throttle:20,1')->name('policies.push');
+                Route::post('/pushes/{push}/rollback', [FilterPolicyController::class, 'rollback'])->middleware('throttle:10,1')->name('pushes.rollback');
+                Route::post('/networks/push', [NetworkMapController::class, 'pushAll'])->middleware('throttle:10,1')->name('networks.push');
+                Route::post('/networks/check', [NetworkMapController::class, 'checkSync'])->middleware('throttle:10,1')->name('networks.check');
+                Route::post('/policies/{policy}/accept-controller', [FilterPolicyController::class, 'acceptController'])->middleware('throttle:20,1')->name('policies.accept-controller');
                 Route::get('/policies/{policy}/export/{kind}', [FilterPolicyController::class, 'export'])->name('policies.export');
 
                 Route::middleware('role:admin')->group(function (): void {
+                    Route::put('/networks', [NetworkMapController::class, 'update'])->name('networks.update');
+                    Route::get('/setup', [ControllerSetupController::class, 'show'])->name('setup.show');
+                    Route::post('/setup', [ControllerSetupController::class, 'store'])->middleware('throttle:10,1')->name('setup.store');
+                    Route::post('/setup/profiles', [ControllerSetupController::class, 'profiles'])->name('setup.profiles');
+                    Route::post('/networks/link', [NetworkMapController::class, 'link'])->name('networks.link');
+                    Route::post('/policies/{policy}/categories', [FilterPolicyController::class, 'categories'])->middleware('throttle:10,1')->name('policies.categories');
+                    Route::post('/policies/{policy}/verify-write', [FilterPolicyController::class, 'verifyWrite'])->middleware('throttle:6,1')->name('policies.verify-write');
                     Route::post('/lists', [PolicyListController::class, 'store'])->name('lists.store');
                     Route::put('/lists/{list}', [PolicyListController::class, 'update'])->name('lists.update');
                     Route::delete('/lists/{list}', [PolicyListController::class, 'destroy'])->name('lists.destroy');
@@ -74,6 +98,8 @@ Route::middleware('installed')->group(function (): void {
             Route::get('/users', [UserController::class, 'index'])->name('users.index');
             Route::post('/users', [UserController::class, 'store'])->name('users.store');
             Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+            Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])->name('users.impersonate');
+            Route::post('/preview/{role}', [ImpersonationController::class, 'preview'])->name('preview');
             Route::get('/settings/{section?}', [SettingsController::class, 'show'])->defaults('section', 'general')->name('settings.show');
             Route::put('/settings/{section}', [SettingsController::class, 'update'])->name('settings.update');
             Route::post('/settings/email/test', [SettingsController::class, 'testEmail'])->middleware('throttle:6,1')->name('settings.test-email');

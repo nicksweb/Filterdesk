@@ -4,12 +4,15 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\Audience;
 use App\Http\Controllers\Controller;
+use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkProfile;
 use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Network\NetworkProviderManager;
+use App\Services\Network\ReadsContentFilters;
+use App\Services\Network\UniFiNetworkProvider;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Policy\PolicyEngine;
 use App\Services\SettingsRepository;
@@ -101,6 +104,10 @@ class SettingsController extends Controller
         try {
             $result = $providers->current()->test();
             $providers->integration()?->update(['last_tested_at' => now(), 'last_test_status' => $result['ok'] ? 'ok' : 'failed', 'last_test_message' => $result['message']]);
+
+            if ($result['ok'] && $providers->current() instanceof ReadsContentFilters && FilterPolicy::query()->whereNotNull('provider_reference')->doesntExist()) {
+                return redirect()->route('admin.policy.setup.show')->with('success', $result['message'].' Next, bring the controller\'s content filters in.');
+            }
 
             return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
         } catch (Throwable $exception) {
@@ -196,7 +203,7 @@ class SettingsController extends Controller
             'mail_from_name' => ['nullable', 'string', 'max:120'],
             'it_notification_address' => ['required', 'email'],
             'events' => ['nullable', 'array'],
-            'events.*' => ['in:new_request,requester_reply,assignment'],
+            'events.*' => ['in:new_request,requester_reply,assignment,filter_sync'],
             'daily_digest' => ['nullable', 'boolean'],
             'digest_time' => ['required', 'date_format:H:i'],
         ]);
@@ -226,7 +233,7 @@ class SettingsController extends Controller
         $events = $validated['events'] ?? [];
         $settings->set('notifications', [
             'it_address' => strtolower($validated['it_notification_address']),
-            'events' => collect(['new_request', 'requester_reply', 'assignment'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $events, true)])->all(),
+            'events' => collect(['new_request', 'requester_reply', 'assignment', 'filter_sync'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $events, true)])->all(),
             'daily_digest' => $request->boolean('daily_digest'),
             'digest_time' => $validated['digest_time'],
         ]);
@@ -245,6 +252,7 @@ class SettingsController extends Controller
             'verify_tls' => ['nullable', 'boolean'],
             'mode' => ['required', 'in:read_only,active'],
             'entry_matching' => ['required', 'in:exact,includes_subdomains'],
+            'auto_push' => ['nullable', 'boolean'],
         ]);
 
         $integration = IntegrationConfig::query()->where('provider', $validated['provider'])->first()
@@ -267,10 +275,18 @@ class SettingsController extends Controller
                 'verify_tls' => $request->boolean('verify_tls'),
                 'api_prefix' => $validated['api_prefix'] ?? '/proxy/network/integration/v1',
                 'entry_matching' => $validated['entry_matching'],
+                'auto_push' => $validated['mode'] === 'active' && $request->boolean('auto_push'),
             ],
         ]);
         if (filled($validated['api_key'] ?? null)) {
             $integration->credentials = ['api_key' => $validated['api_key']];
+        }
+        if ($validated['provider'] === 'unifi' && ($validated['connection'] ?? 'local') === 'cloud' && filled($validated['console_id'] ?? null)) {
+            try {
+                $integration->configuration = ['console_id' => (new UniFiNetworkProvider($integration))->resolveConsoleId($validated['console_id'])] + $integration->configuration;
+            } catch (Throwable $exception) {
+                report($exception);
+            }
         }
         $integration->save();
     }
