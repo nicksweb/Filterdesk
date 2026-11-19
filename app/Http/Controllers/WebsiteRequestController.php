@@ -66,9 +66,8 @@ class WebsiteRequestController extends Controller
         ]);
 
         $websiteRequest = DB::transaction(function () use ($request, $validated, $normalizer): WebsiteRequest {
-            $lastId = (int) WebsiteRequest::query()->lockForUpdate()->max('id');
             $websiteRequest = WebsiteRequest::query()->create([
-                'reference' => sprintf('WEB-%s-%05d', now()->format('Y'), $lastId + 1),
+                'reference' => 'PENDING-'.str()->uuid(),
                 'requester_id' => $request->user()->id,
                 'domains' => $normalizer->many($validated['domains']),
                 'access_scope' => AccessScope::from($validated['access_scope']),
@@ -77,6 +76,9 @@ class WebsiteRequestController extends Controller
                 'requested_from' => $validated['requested_from'] ?? null,
                 'requested_until' => $validated['requested_until'] ?? null,
             ]);
+            $websiteRequest->forceFill([
+                'reference' => sprintf('WEB-%s-%05d', now()->format('Y'), $websiteRequest->id),
+            ])->save();
             RequestEvent::query()->create(['website_request_id' => $websiteRequest->id, 'actor_id' => $request->user()->id, 'type' => 'submitted', 'message' => 'Website access request submitted.']);
 
             return $websiteRequest;

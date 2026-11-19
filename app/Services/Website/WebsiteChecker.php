@@ -40,7 +40,7 @@ class WebsiteChecker
                     $key = "{$targetIndex}:{$profile->key}";
                     $requests[$key] = $pool->as($key)
                         ->withHeaders(['X-Probe-Key' => (string) config('services.probe.key')])
-                        ->connectTimeout(1)->timeout(4)
+                        ->connectTimeout(1)->timeout(4)->retry(2, 100, throw: false)
                         ->post(rtrim($profile->probe_url, '/').'/check', [
                             'url' => $target['url'],
                             'screenshot' => $screenshot,

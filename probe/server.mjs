@@ -44,10 +44,10 @@ async function validateTarget(rawUrl) {
   return { url, addresses: records.map(record => record.address) };
 }
 
-async function inspect(rawUrl, screenshot) {
+async function inspectAttempt(rawUrl, screenshot, ignoreHTTPSErrors = false) {
   const initial = await validateTarget(rawUrl);
   const started = performance.now();
-  const context = await browser.newContext({ viewport: { width: 1120, height: 630 }, ignoreHTTPSErrors: false, serviceWorkers: 'block' });
+  const context = await browser.newContext({ viewport: { width: 1120, height: 630 }, ignoreHTTPSErrors, serviceWorkers: 'block' });
   const page = await context.newPage();
 
   await page.route('**/*', async route => {
@@ -81,6 +81,27 @@ async function inspect(rawUrl, screenshot) {
     };
   } finally {
     await context.close();
+  }
+}
+
+async function inspect(rawUrl, screenshot) {
+  try {
+    return await inspectAttempt(rawUrl, screenshot, false);
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (!/net::ERR_CERT_(AUTHORITY_INVALID|COMMON_NAME_INVALID|DATE_INVALID|INVALID)/.test(message)) throw error;
+
+    const result = await inspectAttempt(rawUrl, screenshot, true);
+    const blocked = result.status === 'blocked';
+
+    return {
+      ...result,
+      status: blocked ? 'blocked' : 'tls_error',
+      tls_error: true,
+      message: blocked
+        ? 'A block page was captured after the network presented an untrusted certificate.'
+        : 'The website presented an untrusted or intercepted TLS certificate.',
+    };
   }
 }
 

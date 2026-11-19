@@ -67,6 +67,7 @@
                                     <span>DNS <strong>{{ implode(', ', $result['addresses'] ?? []) ?: '—' }}</strong></span>
                                     <span>Time <strong>{{ $result['duration_ms'] ?? '—' }} ms</strong></span>
                                 </div>
+                                @if(!empty($result['message']))<p class="probe-message">{{ $result['message'] }}</p>@endif
                                 @if(!empty($result['page_title']))<p><strong>Page title:</strong> {{ $result['page_title'] }}</p>@endif
                             </article>
                         @endforeach

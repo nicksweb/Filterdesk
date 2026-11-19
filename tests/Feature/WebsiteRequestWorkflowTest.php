@@ -36,6 +36,7 @@ class WebsiteRequestWorkflowTest extends TestCase
         $request = WebsiteRequest::query()->firstOrFail();
         $response->assertRedirect(route('requests.show', $request));
         $this->assertSame(['example.com', 'learning.example.org'], $request->domains);
+        $this->assertMatchesRegularExpression('/^WEB-\d{4}-\d{5}$/', $request->reference);
         $this->assertSame(RequestStatus::Pending, $request->status);
         $this->actingAs($teacher)->get(route('requests.show', $request))->assertOk();
     }
