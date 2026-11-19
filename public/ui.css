@@ -118,3 +118,6 @@ input.narrow{width:70px}
 .probe-plan h3 small{display:block;font-weight:500;color:var(--muted);font-size:.8rem}
 .probe-plan label{margin-top:10px}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem}
+.sync-pulled,.sync-excluded{margin-top:12px;padding:12px 14px;border-radius:9px;background:#f2f7fd}
+.sync-pulled p,.sync-excluded p{margin:4px 0}
+.sync-excluded .adopt-form{padding:0}

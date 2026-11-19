@@ -15,7 +15,7 @@
         <section @class(['panel', 'policy-section', 'sync-panel', 'sync-'.($policy->sync_status ?? 'unknown')])>
             <div class="panel-heading">
                 <div><h2>Sync with {{ $policy->provider_name ?: 'the controller' }} <x-sync-status :policy="$policy" /></h2>
-                    <p>{{ $details['summary'] ?? 'Not checked yet.' }} {{ $policy->sync_checked_at ? 'Checked '.$policy->sync_checked_at->diffForHumans().'.' : '' }} Checked automatically every 15 minutes.</p></div>
+                    <p>{{ $details['summary'] ?? 'Not checked yet.' }} {{ $policy->sync_checked_at ? 'Checked '.$policy->sync_checked_at->diffForHumans().'.' : '' }} Checked automatically every 15 minutes{{ ($details['authoritative'] ?? false) ? '; changes made in the controller are pulled in, because it is the source of truth' : '' }}.</p></div>
                 <div class="button-row">
                     <form method="post" action="{{ route('admin.policy.policies.pull', $policy) }}">@csrf<button class="button secondary">Check now</button></form>
                     @if($policy->sync_status === 'drift' && collect($details['changed_in_controller'] ?? [])->flatten()->isNotEmpty())
@@ -30,6 +30,28 @@
                         @if(!empty($details['changed_in_controller'][$key]))<p class="hint"><strong>{{ $label }}:</strong> {{ implode(', ', $details['changed_in_controller'][$key]) }}</p>@endif
                     @endforeach
                     <p class="hint">Import entries you want to keep (below), push to restore removed managed entries, or accept the controller's state.</p>
+                </div>
+            @endif
+            @if(!empty($details['pulled']))
+                <div class="sync-pulled">
+                    <p><strong>Last pulled from the controller</strong> {{ isset($details['pulled']['at']) ? \Illuminate\Support\Carbon::parse($details['pulled']['at'])->diffForHumans() : '' }}:</p>
+                    @foreach(['allow_imported' => 'Allowed there, now managed here', 'block_imported' => 'Blocked there, now managed here', 'allow_excluded' => 'Allow entries removed there', 'block_excluded' => 'Block entries removed there', 'restored' => 'Re-added there', 'categories_changed' => 'Categories changed there'] as $key => $label)
+                        @if(!empty($details['pulled'][$key]))<p class="hint"><strong>{{ $label }}:</strong> {{ implode(', ', $details['pulled'][$key]) }}</p>@endif
+                    @endforeach
+                </div>
+            @endif
+            @php($excluded = $policy->exclusions())
+            @if($excluded['allow'] || $excluded['block'])
+                <div class="sync-excluded">
+                    <p><strong>Removed in the controller, kept out of this filter</strong>. Restore any that should go back on the next push.</p>
+                    @foreach(['allow' => 'Allow', 'block' => 'Block'] as $kind => $label)
+                        @if($excluded[$kind])
+                            <form method="post" action="{{ route('admin.policy.policies.restore', $policy) }}" class="adopt-form">@csrf<input type="hidden" name="kind" value="{{ $kind }}">
+                                <div class="check-scroll">@foreach($excluded[$kind] as $domain)<label><input type="checkbox" name="domains[]" value="{{ $domain }}"> {{ $domain }} <small>({{ strtolower($label) }})</small></label>@endforeach</div>
+                                <button class="button small secondary">Restore selected {{ strtolower($label) }} entries</button>
+                            </form>
+                        @endif
+                    @endforeach
                 </div>
             @endif
             @if(!empty($details['networks']))<p class="hint"><strong>Mapped networks not using this filter:</strong> {{ implode(', ', $details['networks']) }}. Attach the filter to them in the controller, or change the mapping under <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a>.</p>@endif

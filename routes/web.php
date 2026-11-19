@@ -73,6 +73,7 @@ Route::middleware('installed')->group(function (): void {
                 Route::post('/pushes/{push}/rollback', [FilterPolicyController::class, 'rollback'])->middleware('throttle:10,1')->name('pushes.rollback');
                 Route::post('/networks/push', [NetworkMapController::class, 'pushAll'])->middleware('throttle:10,1')->name('networks.push');
                 Route::post('/networks/check', [NetworkMapController::class, 'checkSync'])->middleware('throttle:10,1')->name('networks.check');
+                Route::post('/policies/{policy}/restore', [FilterPolicyController::class, 'restore'])->name('policies.restore');
                 Route::post('/policies/{policy}/accept-controller', [FilterPolicyController::class, 'acceptController'])->middleware('throttle:20,1')->name('policies.accept-controller');
                 Route::get('/policies/{policy}/export/{kind}', [FilterPolicyController::class, 'export'])->name('policies.export');
 

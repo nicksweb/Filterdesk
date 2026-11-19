@@ -133,6 +133,34 @@ class FilterPolicyController extends Controller
         return back()->with('success', "{$policy->provider_name}'s current lists are accepted. Later edits in the controller will be reported from now on.");
     }
 
+    /**
+     * Stop keeping hostnames out of this policy after they were removed in
+     * the controller, so the next push puts them back.
+     */
+    public function restore(Request $request, FilterPolicy $policy, ControllerPusher $pusher, AuditLogger $audit): RedirectResponse
+    {
+        $validated = $request->validate([
+            'kind' => ['required', Rule::enum(ListKind::class)],
+            'domains' => ['required', 'array', 'min:1'],
+            'domains.*' => ['string', 'max:253'],
+        ]);
+        $exclusions = $policy->exclusions();
+        $kind = $validated['kind'];
+        $restored = array_values(array_intersect($exclusions[$kind], $validated['domains']));
+        $exclusions[$kind] = array_values(array_diff($exclusions[$kind], $restored));
+        $policy->update(['controller_exclusions' => $exclusions]);
+        $audit->log('policy.controller_exclusions_restored', $policy, ['kind' => $kind, 'domains' => $restored]);
+
+        $message = count($restored).' hostname(s) restored to '.$policy->name.'.';
+        if ($pusher->automatic()) {
+            $message .= ' '.$pusher->push($policy, $request->user(), 'restore')['message'];
+        } else {
+            $message .= ' Push to put them back in the controller.';
+        }
+
+        return back()->with('success', $message);
+    }
+
     /** Change which content categories the linked controller filter blocks. */
     public function categories(Request $request, FilterPolicy $policy, ControllerPusher $pusher, ControllerSync $sync, SyncChecker $checker, AuditLogger $audit): RedirectResponse
     {

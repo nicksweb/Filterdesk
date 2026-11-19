@@ -245,6 +245,14 @@ class PolicyEngine
             }
         }
 
+        $exclusions = $policy->exclusions();
+        foreach ($exclusions['allow'] as $domain) {
+            unset($allow[$domain]);
+        }
+        foreach ($exclusions['block'] as $domain) {
+            unset($block[$domain]);
+        }
+
         $rules = $this->rules();
         $allowList = $this->recommender->compact(array_keys($allow), $rules);
         $conflicts = array_values(array_intersect(array_keys($block), array_keys($allow)));
@@ -267,6 +275,7 @@ class PolicyEngine
             'conflicts' => $conflicts,
             'shadowed' => $shadowed,
             'sources' => $sources,
+            'excluded' => $exclusions,
         ];
     }
 
@@ -364,6 +373,15 @@ class PolicyEngine
             'starting' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('starts_at', [now(), $until])->orderBy('starts_at')->get(),
             'expiring' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('expires_at', [now(), $until])->orderBy('expires_at')->get(),
         ];
+    }
+
+    /** The allow or block list that belongs to one policy only, created on first use. */
+    public function ownList(FilterPolicy $policy, ListKind $kind, ?string $description = null): PolicyList
+    {
+        return PolicyList::query()->firstOrCreate(
+            ['scope' => ListScope::Policy, 'filter_policy_id' => $policy->id, 'kind' => $kind],
+            ['name' => "{$policy->name} ".($kind === ListKind::Allow ? 'allow' : 'block'), 'description' => $description ?? "Entries for {$policy->name} only.", 'is_default' => false],
+        );
     }
 
     public function uniqueSlug(string $name, ?int $ignoreId = null): string

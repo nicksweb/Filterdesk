@@ -32,13 +32,25 @@ After the connection test succeeds, **Policy lists → Networks & filters → Gu
 
 A network can be attached to several content filters. Clients there get every filter, so a hostname allowed in one can still be blocked by another. The Networks page marks these networks, the guided setup lists them, and the sync check reports them as drift for the affected policies.
 
+## The controller is the source of truth
+
+By default (Settings → Network provider → *The controller is the source of truth*), UniFi wins. On every sync check and before every push the app reads each linked filter and:
+
+- imports entries added in UniFi into that policy's own allow or block list, so they are kept and managed from then on;
+- keeps managed entries that were removed in UniFi out of that policy (an exclusion), so no push, manual or automatic, puts them back. Other filters are not affected. IT can **Restore** them on the policy page; if someone re-adds one in UniFi, the exclusion clears itself;
+- treats a hostname newly blocked in UniFi as blocked for that filter even if a shared allow list allows it;
+- accepts category changes made in UniFi;
+- adds an internal note to any approved request whose hostname was removed in UniFi.
+
+Changes this app still owes the controller, such as removing an expired approval, are still pushed. If the app is unavailable, filtering carries on in UniFi, and edits made there are picked up at the next check. Turn the setting off to only report UniFi edits as *Changed in controller* for review.
+
 ## Sync checks and drift
 
 `policy:check-sync` runs every 15 minutes (and on **Check sync now**). For each linked policy it records:
 
 - **In sync**: the filter matches the policy.
 - **Changes to push**: this app has additions or removals not yet pushed.
-- **Changed in controller**: allow/block entries or categories were edited directly in UniFi since the last push (or since IT clicked **Accept controller changes**), or a mapped network uses another or an extra filter.
+- **Changed in controller**: a mapped network uses another or an extra filter, or, with the source-of-truth setting off, allow/block entries or categories were edited directly in UniFi since the last push (or since IT clicked **Accept controller changes**).
 - **Cannot check**: the filter was deleted or the controller could not be read.
 
 IT is emailed when a policy becomes *changed* or *cannot check* (Settings → General → notifications). The dashboard and policy pages show the status and the exact entries changed.

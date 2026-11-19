@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Audience;
 use App\Enums\ListScope;
 use App\Models\FilterPolicy;
+use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
 use App\Models\PolicyList;
@@ -105,6 +106,7 @@ class ControllerSetupTest extends TestCase
 
     public function test_categories_are_saved_to_the_linked_filter_and_edits_in_the_controller_are_detected(): void
     {
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['controller_authoritative' => false]]);
         $admin = User::factory()->admin()->create();
         $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
         $student->update(['provider_reference' => 'sim-filter-students']);

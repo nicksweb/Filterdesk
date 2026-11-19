@@ -5,11 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\Audience;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
-use App\Enums\ListScope;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
 use App\Models\NetworkProfile;
-use App\Models\PolicyList;
 use App\Services\AuditLogger;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
@@ -135,10 +133,7 @@ class ControllerSetupController extends Controller
             if ($domains === []) {
                 continue;
             }
-            $list = PolicyList::query()->firstOrCreate(
-                ['scope' => ListScope::Policy, 'filter_policy_id' => $policy->id, 'kind' => $kind, 'name' => "{$policy->name} ".($kind === ListKind::Allow ? 'allow' : 'block')],
-                ['description' => "Imported from the controller filter {$filter['name']}.", 'is_default' => false],
-            );
+            $list = $engine->ownList($policy, $kind, "Imported from the controller filter {$filter['name']}.");
             foreach ($domains as $domain) {
                 $engine->upsertEntry($list, $domain, ['source' => EntrySource::Import, 'added_by_id' => $request->user()->id, 'note' => "Imported from {$filter['name']}"]);
                 $count++;

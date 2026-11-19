@@ -17,7 +17,7 @@ class FilterPolicy extends Model
     protected $fillable = [
         'name', 'slug', 'audience', 'description', 'network_profile_id', 'provider_reference', 'provider_name',
         'enabled', 'sort_order', 'current_allowlist', 'current_blocklist', 'snapshot_at', 'snapshot_by_id',
-        'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline',
+        'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline', 'controller_exclusions',
     ];
 
     protected function casts(): array
@@ -31,6 +31,7 @@ class FilterPolicy extends Model
             'sync_checked_at' => 'datetime',
             'sync_details' => 'array',
             'sync_baseline' => 'array',
+            'controller_exclusions' => 'array',
         ];
     }
 
@@ -42,6 +43,16 @@ class FilterPolicy extends Model
     public function snapshotBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'snapshot_by_id');
+    }
+
+    /**
+     * Hostnames removed from the controller filter by hand, per list kind.
+     *
+     * @return array{allow: list<string>, block: list<string>}
+     */
+    public function exclusions(): array
+    {
+        return ['allow' => array_values($this->controller_exclusions['allow'] ?? []), 'block' => array_values($this->controller_exclusions['block'] ?? [])];
     }
 
     public function networkAssignments(): HasMany

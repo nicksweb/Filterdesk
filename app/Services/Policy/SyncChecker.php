@@ -2,8 +2,14 @@
 
 namespace App\Services\Policy;
 
+use App\Enums\EntrySource;
+use App\Enums\ListKind;
 use App\Models\FilterPolicy;
+use App\Models\PolicyEntry;
+use App\Models\RequestEvent;
 use App\Notifications\FilterSyncAlertNotification;
+use App\Services\AuditLogger;
+use App\Services\Network\NetworkProviderManager;
 use App\Services\Requests\RequestNotifier;
 use Illuminate\Support\Collection;
 
@@ -26,6 +32,7 @@ class SyncChecker
     public const STATUSES = ['in_sync', 'changes_due', 'drift', 'error'];
 
     public function __construct(
+        private readonly NetworkProviderManager $providers,
         private readonly ControllerSync $sync,
         private readonly PolicyEngine $engine,
         private readonly PolicyListParser $parser,
@@ -128,8 +135,9 @@ class SyncChecker
         } elseif (($policy->sync_baseline['categories'] ?? null) === null) {
             $this->setCategoryBaseline($policy, $filter['categories'] ?? []);
         }
-        $baseline = $policy->sync_baseline;
         $liveCategories = $this->sortedUnique($filter['categories'] ?? []);
+        $pulled = $this->authoritative() ? $this->absorb($policy->refresh(), $filter, $live, $liveCategories) : null;
+        $baseline = $policy->refresh()->sync_baseline;
 
         $changedInController = [
             'allow_added' => array_values(array_diff($live['allow'], $baseline['allow'] ?? [])),
@@ -160,6 +168,9 @@ class SyncChecker
         };
 
         $summary = [];
+        if ($pulled && collect($pulled)->flatten()->isNotEmpty()) {
+            $summary[] = 'Pulled from the controller: '.$this->count($pulled, ['allow_imported' => 'allowed +', 'block_imported' => 'blocked +', 'allow_excluded' => 'allow removed ', 'block_excluded' => 'block removed ', 'restored' => 're-added ', 'categories_changed' => 'categories changed ']).'.';
+        }
         if ($edited) {
             $summary[] = 'Changed in the controller: '.$this->count($changedInController, ['allow_added' => 'allow +', 'allow_removed' => 'allow −', 'block_added' => 'block +', 'block_removed' => 'block −', 'categories_added' => 'categories +', 'categories_removed' => 'categories −']).'.';
         }
@@ -177,7 +188,122 @@ class SyncChecker
             'pending' => $pending,
             'networks' => $networkIssues,
             'unmanaged' => ['allow' => $report['allow_review'], 'block' => $report['block_review']],
+            'pulled' => $pulled && collect($pulled)->flatten()->isNotEmpty() ? $pulled + ['at' => now()->toIso8601String()] : ($policy->sync_details['pulled'] ?? null),
+            'authoritative' => $pulled !== null,
         ]);
+    }
+
+    /** UniFi is the source of truth unless an admin turned it off. */
+    public function authoritative(): bool
+    {
+        return (bool) ($this->providers->integration()?->configuration['controller_authoritative'] ?? true);
+    }
+
+    /**
+     * Bring the controller's state into this app: entries added there are
+     * imported into the policy's own lists, managed entries removed there
+     * are kept out of this policy, and the controller's lists and categories
+     * become the new baseline. Changes this app still intends to make (for
+     * example removing an expired approval) are left for the next push.
+     *
+     * @param  array<string, mixed>  $filter
+     * @param  array{allow: list<string>, block: list<string>}  $live
+     * @param  list<string>  $liveCategories
+     * @return array{allow_imported: list<string>, block_imported: list<string>, allow_excluded: list<string>, block_excluded: list<string>, restored: list<string>, categories_changed: list<string>}
+     */
+    private function absorb(FilterPolicy $policy, array $filter, array $live, array $liveCategories): array
+    {
+        $baseline = $policy->sync_baseline ?? [];
+        $desired = $this->engine->desired($policy);
+        $report = $this->engine->reconcile($policy);
+        $rules = $this->engine->rules();
+        $result = ['allow_imported' => [], 'block_imported' => [], 'allow_excluded' => [], 'block_excluded' => [], 'restored' => [], 'categories_changed' => []];
+
+        $exclusions = $policy->exclusions();
+        foreach (['allow', 'block'] as $kind) {
+            foreach ($exclusions[$kind] as $domain) {
+                if (in_array($domain, $live[$kind], true) && ! in_array($domain, $baseline[$kind] ?? [], true)) {
+                    $exclusions[$kind] = array_values(array_diff($exclusions[$kind], [$domain]));
+                    $result['restored'][] = $domain;
+                }
+            }
+        }
+
+        foreach (['allow', 'block'] as $kind) {
+            foreach ($live[$kind] as $domain) {
+                $wanted = $kind === 'allow'
+                    ? collect($desired['allow'])->contains(fn (string $entry) => $rules->covers($entry, $domain))
+                    : in_array($domain, $desired['block'], true);
+                if ($wanted || in_array($domain, $exclusions[$kind], true)) {
+                    continue;
+                }
+                $addedThere = ! in_array($domain, $baseline[$kind] ?? [], true);
+                if ($addedThere || in_array($domain, $report["{$kind}_review"], true)) {
+                    $result["{$kind}_imported"][] = $domain;
+                }
+            }
+
+            foreach (array_diff($baseline[$kind] ?? [], $live[$kind]) as $domain) {
+                if (in_array($domain, $desired[$kind], true) && ! in_array($domain, $exclusions[$kind], true)) {
+                    $exclusions[$kind][] = $domain;
+                    $result["{$kind}_excluded"][] = $domain;
+                }
+            }
+        }
+
+        foreach ($result['block_imported'] as $domain) {
+            if (in_array($domain, $desired['allow'], true) && ! in_array($domain, $exclusions['allow'], true)) {
+                $exclusions['allow'][] = $domain;
+                $result['allow_excluded'][] = $domain;
+            }
+        }
+
+        foreach ([[ListKind::Allow, 'allow_imported'], [ListKind::Block, 'block_imported']] as [$kind, $key]) {
+            if ($result[$key] === []) {
+                continue;
+            }
+            $list = $this->engine->ownList($policy, $kind, "Entries added in the controller filter {$filter['name']}.");
+            foreach ($result[$key] as $domain) {
+                $this->engine->upsertEntry($list, $domain, ['source' => EntrySource::Import, 'note' => "Added in the controller ({$filter['name']})"]);
+            }
+        }
+
+        if ($result['allow_excluded'] !== []) {
+            $this->noteRemovedApprovals($policy, $filter['name'], $result['allow_excluded']);
+        }
+
+        if (isset($baseline['categories']) && $baseline['categories'] !== $liveCategories) {
+            $result['categories_changed'] = array_values(array_merge(
+                array_map(fn ($category) => "+{$category}", array_diff($liveCategories, $baseline['categories'])),
+                array_map(fn ($category) => "−{$category}", array_diff($baseline['categories'], $liveCategories)),
+            ));
+        }
+
+        $policy->forceFill(['controller_exclusions' => ['allow' => array_values(array_unique($exclusions['allow'])), 'block' => array_values(array_unique($exclusions['block']))]])->save();
+        $this->setBaseline($policy, $live['allow'], $live['block'], $liveCategories);
+
+        if (collect($result)->flatten()->isNotEmpty()) {
+            app(AuditLogger::class)->log('policy.controller_changes_pulled', $policy, ['filter' => $filter['name']] + $result);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Tell IT on each affected request that the controller no longer
+     * allows some of its hostnames.
+     *
+     * @param  list<string>  $domains
+     */
+    private function noteRemovedApprovals(FilterPolicy $policy, string $filterName, array $domains): void
+    {
+        PolicyEntry::query()->with('policyList')->whereIn('domain', $domains)->where('source', EntrySource::Request)->whereNotNull('website_request_id')->get()
+            ->filter(fn (PolicyEntry $entry) => $entry->policyList->appliesTo($policy))
+            ->groupBy('website_request_id')
+            ->each(fn ($entries, $requestId) => RequestEvent::query()->create([
+                'website_request_id' => $requestId, 'type' => 'controller_removed', 'internal' => true,
+                'message' => 'Removed from the controller filter '.$filterName.' by hand: '.$entries->pluck('domain')->unique()->join(', ').". It is kept out of {$policy->name} until IT restores it on the policy page.",
+            ]));
     }
 
     /** @param array<string, mixed> $details */

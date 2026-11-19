@@ -77,9 +77,11 @@ class ControllerPusher
             return ['ok' => false, 'message' => "{$policy->name} shares its controller filter with {$sharing->join(', ')}. Link each filter to one policy only."];
         }
 
-        $pulled = $this->sync->pull($policy, $actor, $refresh);
-        if (! $pulled['ok']) {
-            return ['ok' => false, 'message' => $pulled['message']];
+        // Read the live filter and, with the controller as the source of
+        // truth, pull in anything changed there before working out the push.
+        $checked = $this->checker()->checkOne($policy, $refresh);
+        if ($checked->sync_status === 'error') {
+            return ['ok' => false, 'message' => $checked->sync_details['summary'] ?? 'The controller filter could not be read.'];
         }
 
         $filter = $this->sync->filterFor($policy->refresh());

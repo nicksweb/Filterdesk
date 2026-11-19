@@ -253,6 +253,7 @@ class SettingsController extends Controller
             'mode' => ['required', 'in:read_only,active'],
             'entry_matching' => ['required', 'in:exact,includes_subdomains'],
             'auto_push' => ['nullable', 'boolean'],
+            'controller_authoritative' => ['nullable', 'boolean'],
         ]);
 
         $integration = IntegrationConfig::query()->where('provider', $validated['provider'])->first()
@@ -276,6 +277,7 @@ class SettingsController extends Controller
                 'api_prefix' => $validated['api_prefix'] ?? '/proxy/network/integration/v1',
                 'entry_matching' => $validated['entry_matching'],
                 'auto_push' => $validated['mode'] === 'active' && $request->boolean('auto_push'),
+                'controller_authoritative' => $request->boolean('controller_authoritative', true),
             ],
         ]);
         if (filled($validated['api_key'] ?? null)) {

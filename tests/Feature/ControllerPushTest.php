@@ -8,6 +8,7 @@ use App\Enums\RequestStatus;
 use App\Models\ControllerPush;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
+use App\Models\PolicyList;
 use App\Models\User;
 use App\Notifications\FilterSyncAlertNotification;
 use App\Services\Network\MockNetworkProvider;
@@ -148,6 +149,7 @@ class ControllerPushTest extends TestCase
 
     public function test_sync_check_tells_pending_changes_apart_from_edits_made_in_the_controller(): void
     {
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['controller_authoritative' => false]]);
         $it = User::factory()->it()->create();
         $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'managed.example.org', ['source' => 'manual']);
         $this->artisan('policy:check-sync')->assertSuccessful();
@@ -188,5 +190,64 @@ class ControllerPushTest extends TestCase
 
         $this->assertSame('error', $this->students->refresh()->sync_status);
         $this->assertStringContainsString('no longer exists', $this->students->sync_details['summary']);
+    }
+
+    public function test_the_controller_is_the_source_of_truth_for_entries_added_or_removed_there(): void
+    {
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['auto_push' => true]]);
+        $it = User::factory()->it()->create();
+        $request = app(RequestWorkflow::class)->approve($this->pendingRequest(['approved.example.org'], AccessScope::StaffAndStudents), $it);
+        $this->assertSame(RequestStatus::Active, $request->status);
+        $this->assertSame(['example.edu'], PolicyList::query()->where('filter_policy_id', $this->students->id)->first()?->entries()->pluck('domain')->all(), 'Hand-made controller entries are pulled in before the first push');
+
+        // While this app is unavailable, IT edits the student filter directly in UniFi.
+        (new MockNetworkProvider)->writeContentFilterLists('sim-filter-students', ['example.edu', 'added-in-unifi.example.org'], ['blocked-in-unifi.example.org']);
+        $this->artisan('policy:check-sync')->assertSuccessful();
+        $this->students->refresh();
+
+        $this->assertSame('in_sync', $this->students->sync_status);
+        $this->assertSame(['added-in-unifi.example.org'], $this->students->sync_details['pulled']['allow_imported']);
+        $this->assertSame(['approved.example.org'], $this->students->exclusions()['allow']);
+        $desired = $this->engine->desired($this->students);
+        $this->assertContains('added-in-unifi.example.org', $desired['allow']);
+        $this->assertNotContains('approved.example.org', $desired['allow'], 'Removed in UniFi, so kept out of the student filter');
+        $this->assertContains('approved.example.org', $this->engine->desired($this->staff)['allow'], 'Other filters are unaffected');
+        $this->assertSame(['blocked-in-unifi.example.org'], $desired['block']);
+        $this->assertTrue($request->events()->where('type', 'controller_removed')->exists());
+
+        $this->artisan('policy:push')->assertSuccessful();
+        $this->assertSame(['example.edu', 'added-in-unifi.example.org'], $this->filter('sim-filter-students')['allow'], 'Automatic pushes do not undo UniFi changes');
+
+        $this->actingAs($it)->post(route('admin.policy.policies.restore', $this->students), ['kind' => 'allow', 'domains' => ['approved.example.org']])->assertSessionHas('success');
+        $this->assertContains('approved.example.org', $this->filter('sim-filter-students')['allow']);
+        $this->assertSame([], $this->students->refresh()->exclusions()['allow']);
+    }
+
+    public function test_blocking_in_unifi_something_allowed_here_keeps_the_block(): void
+    {
+        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'video.example.org', ['source' => 'manual']);
+        $this->actingAs(User::factory()->it()->create())->post(route('admin.policy.policies.push', $this->students));
+
+        (new MockNetworkProvider)->writeContentFilterLists('sim-filter-students', ['example.edu', 'video.example.org'], ['video.example.org']);
+        $this->artisan('policy:check-sync')->assertSuccessful();
+
+        $desired = $this->engine->desired($this->students->refresh());
+        $this->assertContains('video.example.org', $desired['block']);
+        $this->assertNotContains('video.example.org', $desired['allow']);
+    }
+
+    public function test_an_entry_removed_in_unifi_and_added_back_there_is_no_longer_excluded(): void
+    {
+        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'flaky.example.org', ['source' => 'manual']);
+        $this->actingAs(User::factory()->it()->create())->post(route('admin.policy.policies.push', $this->students));
+
+        (new MockNetworkProvider)->writeContentFilterLists('sim-filter-students', ['example.edu'], []);
+        $this->artisan('policy:check-sync');
+        $this->assertSame(['flaky.example.org'], $this->students->refresh()->exclusions()['allow']);
+
+        (new MockNetworkProvider)->writeContentFilterLists('sim-filter-students', ['example.edu', 'flaky.example.org'], []);
+        $this->artisan('policy:check-sync');
+        $this->assertSame([], $this->students->refresh()->exclusions()['allow']);
+        $this->assertSame('in_sync', $this->students->sync_status);
     }
 }

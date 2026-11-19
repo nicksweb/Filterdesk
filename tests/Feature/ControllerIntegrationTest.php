@@ -38,7 +38,7 @@ class ControllerIntegrationTest extends TestCase
     {
         IntegrationConfig::query()->where('provider', 'mock')->update(['enabled' => false]);
         IntegrationConfig::query()->create(['provider' => 'unifi', 'name' => 'UniFi', 'mode' => 'read_only', 'enabled' => true,
-            'configuration' => ['connection' => 'cloud', 'console_id' => self::CONSOLE], 'credentials' => ['api_key' => 'key']]);
+            'configuration' => ['connection' => 'cloud', 'console_id' => self::CONSOLE, 'controller_authoritative' => false], 'credentials' => ['api_key' => 'key']]);
 
         $base = 'api.ui.com/v1/connector/consoles/'.rawurlencode(self::CONSOLE).'/proxy/network';
         Http::fake([
