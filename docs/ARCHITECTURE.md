@@ -12,7 +12,12 @@
 | `probe-student` | Chromium/DNS/HTTP check from student path | Internal control network plus student egress |
 | `probe-staff` | Chromium/DNS/HTTP check from staff path | Internal control network plus staff egress |
 
-The application calls both probes concurrently. Each creates a fresh browser context but reuses its Chromium process. A default 2.8-second navigation ceiling keeps the common result within the requested 1–3 second window; DNS, overloaded hosts and cold startup can exceed that target.
+The application calls both probes concurrently over the private `probe_control`
+network. Only the application service joins that network; probes use their
+separate egress network or configured VLAN for browser traffic. Each creates a
+fresh browser context but reuses its Chromium process. A default 2.8-second
+navigation ceiling keeps the common result within the requested 1–3 second
+window; DNS, overloaded hosts and cold startup can exceed that target.
 
 ## Security boundaries
 
