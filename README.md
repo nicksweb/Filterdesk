@@ -1,6 +1,6 @@
 # IT Requests
 
-IT Requests is an open-source, Docker-first self-service portal for schools. Staff can compare website access from Staff and Student network paths, capture a screenshot, and request that one or more domains be allowed. IT receives an auditable workflow for questions, reassignment, approval, manual/provider action, notifications, and temporary-access expiry.
+IT Requests is an open-source, Docker-first self-service portal for schools. Staff check a website from the Staff and Student networks side by side (with a screenshot), then ask for it to be allowed, or blocked, for a while or permanently. IT gets an auditable workflow (questions, reassignment, approval, notifications, expiry) and the app keeps UniFi's content filters in step: it reads them, pushes approved changes with read-back verification, and treats UniFi as the source of truth.
 
 The application is school-neutral: branding, identity, network profiles, policy and notifications are configured through the first-run wizard. UniFi Network is the first provider, behind a vendor-neutral interface.
 
@@ -34,71 +34,111 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - First-run installation wizard which locks after completion
 - Audit records, health checks, isolated containers and explicit proxy trust
 
-## Quick start
+## Setting it up
 
-Requirements: Docker Engine 28+ with Compose v2.33+ (for probe VLAN routing), a dedicated hostname/reverse proxy, and 4 GB free RAM if screenshots are enabled.
+### 1. Requirements
+
+- A Linux host with **Docker Engine 28+** and **Compose v2.33+** (`docker version`, `docker compose version`), about 4 GB free RAM for screenshots.
+- A hostname and a reverse proxy with HTTPS (Nginx Proxy Manager, Caddy, Traefik or Nginx). For a quick local look you can skip this and use `http://127.0.0.1:8088`.
+- A **UniFi API key** (see [UniFi API key](#unifi-api-key)). Optional: OIDC (for example Entra ID) and SMTP details.
+
+### 2. Get the code and create `.env`
 
 ```bash
 git clone https://github.com/nicksweb/it-edu-selfservice.git itrequests
 cd itrequests
-chmod +x bin/install
-./bin/install
+./bin/install          # creates .env with a fresh APP_KEY, database password and probe key
 ```
 
-Edit `.env` and set at least `APP_URL` and `TRUSTED_PROXIES`. Then:
+Edit `.env`:
+
+| Setting | Set it to |
+| --- | --- |
+| `APP_URL` | The address people will use, for example `https://itrequests.example.edu.au` (or `http://127.0.0.1:8088` locally, with `SESSION_SECURE_COOKIE=false`). |
+| `TRUSTED_PROXIES` | The **reverse proxy's IP address** as the app sees it. If it is wrong, pages load **without styling** (the app links `http://` stylesheets from an `https://` page). For Nginx Proxy Manager in Docker: `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' <npm-container>`. The wizard's first page tells you if it is wrong and which address to use. |
+| `APP_TIMEZONE` | Your timezone, for example `Australia/Brisbane`. |
+
+### 3. Start it
+
+Without a reverse proxy, or with one on the host itself (it reaches the app at `127.0.0.1:8088`):
 
 ```bash
 docker compose up -d --build
-docker compose ps
 ```
 
-Open `http://127.0.0.1:8088` locally, or configure the reverse proxy first and open `APP_URL`. The installation wizard creates the initial administrator and configures the school, OIDC, UniFi, probes, email and approval defaults.
-
-Do not expose PostgreSQL, PHP-FPM, or either probe to the internet. The supplied Compose file publishes only Nginx on loopback.
-
-## Trying a release
-
-A first run, roughly in this order:
-
-1. Install as above and complete the wizard (school, administrator, sign-in, UniFi key in **read-only** mode, email).
-2. Sign in. The dashboard points you to **Policy lists → Guided setup**; choose **Bring everything in** and check each policy's change set is empty.
-3. Plan the probes on the same page (trunk interface, extra networks), write `compose.vlan.yml`, start it, enable the profiles and confirm each probe's address under **Settings → Network profiles**.
-4. Check a few websites, raise a request, approve it, and compare the policy page with UniFi.
-5. Only then switch the network provider to **Active** to let the app push changes.
-
-Report problems with the steps, the UniFi Network version and what *Settings → Diagnostics* shows.
-
-## Network probes and VLANs
-
-The default probes use normal Docker egress, useful for evaluation but not a real comparison: UniFi filters DNS per network, so each probe must sit on its policy's VLAN and use that VLAN's gateway for DNS. After connecting UniFi, **Policy lists → Guided setup** plans one probe per policy (plus extra probes for any other network, such as guest Wi-Fi) and generates `compose.vlan.yml` with the host commands; see [probe containers on the VLANs](docs/DEPLOYMENT.md#probe-containers-on-the-vlans). To write it by hand instead, create one Docker macvlan/ipvlan network per access network, copy `compose.vlan.example.yml` to `compose.vlan.yml`, update `.env`, then start with:
+With a reverse proxy in another Docker container (such as Nginx Proxy Manager), join its network so it can reach the app by name:
 
 ```bash
-docker compose -f compose.yml -f compose.vlan.yml up -d --build
+cp compose.proxy.example.yml compose.proxy.yml   # set REVERSE_PROXY_NETWORK in .env if its network is not "frontend"
+docker compose -f compose.yml -f compose.proxy.yml up -d --build
 ```
 
-Each probe must have the intended VLAN as its default route. If a UniFi block page resolves to a private hostname, explicitly list that hostname in `STUDENT_ALLOWED_PRIVATE_HOSTS` or `STAFF_ALLOWED_PRIVATE_HOSTS`; private targets are otherwise rejected to reduce SSRF exposure.
+and point the proxy host at `http://it-edu-selfservice-web-1:8080`. The first build takes a few minutes. `docker compose ps` should show `db`, `web` and both probes healthy.
 
-Point each probe at its VLAN's resolver for uncached lookups:
+### 4. Run the installation wizard
 
-```env
-STUDENT_PROBE_DNS_SERVERS=10.20.0.1
-STAFF_PROBE_DNS_SERVERS=10.10.0.1
+Open `APP_URL`. The wizard locks itself once finished.
+
+1. **System checks:** database, encryption key, queue and reverse proxy. Fix anything marked `!` first.
+2. **School:** name, timezone, URL, and the Schoolbox origin if it will be embedded.
+3. **Administrator and sign-in:** the first local admin (password of 14+ characters), and optionally OIDC with role rules.
+4. **UniFi:** local console key (console URL) or Site Manager key (console ID), and **Read-only** mode to start.
+5. **Network access profiles:** keep `http://probe-student:3000` and `http://probe-staff:3000`; the network IDs can be filled in later.
+6. **Email:** SMTP and the IT notification address.
+7. **Approval policy:** auto-approval, student requests, default access length and categories.
+8. **Review and complete**, then sign in as the administrator.
+
+### 5. Bring UniFi in
+
+The dashboard points you to **Policy lists → Guided setup**. **Bring everything in** reads every UniFi content filter and sets the tool up to match it: a policy per filter (the default Students and Staff policies are reused), every allow and block entry imported, networks mapped, categories kept, probe profiles prepared. Nothing changes in UniFi, and each policy's change set should be empty afterwards.
+
+### 6. Put the probes on the VLANs
+
+Out of the box the probes use Docker's own network, which is fine for a first look but not a real comparison: UniFi filters DNS per network, so each probe must sit on its policy's VLAN and use that VLAN's gateway for DNS. On the Guided setup page, under *Probe containers*:
+
+1. Run `bin/probe-interfaces` on the host to find the trunk interface (and `sudo bin/probe-interfaces --listen <trunk>` to confirm the switch port sends the VLANs tagged). Enter it as the **trunk interface**; each probe uses `<trunk>.<VLAN>`. Tick **extra probes** for other networks (guest Wi-Fi, BYOD) and save.
+2. Download `compose.vlan.yml` (or `docker compose exec -T app php artisan probes:compose > compose.vlan.yml`), run the `docker network create` commands at the top of it, add its `.env` lines, and restart with the extra file:
+
+   ```bash
+   docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
+   ```
+
+3. **Create and link probe profiles**, enable each under *Settings → Network profiles*, and check the address, MAC, gateway and DNS each probe reports there.
+
+Details: [probe containers on the VLANs](docs/DEPLOYMENT.md#probe-containers-on-the-vlans).
+
+### 7. Try it, then go live
+
+Check a few websites, raise a request, approve it, and compare the policy page with UniFi. When it behaves, set *Settings → Network provider* to **Active** (and optionally **Push automatically**) so the app pushes changes to UniFi. Report problems with the steps, the UniFi Network version and what *Settings → Diagnostics* shows.
+
+Keep PostgreSQL, PHP-FPM and the probes off the internet; the Compose file only publishes Nginx on `127.0.0.1`.
+
+### Starting again
+
+To wipe an install and run the wizard again (this deletes its database; UniFi is not touched):
+
+```bash
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > itrequests-backup.dump   # optional backup
+docker compose -f compose.yml -f compose.proxy.yml down -v --rmi local
+mv .env .env.old && ./bin/install
 ```
+
+Keep `.env.old` with any backup: its `APP_KEY` is needed to read the encrypted credentials in it.
 
 See [deployment and operations](docs/DEPLOYMENT.md), [upgrading](docs/UPGRADING.md), [policy reconciliation](docs/POLICY_RECONCILIATION.md), [architecture](docs/ARCHITECTURE.md), and [UniFi compatibility](docs/UNIFI.md).
 
-## UniFi API key required
+## UniFi API key
 
 Use an **official UniFi API key**, never a UI password. There are two kinds, and they are not interchangeable:
 
 | Key | Where to create it | Connection setting | Reaches the console via |
 | --- | --- | --- | --- |
-| **Local key** | On the console: Network → Settings → Control Plane → Integrations | *Local console key* | `https://<console>/proxy/network/integration/v1` |
+| **Local key** | On the console: Network → Settings → Control Plane → Integrations | *Local console key* | `https://<console>/proxy/network/…` |
 | **Site Manager key** | unifi.ui.com → API | *Site Manager cloud connector* | `https://api.ui.com/v1/connector/consoles/<id>/…` |
 
-A Site Manager key sent to the local endpoint is rejected with HTTP 401. With the cloud connector, the key's owner must own the console and the console must be online. Use **Discover** in *Settings → Network provider* to list consoles, sites and networks. Keep the integration **read-only** until testing succeeds.
+A Site Manager key sent to the local endpoint is rejected with HTTP 401. With the cloud connector, the key's owner must own the console and the console must be online. Use **Discover** in *Settings → Network provider* to list consoles, sites and networks.
 
-The official API includes site/network discovery and firewall/ACL resources, but does not currently provide a portable content-filter *domain allowlist* operation across supported Network versions. IT Requests therefore reports that capability as unavailable, adds approved hostnames to the managed **Policy lists**, and places the request into **Action required** until IT copies the change into UniFi. It does not call undocumented controller endpoints. See [docs/UNIFI.md](docs/UNIFI.md).
+Sites, networks and firewall IP groups use the official integration API. Content-filter lists and categories are not in the official API, so the app uses the Network application's own content-filtering endpoints, which accept the same key. It only reads them in **Read-only** mode; in **Active** mode every write is read back and verified, recorded, and can be rolled back. If a Network release changes those endpoints, calls fail with a clear message and IT can still copy lists by hand. See [docs/UNIFI.md](docs/UNIFI.md).
 
 ## Updating
 
@@ -106,9 +146,11 @@ Configuration is stored in PostgreSQL and named volumes, outside the image. Back
 
 ```bash
 git pull --ff-only
-docker compose build --pull
-docker compose up -d
+docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml build --pull
+docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
 ```
+
+Leave out any override file you do not use.
 
 The one-shot `migrate` service runs `php artisan itrequests:upgrade` (migrations, backfills, cache clearing, worker restart) before workers start. Read [CHANGELOG.md](CHANGELOG.md) and [docs/UPGRADING.md](docs/UPGRADING.md) before each upgrade.
 
@@ -126,8 +168,11 @@ Laravel Pint is the formatter. Provider integrations implement `App\Services\Net
 
 Do not open public issues containing vulnerabilities, credentials, school names, internal domains, screenshots or topology. Follow [SECURITY.md](SECURITY.md). This software can be authorised to change network policy; validate it in read-only mode and apply least privilege.
 
-Released under the [MIT License](LICENSE).
 
 ## Third-party blocklists
 
 The optional blocklist presets (Policy lists → Blocklists & firewall) point to [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists), maintained by hagezi and contributors and published under GPL-3.0. IT Requests does not include any list content: lists are downloaded from the publisher when an administrator subscribes and on each scheduled refresh. Review a list's description in that repository before using it, and report false positives to the publisher.
+
+## Licence
+
+Released under the [MIT License](LICENSE).

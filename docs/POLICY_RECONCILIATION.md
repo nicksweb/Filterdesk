@@ -2,8 +2,11 @@
 
 IT Requests keeps the *desired* content-filter state for every network and
 compares it with what is actually configured in the controller. UniFi's
-official API does not expose content-filter domain lists, so the controller
-side is a copy-and-paste step. IT Requests never calls undocumented endpoints.
+official API does not expose content-filter domain lists, so with UniFi the
+app reads and (in Active mode) writes them through the Network application's
+own content-filtering endpoints, verifying every write; see
+[UNIFI.md](UNIFI.md). With pushing off, or another provider, the controller
+side is a copy-and-paste step using the lists described here.
 
 ## Model
 
