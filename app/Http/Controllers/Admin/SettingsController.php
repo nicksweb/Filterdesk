@@ -204,6 +204,8 @@ class SettingsController extends Controller
             'it_notification_address' => ['required', 'email'],
             'events' => ['nullable', 'array'],
             'events.*' => ['in:new_request,requester_reply,assignment,filter_sync'],
+            'requester_events' => ['nullable', 'array'],
+            'requester_events.*' => ['in:submitted,expiry_reminder,expired'],
             'daily_digest' => ['nullable', 'boolean'],
             'digest_time' => ['required', 'date_format:H:i'],
         ]);
@@ -234,6 +236,7 @@ class SettingsController extends Controller
         $settings->set('notifications', [
             'it_address' => strtolower($validated['it_notification_address']),
             'events' => collect(['new_request', 'requester_reply', 'assignment', 'filter_sync'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $events, true)])->all(),
+            'requester' => collect(['submitted', 'expiry_reminder', 'expired'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $validated['requester_events'] ?? [], true)])->all(),
             'daily_digest' => $request->boolean('daily_digest'),
             'digest_time' => $validated['digest_time'],
         ]);
@@ -339,6 +342,8 @@ class SettingsController extends Controller
             'students_can_request' => ['nullable', 'boolean'],
             'default_temporary_days' => ['required', 'integer', 'min:1', 'max:365'],
             'categories' => ['required', 'string', 'max:2000'],
+            'window_lead_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
+            'window_lag_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
         ]);
 
         $settings->set('approval', [
@@ -346,6 +351,8 @@ class SettingsController extends Controller
             'students_can_request' => $request->boolean('students_can_request'),
             'default_temporary_days' => (int) $validated['default_temporary_days'],
             'categories' => $this->commaList($validated['categories'], lower: false),
+            'window_lead_minutes' => (int) ($validated['window_lead_minutes'] ?? 5),
+            'window_lag_minutes' => (int) ($validated['window_lag_minutes'] ?? 5),
         ]);
     }
 

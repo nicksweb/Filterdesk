@@ -70,6 +70,12 @@
                     <label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked($settings->get("notifications.events.{$event}", true))><span>{{ $label }}</span></label>
                 @endforeach
             </fieldset>
+            <fieldset><legend>Email requesters when</legend>
+                <p class="hint">Requesters are always emailed when their request is approved, declined, needs more information, goes live, has its access window changed or is revoked.</p>
+                @foreach(['submitted' => 'Their request is received (confirmation)', 'expiry_reminder' => 'Temporary access longer than a day ends within 24 hours', 'expired' => 'Temporary access has ended'] as $event => $label)
+                    <label class="choice compact"><input type="checkbox" name="requester_events[]" value="{{ $event }}" @checked($settings->get("notifications.requester.{$event}", true))><span>{{ $label }}</span></label>
+                @endforeach
+            </fieldset>
             <div class="fields two">
                 <label class="choice compact"><input type="hidden" name="daily_digest" value="0"><input type="checkbox" name="daily_digest" value="1" @checked($settings->get('notifications.daily_digest', true))><span><strong>Daily reconciliation digest</strong><small>Sent only when there are changes to apply.</small></span></label>
                 <label>Digest time<input type="time" name="digest_time" value="{{ old('digest_time', $settings->get('notifications.digest_time', '07:30')) }}"></label>
@@ -175,6 +181,10 @@
             <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked($settings->get('approval.auto_approve_staff', false))><span><strong>Auto-approve staff-only requests</strong><small>The domains go straight into the Staff allow list. IT still applies them in the controller unless the provider can do it automatically.</small></span></label>
             <label class="choice"><input type="hidden" name="students_can_request" value="0"><input type="checkbox" name="students_can_request" value="1" @checked($settings->get('approval.students_can_request', false))><span><strong>Students may submit requests</strong><small>Students can always run website checks.</small></span></label>
             <label>Default temporary access (days)<input name="default_temporary_days" type="number" min="1" max="365" value="{{ $settings->get('approval.default_temporary_days', 30) }}"></label>
+            <div class="fields two">
+                <label>Open timed access early (minutes)<input name="window_lead_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lead_minutes', 5) }}"><small>Allow or block entries go live this long before their start, so the controller has them in place on time.</small></label>
+                <label>Close timed access late (minutes)<input name="window_lag_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lag_minutes', 5) }}"><small>Entries are removed this long after their end. With automatic pushing, changes reach the controller within about a minute.</small></label>
+            </div>
             <label>Categories <span class="optional">comma or line separated</span><textarea name="categories" rows="4">{{ implode("\n", $settings->get('approval.categories', [])) }}</textarea></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>

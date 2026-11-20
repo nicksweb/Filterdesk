@@ -121,3 +121,7 @@ input.narrow{width:70px}
 .sync-pulled,.sync-excluded{margin-top:12px;padding:12px 14px;border-radius:9px;background:#f2f7fd}
 .sync-pulled p,.sync-excluded p{margin:4px 0}
 .sync-excluded .adopt-form{padding:0}
+.users-table .inline-form{grid-template-columns:130px 105px 105px 1fr auto}
+.window-fields{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:16px 0}
+.window-fields legend{padding:0 6px;font-size:.84rem;font-weight:680}
+@media(max-width:620px){.users-table .inline-form{grid-template-columns:1fr}}

@@ -18,7 +18,8 @@
                     <div><dt>Requested access</dt><dd>{{ $websiteRequest->access_scope->label() }}</dd></div>
                     <div><dt>Category</dt><dd>{{ $websiteRequest->category }}</dd></div>
                     <div><dt>Assigned to</dt><dd>{{ $websiteRequest->assignedTo?->name ?? 'Unassigned' }}</dd></div>
-                    <div><dt>Period</dt><dd>@if($websiteRequest->requested_until){{ $websiteRequest->requested_from?->local()->format('j M Y g:i a') ?? 'As soon as approved' }} – {{ $websiteRequest->requested_until->local()->format('j M Y g:i a') }}@else Permanent @endif</dd></div>
+                    <div><dt>Requested period</dt><dd>@if($websiteRequest->requested_until){{ $websiteRequest->requested_from?->local()->format('j M Y g:i a') ?? 'As soon as approved' }} – {{ $websiteRequest->requested_until->local()->format('j M Y g:i a') }}@else Permanent @endif</dd></div>
+                    @if($websiteRequest->approved_at)<div><dt>Access window</dt><dd>{{ $websiteRequest->windowLabel() }}@if($websiteRequest->windowChanged())<small>Set by IT</small>@endif</dd></div>@endif
                     @if($websiteRequest->approved_at)
                         <div><dt>Approved</dt><dd>{{ $websiteRequest->approved_at->local()->format('j M Y g:i a') }}{{ $websiteRequest->approvedBy ? ' by '.$websiteRequest->approvedBy->name : '' }}</dd></div>
                         <div><dt>Applied to</dt><dd>{{ $websiteRequest->effectiveScope()->label() }}</dd></div>
@@ -52,6 +53,14 @@
                                 <a href="{{ route('checks.create', ['websites' => implode("\n", $websiteRequest->domains)]) }}">Check now</a></p>
                         @endif
                         <label>Additional hostnames <span class="optional">one per line</span><textarea name="extra_domains" rows="2" placeholder="cdn.example.net">{{ old('extra_domains') }}</textarea></label>
+                        @php($margins = \App\Models\PolicyEntry::margins())
+                        <fieldset class="window-fields"><legend>Access window <span class="optional">school time · blank end = permanent</span></legend>
+                            <div class="fields two">
+                                <label>Allow from<input type="datetime-local" name="access_from" value="{{ old('access_from', $websiteRequest->requested_from?->local()->format('Y-m-d\TH:i')) }}"></label>
+                                <label>Allow until<input type="datetime-local" name="access_until" value="{{ old('access_until', $websiteRequest->requested_until?->local()->format('Y-m-d\TH:i')) }}"></label>
+                            </div>
+                            <p class="hint">Pre-filled with what was requested; change it to approve a different period. Timed access is put in place {{ $margins['lead'] }} min before the start and taken out {{ $margins['lag'] }} min after the end.</p>
+                        </fieldset>
                         <div class="fields two">
                             <label>Apply to
                                 <select name="scope">
@@ -174,6 +183,18 @@
                 @endif
 
                 @if($status->isGranted())
+                    <section class="panel action-panel">
+                        <h2>Access window</h2>
+                        <p class="section-copy">{{ $websiteRequest->windowLabel() }}</p>
+                        <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}">@csrf
+                            <input type="hidden" name="action" value="window">
+                            <label>Allow from<input type="datetime-local" name="access_from" value="{{ $websiteRequest->access_from?->local()->format('Y-m-d\TH:i') }}"></label>
+                            <label>Allow until <span class="optional">blank = permanent</span><input type="datetime-local" name="access_until" value="{{ $websiteRequest->expires_at?->local()->format('Y-m-d\TH:i') }}"></label>
+                            <label>Note to requester <span class="optional">optional</span><input name="message"></label>
+                            <button class="button secondary full">Change window</button>
+                        </form>
+                    </section>
+
                     <section class="panel action-panel">
                         <h2>Revoke access</h2>
                         <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}">@csrf

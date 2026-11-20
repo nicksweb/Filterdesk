@@ -64,6 +64,7 @@
                     <label>Starts <span class="optional">optional</span><input type="datetime-local" name="starts_at" value="{{ old('starts_at') }}"></label>
                     <label>Expires <span class="optional">blank = permanent</span><input type="datetime-local" name="expires_at" value="{{ old('expires_at') }}"></label>
                 </div>
+                <p class="hint">Timed entries work on allow and block lists, so a site can be opened or closed for a lesson or exam. They go live {{ \App\Models\PolicyEntry::margins()['lead'] }} min early and are removed {{ \App\Models\PolicyEntry::margins()['lag'] }} min late to allow for syncing.</p>
                 <label>Note <span class="optional">why it was added</span><input name="note" value="{{ old('note') }}"></label>
                 <div class="form-actions"><button class="button primary">Add to list</button></div>
             </form>
@@ -94,7 +95,7 @@
             <section class="panel policy-section">
                 <h2>Next 48 hours</h2>
                 @forelse($upcoming['starting']->concat($upcoming['expiring']) as $entry)
-                    <div class="list-row static"><span><strong>{{ $entry->domain }}</strong><small>{{ $entry->policyList->name }}{{ $entry->websiteRequest ? ' · '.$entry->websiteRequest->reference : '' }}</small></span><small>{{ $entry->starts_at && $entry->starts_at->isFuture() ? 'Starts '.$entry->starts_at->diffForHumans() : 'Expires '.$entry->expires_at->diffForHumans() }}</small></div>
+                    <div class="list-row static"><span><strong>{{ $entry->domain }}</strong><small>{{ $entry->policyList->name }}{{ $entry->websiteRequest ? ' · '.$entry->websiteRequest->reference : '' }}</small></span><small>{{ $entry->isScheduled() ? 'Goes live '.$entry->effectiveFrom()->diffForHumans() : 'Removed '.$entry->effectiveUntil()->diffForHumans() }}</small></div>
                 @empty
                     <p class="hint">No scheduled starts or expiries.</p>
                 @endforelse

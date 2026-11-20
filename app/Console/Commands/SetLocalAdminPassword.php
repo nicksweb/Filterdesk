@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\SettingsRepository;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 
 /** Recover emergency local access from the host: docker compose exec app php artisan itrequests:admin-password you@school */
@@ -39,7 +40,8 @@ class SetLocalAdminPassword extends Command
             return self::FAILURE;
         }
 
-        $user->forceFill(['password' => $password, 'enabled' => true])->save();
+        $user->forceFill(['password' => $password, 'enabled' => true, 'password_login_enabled' => true])->save();
+        RateLimiter::clear('login-account:'.sha1($user->email));
         if ($this->option('enable-local-login')) {
             $settings->set('auth.emergency_local_login', true);
         }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\IntegrationConfig;
 use App\Models\User;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
@@ -53,7 +54,11 @@ class UserController extends Controller
 
     public function update(Request $request, User $user, AuditLogger $audit): RedirectResponse
     {
-        $validated = $request->validate(['role' => ['required', 'in:student,teacher,it,admin'], 'enabled' => ['nullable', 'boolean']]);
+        $validated = $request->validate(['role' => ['required', 'in:student,teacher,it,admin'], 'enabled' => ['nullable', 'boolean'], 'password_login_enabled' => ['nullable', 'boolean']]);
+        $passwordLogin = $request->boolean('password_login_enabled', $user->password_login_enabled);
+        if ($user->is($request->user()) && ! $passwordLogin && $user->password_login_enabled && ! IntegrationConfig::query()->where('provider', 'oidc')->where('enabled', true)->exists()) {
+            return back()->with('error', 'Single sign-on is not enabled, so turning off your own password sign-in would lock you out.');
+        }
         if ($user->is($request->user()) && (! $request->boolean('enabled') || $validated['role'] !== 'admin')) {
             return back()->with('error', 'You cannot remove your own administrator access.');
         }
@@ -62,8 +67,8 @@ class UserController extends Controller
         if ($user->isAdmin() && $remainingAdmins === 0 && (! $request->boolean('enabled') || $validated['role'] !== 'admin')) {
             return back()->with('error', 'At least one enabled administrator must remain.');
         }
-        $user->update(['role' => $validated['role'], 'enabled' => $request->boolean('enabled')]);
-        $audit->log('user.updated', $user, ['role' => $user->role, 'enabled' => $user->enabled]);
+        $user->update(['role' => $validated['role'], 'enabled' => $request->boolean('enabled'), 'password_login_enabled' => $passwordLogin]);
+        $audit->log('user.updated', $user, ['role' => $user->role, 'enabled' => $user->enabled, 'password_login_enabled' => $user->password_login_enabled]);
 
         return back()->with('success', 'User updated.');
     }

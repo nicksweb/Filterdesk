@@ -55,6 +55,30 @@ class RequestNotifier
         $this->send($request->requester, new RequestDecisionNotification($request, $message));
     }
 
+    /** Confirmation to the requester that the request reached IT. */
+    public function received(WebsiteRequest $request): void
+    {
+        if ($this->requesterEnabled('submitted')) {
+            $this->send($request->requester, new RequestDecisionNotification($request, 'We have received your request. IT will review it and email you when there is a decision or a question.', 'received'));
+        }
+    }
+
+    /** Warning that temporary access ends soon. */
+    public function expiringSoon(WebsiteRequest $request): void
+    {
+        if ($this->requesterEnabled('expiry_reminder')) {
+            $this->send($request->requester, new RequestDecisionNotification($request, 'Your access ends '.$request->expires_at->local()->format('l j M \a\t g:i a').'. If you still need it after that, submit a new request.', 'ending'));
+        }
+    }
+
+    /** Temporary access has ended. */
+    public function expired(WebsiteRequest $request): void
+    {
+        if ($this->requesterEnabled('expired')) {
+            $this->send($request->requester, new RequestDecisionNotification($request, 'Your temporary access has ended and the websites are filtered as normal again. Submit a new request if you need them again.'));
+        }
+    }
+
     /** A controller filter drifted from its policy or cannot be read. */
     public function filterSyncAlert(BaseNotification $notification): void
     {
@@ -92,6 +116,11 @@ class RequestNotifier
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function requesterEnabled(string $event): bool
+    {
+        return (bool) $this->settings->get("notifications.requester.{$event}", true);
     }
 
     private function enabled(string $event): bool

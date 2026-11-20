@@ -110,3 +110,27 @@ Without the original `APP_KEY`, encrypted credentials cannot be recovered.
 ## Upgrade rollback
 
 Database migrations are forward-only. Before an upgrade, retain the previous Git tag/image and a database backup. Rollback means restoring that backup and starting the prior images. Do not run an older image against a newer schema without a release-specific statement that it is safe.
+
+## Sign-in security
+
+Password sign-in is for emergencies; day-to-day sign-in should be single sign-on.
+
+- **Brute-force protection.** 5 failed attempts for one email address within 15 minutes lock password sign-in for that address for 15 minutes, from any IP. 20 failures from one IP within 15 minutes block that IP. The route is also limited to 5 attempts a minute. Every failure, lockout and block is in the audit log, and a lockout emails the account owner and the IT address.
+- **Turn off the installer's admin account.** Once an SSO administrator can sign in, untick **Password** for the local admin under **Users**, or turn off **Emergency local sign-in** under Settings → Authentication. You cannot turn off your own password sign-in while SSO is disabled.
+- **Break glass.** From the Docker host: `docker compose exec app php artisan itrequests:admin-password admin@example.org --enable-local-login`. This resets the password, re-enables password sign-in for that account and clears its lockout.
+- Restrict `/login` at the reverse proxy to staff networks where possible.
+
+## Emails
+
+| To | When | Can be turned off |
+|---|---|---|
+| IT address and opted-in IT staff | New request | Settings → Email |
+| Assignee (or IT) | Requester replied | Settings → Email |
+| Assignee | Request assigned to them | Settings → Email |
+| IT address and opted-in IT staff | A content filter changed outside the app or cannot be read | Settings → Email |
+| IT address | Daily reconciliation digest (only when there is something to do) | Settings → Email |
+| Account owner and IT address | Password sign-in locked after failed attempts | No |
+| Requester | Request received | Settings → Email |
+| Requester | Approved (or approved and scheduled), declined, more information needed, access live, access window changed, revoked | No |
+| Requester | Temporary access longer than a day ends within 24 hours | Settings → Email |
+| Requester | Temporary access ended | Settings → Email |

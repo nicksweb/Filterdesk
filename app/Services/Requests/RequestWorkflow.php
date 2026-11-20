@@ -3,6 +3,7 @@
 namespace App\Services\Requests;
 
 use App\Enums\AccessScope;
+use App\Enums\EntrySource;
 use App\Enums\RequestStatus;
 use App\Models\RequestEvent;
 use App\Models\User;
@@ -14,6 +15,7 @@ use App\Services\Network\UnsupportedProviderOperation;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Website\WebsiteChecker;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -52,6 +54,7 @@ class RequestWorkflow
 
         $this->audit->log('website_request.created', $websiteRequest, ['scope' => $websiteRequest->access_scope->value, 'domains' => $websiteRequest->domains]);
         $this->notifier->submitted($websiteRequest);
+        $this->notifier->received($websiteRequest);
 
         return $websiteRequest;
     }
@@ -60,21 +63,24 @@ class RequestWorkflow
      * Approve, place domains in the target allow lists, then try the provider.
      *
      * @param  list<string>|null  $domains  Final hostname set; defaults to the requested domains.
+     * @param  array{from: ?CarbonInterface, until: ?CarbonInterface}|null  $window  Access window chosen by IT; defaults to the requested one. A null "until" is permanent.
      */
-    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?AccessScope $scope = null): WebsiteRequest
+    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?AccessScope $scope = null, ?array $window = null): WebsiteRequest
     {
         $this->guard($websiteRequest, RequestStatus::open(), 'Only pending requests can be approved.');
         $domains = array_values(array_unique($domains ?: $websiteRequest->domains));
         $scope ??= $websiteRequest->access_scope;
+        $window ??= ['from' => $websiteRequest->requested_from, 'until' => $websiteRequest->requested_until];
 
-        $websiteRequest = DB::transaction(function () use ($websiteRequest, $actor, $note, $domains, $scope): WebsiteRequest {
+        $websiteRequest = DB::transaction(function () use ($websiteRequest, $actor, $note, $domains, $scope, $window): WebsiteRequest {
             $websiteRequest->forceFill([
                 'status' => RequestStatus::Approved,
                 'approved_at' => now(),
                 'approved_by_id' => $actor->id,
                 'approved_domains' => $domains,
                 'applied_scope' => $scope,
-                'expires_at' => $websiteRequest->requested_until,
+                'access_from' => $window['from'],
+                'expires_at' => $window['until'],
                 'resolution' => $note,
             ])->save();
 
@@ -106,16 +112,19 @@ class RequestWorkflow
                 $message = 'Approved, but the network provider action failed. IT intervention is required.';
             }
 
-            $changed = $domains !== $websiteRequest->domains || $scope !== $websiteRequest->access_scope;
-            $this->event($websiteRequest, $actor, 'approved', trim($message.($note ? "\n\n{$note}" : '')), [
-                'domains' => $domains, 'scope' => $scope->value, 'adjusted' => $changed,
+            $changed = $domains !== $websiteRequest->domains || $scope !== $websiteRequest->access_scope || $websiteRequest->windowChanged();
+            $windowNote = $websiteRequest->windowChanged() ? "\n\nAccess window set by IT: {$websiteRequest->windowLabel()}." : '';
+            $this->event($websiteRequest, $actor, 'approved', trim($message.$windowNote.($note ? "\n\n{$note}" : '')), [
+                'domains' => $domains, 'scope' => $scope->value, 'adjusted' => $changed, 'window' => $websiteRequest->windowLabel(),
             ]);
             $this->audit->log('website_request.approved', $websiteRequest, ['result' => $websiteRequest->status->value, 'domains' => $domains, 'scope' => $scope->value]);
 
             return $websiteRequest;
         });
 
-        $this->notifier->decision($websiteRequest, $note ? "{$note}\n\nAllowed: ".implode(', ', $domains) : 'Your request was approved. Allowed: '.implode(', ', $domains));
+        $opens = $websiteRequest->accessFrom()?->isFuture() ? ' Access opens '.$websiteRequest->accessFrom()->local()->format('j M Y \a\t g:i a').'.' : '';
+        $this->notifier->decision($websiteRequest, trim(($note ? "{$note}\n\n" : 'Your request was approved. ').'Allowed: '.implode(', ', $domains).'.'.$opens
+            .($websiteRequest->windowChanged() ? ' IT set the access window to '.$websiteRequest->windowLabel().'.' : '')));
 
         if ($websiteRequest->status === RequestStatus::ActionRequired && $this->pusher()->automatic()) {
             $this->pushAfter($websiteRequest, $actor, $scope, 'approval');
@@ -268,6 +277,33 @@ class RequestWorkflow
         return $websiteRequest;
     }
 
+    /**
+     * Change when a granted request's access starts and ends. A null
+     * "until" makes it permanent. The request's own policy entries move
+     * with it and the change is pushed when automatic pushing is on.
+     */
+    public function changeWindow(WebsiteRequest $websiteRequest, User $actor, ?CarbonInterface $from, ?CarbonInterface $until, ?string $note = null): WebsiteRequest
+    {
+        $this->guard($websiteRequest, RequestStatus::granted(), 'Only approved or active requests can have their access window changed.');
+        $before = $websiteRequest->windowLabel();
+
+        DB::transaction(function () use ($websiteRequest, $from, $until): void {
+            $websiteRequest->forceFill(['access_from' => $from, 'expires_at' => $until, 'expiry_reminded_at' => null])->save();
+            $websiteRequest->policyEntries()->where('source', EntrySource::Request)->update(['starts_at' => $from, 'expires_at' => $until]);
+        });
+
+        $after = $websiteRequest->windowLabel();
+        $this->event($websiteRequest, $actor, 'window_changed', "Access window changed from {$before} to {$after}.".($note ? "\n\n{$note}" : ''), ['before' => $before, 'after' => $after]);
+        $this->audit->log('website_request.window_changed', $websiteRequest, ['before' => $before, 'after' => $after]);
+        $this->notifier->decision($websiteRequest, "IT changed when your access applies. It is now: {$after}.".($note ? "\n\n{$note}" : ''));
+
+        if ($this->pusher()->automatic()) {
+            $this->pushAfter($websiteRequest, $actor, $websiteRequest->effectiveScope(), 'window_change');
+        }
+
+        return $websiteRequest->refresh();
+    }
+
     public function note(WebsiteRequest $websiteRequest, User $actor, string $note): WebsiteRequest
     {
         $this->event($websiteRequest, $actor, 'note', $note, internal: true);
@@ -295,6 +331,7 @@ class RequestWorkflow
         $websiteRequest->forceFill(['status' => RequestStatus::Expired])->save();
         $this->event($websiteRequest, null, 'expired', $message);
         $this->audit->log('website_request.expired', $websiteRequest);
+        $this->notifier->expired($websiteRequest);
     }
 
     /**

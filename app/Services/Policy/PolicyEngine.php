@@ -142,8 +142,8 @@ class PolicyEngine
                         'source' => EntrySource::Request,
                         'website_request_id' => $request->id,
                         'added_by_id' => $actor?->id,
-                        'starts_at' => $request->requested_from,
-                        'expires_at' => $request->requested_until,
+                        'starts_at' => $request->accessFrom(),
+                        'expires_at' => $request->accessUntil(),
                         'note' => "{$request->reference}: {$request->category}",
                     ]);
                 }
@@ -163,7 +163,7 @@ class PolicyEngine
             $others = $entries->isEmpty() ? collect() : WebsiteRequest::query()
                 ->whereKeyNot($request->id)
                 ->whereIn('status', RequestStatus::granted())
-                ->where(fn ($query) => $query->whereNull('requested_until')->orWhere('requested_until', '>', now()))
+                ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
                 ->get();
 
             foreach ($entries as $entry) {
@@ -173,8 +173,8 @@ class PolicyEngine
                 if ($successor) {
                     $entry->update([
                         'website_request_id' => $successor->id,
-                        'starts_at' => $successor->requested_from,
-                        'expires_at' => $successor->requested_until,
+                        'starts_at' => $successor->accessFrom(),
+                        'expires_at' => $successor->accessUntil(),
                         'note' => "{$successor->reference}: {$successor->category}",
                     ]);
 
@@ -369,9 +369,11 @@ class PolicyEngine
     {
         $until = now()->addHours($hours);
 
+        ['lead' => $lead, 'lag' => $lag] = PolicyEntry::margins();
+
         return [
-            'starting' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('starts_at', [now(), $until])->orderBy('starts_at')->get(),
-            'expiring' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('expires_at', [now(), $until])->orderBy('expires_at')->get(),
+            'starting' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('starts_at', [now()->addMinutes($lead), $until->copy()->addMinutes($lead)])->orderBy('starts_at')->get(),
+            'expiring' => PolicyEntry::query()->with('policyList', 'websiteRequest:id,reference')->whereBetween('expires_at', [now()->subMinutes($lag), $until->copy()->subMinutes($lag)])->orderBy('expires_at')->get(),
         ];
     }
 
