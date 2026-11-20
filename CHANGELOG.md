@@ -39,6 +39,7 @@ All notable changes to this project are documented here. Versions follow [Semant
 
 ### Fixed
 - Push safety: pushes are refused when a filter list would exceed a configurable size (default 100,000, UniFi's practical ceiling), and automatic pushes with more than a configurable number of changes (default 1,000) wait until someone pushes them. The policy page warns above 5,000 entries that the UniFi web interface will be slow to open the filter.
+- Installer: the first page warns when the reverse proxy is not trusted (pages would load unstyled) and names the address to put in `TRUSTED_PROXIES`.
 - Probe identity: probes report their VLAN address, MAC, gateway and DNS (`/identity`), shown under Settings → Network profiles with a warning when a probe is off its VLAN; generated probes get a fixed address and MAC.
 - Guided setup: **Bring everything in** imports every UniFi content filter in one step (reusing the default policies, recognising layers, importing all entries in bulk, mapping networks, preparing probe profiles); the dashboard points new installs at it.
 - Probes: one saved trunk interface with each probe on `<trunk>.<VLAN>` (tagged), an optional per-probe interface for hosts with a NIC per network, and `bin/probe-interfaces` to list host interfaces and confirm which VLAN tags reach the trunk. The setup page generates the whole `compose.vlan.yml` (also `php artisan probes:compose`) with the host commands, and plans extra probes for any network, such as guest Wi-Fi or BYOD, beyond Staff and Students.

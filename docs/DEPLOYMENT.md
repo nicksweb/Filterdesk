@@ -134,6 +134,8 @@ Without the original `APP_KEY`, encrypted credentials cannot be recovered.
 
 ## Health and troubleshooting
 
+- Pages appear without styling behind a reverse proxy: the proxy is not in `TRUSTED_PROXIES`, so the app links `http://` stylesheets from an `https://` page and the browser blocks them. Set `TRUSTED_PROXIES` to the proxy's address (the installer's first page shows it) and run `docker compose up -d --force-recreate`.
+
 - *Settings → Diagnostics* checks the database, version, scheduler heartbeat, queue backlog, email, SSO, network provider and each probe.
 - `GET /health` returns `{"status":"ok","database":"ok","version":"…"}` for uptime monitors, with no configuration details.
 - A check shows *DNS blocked* hosts that should be allowed: the probe is probably resolving through the Docker host's DNS rather than the VLAN gateway. Set `*_PROBE_DNS_SERVERS` or attach the probe to the VLAN.

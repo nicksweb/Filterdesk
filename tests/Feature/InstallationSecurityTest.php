@@ -20,4 +20,10 @@ class InstallationSecurityTest extends TestCase
     {
         $this->get('/')->assertRedirect('/install/1');
     }
+
+    public function test_first_step_explains_an_untrusted_reverse_proxy(): void
+    {
+        $this->withServerVariables(['REMOTE_ADDR' => '10.9.9.9'])->withHeader('X-Forwarded-Proto', 'https')
+            ->get('http://localhost/install/1')->assertOk()->assertSee('Set TRUSTED_PROXIES=10.9.9.9', false);
+    }
 }

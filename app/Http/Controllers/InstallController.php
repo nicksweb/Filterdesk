@@ -27,7 +27,7 @@ class InstallController extends Controller
         return view('install.wizard', [
             'step' => $step,
             'data' => $request->session()->get('installation', []),
-            'checks' => $step === 1 ? $this->systemChecks() : [],
+            'checks' => $step === 1 ? $this->systemChecks($request) : [],
         ]);
     }
 
@@ -120,7 +120,7 @@ class InstallController extends Controller
     }
 
     /** @return array<string, array{ok: bool, message: string}> */
-    private function systemChecks(): array
+    private function systemChecks(Request $request): array
     {
         try {
             DB::select('select 1');
@@ -134,7 +134,24 @@ class InstallController extends Controller
             'database' => $database,
             'app_key' => ['ok' => filled(config('app.key')), 'message' => filled(config('app.key')) ? 'Application encryption key is configured.' : 'APP_KEY must be generated.'],
             'queue' => ['ok' => config('queue.default') !== 'sync', 'message' => 'Queue driver: '.config('queue.default')],
+            'proxy' => $this->proxyCheck($request),
         ];
+    }
+
+    /**
+     * A reverse proxy that is not in TRUSTED_PROXIES makes every link and
+     * stylesheet http:// on an https page, so browsers block the CSS.
+     *
+     * @return array{ok: bool, message: string}
+     */
+    private function proxyCheck(Request $request): array
+    {
+        $forwardedHttps = strtolower((string) $request->server('HTTP_X_FORWARDED_PROTO')) === 'https';
+        if ($forwardedHttps && ! $request->isSecure()) {
+            return ['ok' => false, 'message' => 'Your reverse proxy at '.$request->server('REMOTE_ADDR').' is not trusted, so pages link to http:// stylesheets that browsers block. Set TRUSTED_PROXIES='.$request->server('REMOTE_ADDR').' in .env and recreate the containers (docker compose up -d --force-recreate).'];
+        }
+
+        return ['ok' => true, 'message' => $request->isSecure() ? 'HTTPS reverse proxy is trusted.' : 'Plain HTTP (fine locally; use HTTPS behind a reverse proxy in production).'];
     }
 
     /** @param array<string, mixed> $data */
