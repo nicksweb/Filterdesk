@@ -147,7 +147,7 @@ class PolicyEngine
     /** @return Collection<int, FilterPolicy> */
     public function policiesFor(AccessScope $scope): Collection
     {
-        return FilterPolicy::query()->where('enabled', true)
+        return FilterPolicy::query()->main()->where('enabled', true)
             ->when($scope !== AccessScope::SiteWide, fn ($query) => $query->whereIn('audience', $scope->audiences()))
             ->ordered()->get();
     }
@@ -253,6 +253,8 @@ class PolicyEngine
         $allow = [];
         $block = [];
         $sources = [];
+        // Blocks only a feed (or the layer's own list) asks for; a layer carries these.
+        $layerBlocks = [];
 
         foreach ($lists as $list) {
             $specificity = match ($list->scope) {
@@ -274,6 +276,8 @@ class PolicyEngine
                     $allow[$entry->domain] = max($allow[$entry->domain] ?? [-1, 0, 0, 0], $rank);
                 } else {
                     $block[$entry->domain] = max($block[$entry->domain] ?? [-1, 0, 0, 0], $rank);
+                    $carried = $isFeed || ($policy->isLayer() && $list->filter_policy_id === $policy->id);
+                    $layerBlocks[$entry->domain] = ($layerBlocks[$entry->domain] ?? true) && $carried;
                 }
                 if (! $isFeed) {
                     $sources[$entry->domain][] = [
@@ -286,6 +290,10 @@ class PolicyEngine
         }
 
         $exclusions = $policy->exclusions();
+        if ($policy->isLayer() && $policy->layerOf) {
+            // Hostnames removed by hand from the parent's allow list are not allowed, so the layer may block them.
+            $exclusions['allow'] = array_values(array_unique([...$exclusions['allow'], ...$policy->layerOf->exclusions()['allow']]));
+        }
         foreach ($exclusions['allow'] as $domain) {
             unset($allow[$domain]);
         }
@@ -309,6 +317,17 @@ class PolicyEngine
             }
         }
         sort($conflicts);
+
+        // A layer is a second filter on the same networks. Controllers block
+        // a hostname when any filter blocks it, so the layer holds only blocks
+        // that won against every allow above, and its parent drops them.
+        if ($policy->isLayer()) {
+            $rules = $this->rules();
+            $block = array_filter($block, fn ($rank, string $domain) => ($layerBlocks[$domain] ?? false) && ! $this->coveredBy($allow, $domain, $rules), ARRAY_FILTER_USE_BOTH);
+            $allow = [];
+        } elseif ($policy->activeLayer()) {
+            $block = array_filter($block, fn ($rank, string $domain) => ! ($layerBlocks[$domain] ?? false), ARRAY_FILTER_USE_BOTH);
+        }
 
         $rules = $this->rules();
         $allowList = $this->recommender->compact(array_keys($allow), $rules);

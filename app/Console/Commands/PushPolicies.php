@@ -73,6 +73,7 @@ class PushPolicies extends Command
         }
 
         return FilterPolicy::query()->where('enabled', true)->whereNotNull('provider_reference')->ordered()->get()
-            ->filter(fn (FilterPolicy $policy) => $lists->contains(fn ($list) => $list->appliesTo($policy)))->values();
+            ->filter(fn (FilterPolicy $policy) => $lists->contains(fn ($list) => $list->appliesTo($policy)))
+            ->sortBy(fn (FilterPolicy $policy) => $policy->isLayer() ? 0 : 1)->values();
     }
 }

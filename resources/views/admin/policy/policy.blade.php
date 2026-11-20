@@ -3,7 +3,7 @@
 
     <div class="page-heading">
         <div>
-            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policy lists</a> · {{ $policy->audience->label() }}</p>
+            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policy lists</a> · {{ $policy->audience->label() }}@if($policy->layerOf) · layer of <a href="{{ route('admin.policy.policies.show', $policy->layerOf) }}">{{ $policy->layerOf->name }}</a>@endif</p>
             <h1>{{ $policy->name }}</h1>
             <p>{{ $policy->description ?: 'Content filter policy' }}{{ $policy->provider_reference ? ' · Controller filter: '.$policy->provider_reference : '' }}</p>
         </div>
@@ -157,6 +157,33 @@
             </tbody></table></div>
         @endif
     </section>
+
+    @php($largest = max(count($report['allow']), count($report['block'])))
+    @if($largest > $slowListSize)
+        <div class="notice"><strong>{{ number_format($largest) }} entries in one list.</strong> UniFi accepts up to about 100,000, but its Content Filtering page loads every entry, so opening or editing {{ $policy->provider_name ?: 'this filter' }} in the UniFi web interface may be slow. Filtering itself is not affected.@if(!$policy->isLayer() && !$policy->layer) A layer keeps the feeds in a second filter so this one stays quick to manage.@endif</div>
+    @endif
+
+    @if($policy->isLayer())
+        <section class="panel policy-section layer-panel">
+            <h2>Layer of {{ $policy->layerOf?->name }}</h2>
+            <p>{{ $policy->provider_name }} is a second content filter on the same networks as {{ $policy->layerOf?->provider_name ?: $policy->layerOf?->name }}. UniFi applies both, and a block in either one wins, so this layer only blocks. It carries every blocklist feed that applies to {{ $policy->layerOf?->name }}, plus this layer's own block lists. Anything {{ $policy->layerOf?->name }} allows is left out, so allow lists and approved requests still win. Its content categories follow {{ $policy->layerOf?->name }}.</p>
+        </section>
+    @elseif($policy->layer)
+        <section class="panel policy-section layer-panel">
+            <h2>Layer: <a href="{{ route('admin.policy.policies.show', $policy->layer) }}">{{ $policy->layer->name }}</a></h2>
+            <p>Blocklist feeds for this policy are pushed to {{ $policy->layer->provider_name ?: $policy->layer->name }}, a second filter on the same networks, so {{ $policy->provider_name ?: 'this filter' }} only holds entries added by IT and requests.@if(!$policy->activeLayer()) The layer is disabled or not linked, so feeds stay here for now.@endif</p>
+        </section>
+    @elseif($canPush && auth()->user()->isAdmin())
+        <details class="panel policy-section layer-panel">
+            <summary><strong>Add a layer for blocklist feeds</strong> · a second UniFi filter on the same networks</summary>
+            <p class="hint">UniFi lets several content filters cover one network and applies all of them; a block in any one wins. A layer moves this policy's blocklist feeds into their own filter, so {{ $policy->provider_name }} stays short and quick to edit in UniFi. The app leaves anything this policy allows out of the layer, so allow lists and approvals keep working. The layer copies this filter's content categories (UniFi needs at least one).</p>
+            <form method="post" action="{{ route('admin.policy.policies.layer.store', $policy) }}">@csrf
+                <label>Layer filter name<input name="name" maxlength="80" required value="{{ old('name', ($policy->provider_name ?: $policy->name).' - Blocklists') }}"></label>
+                <label class="choice compact"><input type="checkbox" name="push" value="1" checked><span><strong>Move the feeds now</strong><small>Pushes the layer first, then removes the feeds from {{ $policy->provider_name }}, so nothing goes unblocked in between.</small></span></label>
+                <div class="form-actions"><button class="button primary" data-confirm="Create a new content filter in UniFi on the same networks as {{ $policy->provider_name }}?">Create layer in UniFi</button></div>
+            </form>
+        </details>
+    @endif
 
     @if($categories && auth()->user()->isAdmin())
         <details class="panel policy-section categories-panel">

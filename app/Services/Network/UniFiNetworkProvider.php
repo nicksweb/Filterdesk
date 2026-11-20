@@ -24,7 +24,8 @@ use Throwable;
  * application's own v2 endpoint (/proxy/network/v2/api/site/<site>/content-filtering),
  * which accepts the same key. Writes use the same endpoint (PUT of the full
  * filter record with only the lists changed) and only happen when the
- * integration is in active mode; every write is read back and verified. If a
+ * integration is in active mode; new filters are created with POST
+ * .../content-filtering/create, as the Network settings page does; every write is read back and verified. If a
  * release changes the endpoint, calls fail with a clear message and IT can
  * still paste the lists by hand.
  */
@@ -220,6 +221,28 @@ class UniFiNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsCon
         if ($normalise($saved['allow_list'] ?? []) !== $normalise($allow) || $normalise($saved['block_list'] ?? []) !== $normalise($block)) {
             throw new ProviderRequestFailed('UniFi accepted the change but the filter read back differently. Check the filter in UniFi before trying again.');
         }
+    }
+
+    public function createContentFilter(string $name, array $networkIds, array $categories): array
+    {
+        if ($categories === []) {
+            throw new ProviderRequestFailed('UniFi needs at least one content category on a filter.');
+        }
+
+        // The Network application's own settings page creates filters with POST .../content-filtering/create.
+        $response = $this->client()->timeout(25)->post($this->contentFilterPath('/create'), [
+            'name' => $name, 'enabled' => true, 'network_ids' => array_values($networkIds), 'client_macs' => [],
+            'allow_list' => [], 'block_list' => [], 'categories' => array_values($categories), 'safe_search' => [], 'schedule' => ['mode' => 'ALWAYS'],
+        ]);
+        $this->ensureSuccessful($response, 'the new content filter', writing: true);
+
+        $id = (string) ($response->json('_id') ?? '');
+        $created = collect($this->contentFilters())->firstWhere('id', $id);
+        if ($id === '' || ! $created) {
+            throw new ProviderRequestFailed('UniFi answered but the new content filter is not in its list. Check Content Filtering in UniFi before trying again.');
+        }
+
+        return $created;
     }
 
     public function availableCategories(): array

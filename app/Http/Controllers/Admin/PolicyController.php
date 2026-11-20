@@ -25,7 +25,7 @@ class PolicyController extends Controller
 {
     public function index(Request $request, PolicyEngine $engine, PolicyListParser $parser): View
     {
-        $policies = FilterPolicy::query()->ordered()->with('networkProfile')->get();
+        $policies = FilterPolicy::query()->ordered()->with('networkProfile', 'layerOf')->get();
         $lookup = null;
         if (filled($request->query('lookup'))) {
             $domain = $parser->normalise((string) $request->query('lookup'));

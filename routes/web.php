@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\FilterPolicyController;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\NetworkMapController;
 use App\Http\Controllers\Admin\PolicyController;
+use App\Http\Controllers\Admin\PolicyLayerController;
 use App\Http\Controllers\Admin\PolicyListController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
@@ -95,6 +96,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/setup/profiles', [ControllerSetupController::class, 'profiles'])->name('setup.profiles');
                     Route::post('/networks/link', [NetworkMapController::class, 'link'])->name('networks.link');
                     Route::post('/policies/{policy}/categories', [FilterPolicyController::class, 'categories'])->middleware('throttle:10,1')->name('policies.categories');
+                    Route::post('/policies/{policy}/layer', [PolicyLayerController::class, 'store'])->middleware('throttle:6,1')->name('policies.layer.store');
                     Route::post('/policies/{policy}/verify-write', [FilterPolicyController::class, 'verifyWrite'])->middleware('throttle:6,1')->name('policies.verify-write');
                     Route::post('/lists', [PolicyListController::class, 'store'])->name('lists.store');
                     Route::put('/lists/{list}', [PolicyListController::class, 'update'])->name('lists.update');

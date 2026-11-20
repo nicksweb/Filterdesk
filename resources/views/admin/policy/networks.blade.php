@@ -36,13 +36,15 @@
                         <div class="policy-card-top"><span><strong>{{ $filter['name'] }}</strong><small>{{ count($filter['allow']) }} allowed · {{ count($filter['block']) }} blocked · {{ count($filter['categories']) }} categories</small></span>
                             @if(!$filter['enabled'])<span class="status status-disabled">Disabled</span>@elseif($filter['policy'])<x-sync-status :policy="$filter['policy']" />@else<span class="status status-pending">Not linked</span>@endif</div>
                         <p class="hint">Applied to: {{ $filter['network_names'] ? implode(', ', $filter['network_names']) : 'no networks' }}</p>
-                        @php($overlaps = $networks->filter(fn ($network) => in_array($network['id'], $filter['network_ids'], true) && count($network['attached']) > 1))
+                        @php($overlaps = $networks->filter(fn ($network) => in_array($network['id'], $filter['network_ids'], true) && in_array($network['status'], ['multiple_filters', 'unmapped'], true) && count($network['attached']) > 1))
                         @if($overlaps->isNotEmpty())<p class="network-status warn">Shares {{ $overlaps->pluck('name')->join(', ') }} with {{ $overlaps->flatMap(fn ($network) => collect($network['attached'])->pluck('name'))->unique()->reject(fn ($name) => $name === $filter['name'])->join(', ') }}. Clients there get both filters.</p>@endif
-                        @if($filter['policy'])
+                        @if($filter['policy']?->isLayer())
+                            <p>Layer of <a href="{{ route('admin.policy.policies.show', $filter['policy']->layerOf) }}"><strong>{{ $filter['policy']->layerOf->name }}</strong></a>: carries its blocklist feeds. <a href="{{ route('admin.policy.policies.show', $filter['policy']) }}">Open the layer</a></p>
+                        @elseif($filter['policy'])
                             <p>Managed by <a href="{{ route('admin.policy.policies.show', $filter['policy']) }}"><strong>{{ $filter['policy']->name }}</strong></a> · {{ $filter['policy']->audience->label() }} filtering</p>
                             @if($filter['policy']->sync_checked_at)<p class="hint">{{ $filter['policy']->sync_details['summary'] ?? '' }} Checked {{ $filter['policy']->sync_checked_at->diffForHumans() }}.</p>@endif
                         @endif
-                        @if($isAdmin)
+                        @if($isAdmin && !$filter['policy']?->isLayer())
                             <form method="post" action="{{ route('admin.policy.networks.link') }}">@csrf
                                 <input type="hidden" name="filter_id" value="{{ $filter['id'] }}">
                                 <label>{{ $filter['policy'] ? 'Link to a different policy' : 'Link to policy' }}
@@ -89,7 +91,8 @@
                                 </td>
                                 <td>
                                     @switch($network['status'])
-                                        @case('ok')<span class="network-status ok">Matches</span>@break
+                                        @case('ok')<span class="network-status ok">Matches{{ $network['layer'] ? ' · with layer '.($network['layer']->provider_name ?: $network['layer']->name) : '' }}</span>@break
+                                        @case('layer_missing')<span class="network-status warn">Add the layer {{ $network['layer']->provider_name ?: $network['layer']->name }} to this network in the controller, or its feeds are not blocked here</span>@break
                                         @case('multiple_filters')<span class="network-status warn">In {{ count($network['attached']) }} filters: a hostname allowed by {{ $network['policy']->provider_name ?: $network['policy']->name }} can still be blocked by {{ collect($network['others'])->pluck('name')->join(', ') }}</span>@break
                                         @case('unfiltered')<span class="network-status muted">Unfiltered</span>@break
                                         @case('unmapped')<span class="network-status warn">Filtered in controller, not managed here</span>@break

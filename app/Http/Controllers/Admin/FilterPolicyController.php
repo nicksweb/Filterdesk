@@ -38,14 +38,15 @@ class FilterPolicyController extends Controller
         $lists = PolicyList::query()->appliesTo($policy)->ordered()->withCount('entries')->get();
 
         return view('admin.policy.policy', [
-            'policy' => $policy->load('networkProfile', 'snapshotBy', 'networkAssignments'),
+            'policy' => $policy->load('networkProfile', 'snapshotBy', 'networkAssignments', 'layer', 'layerOf'),
+            'slowListSize' => ControllerPusher::SLOW_LIST_ENTRIES,
             'report' => $engine->reconcile($policy),
             'lists' => $lists,
             'adoptTargets' => ['allow' => $lists->where('kind', ListKind::Allow)->values(), 'block' => $lists->where('kind', ListKind::Block)->values()],
             'canPull' => $sync->available() && filled($policy->provider_reference),
             'canPush' => $pusher->enabled() && filled($policy->provider_reference),
             'autoPush' => $pusher->automatic(),
-            'categories' => $pusher->enabled() && filled($policy->provider_reference) ? $this->categoryOptions($policy, $sync) : null,
+            'categories' => $pusher->enabled() && filled($policy->provider_reference) && ! $policy->isLayer() ? $this->categoryOptions($policy, $sync) : null,
             'pushes' => ControllerPush::query()->where('filter_policy_id', $policy->id)->with('user:id,name')->latest('id')->limit(10)->get(),
             'profiles' => NetworkProfile::query()->orderBy('sort_order')->get(),
             'rules' => $engine->rules(),
@@ -191,8 +192,21 @@ class FilterPolicyController extends Controller
         }
 
         $checker->setCategoryBaseline($policy, $categories);
+        // A layer mirrors its parent's categories so it never blocks a category the parent allows.
+        $layer = $policy->activeLayer();
+        if ($layer && $categories !== []) {
+            try {
+                $writer->writeContentFilterCategories($layer->provider_reference, $categories);
+                $checker->setCategoryBaseline($layer, $categories);
+            } catch (ProviderRequestFailed $exception) {
+                session()->flash('error', "{$layer->name} kept its old categories: {$exception->getMessage()}");
+            }
+        }
         $sync->forget();
         $checker->checkOne($policy->refresh());
+        if ($layer) {
+            $checker->checkOne($layer->refresh(), refresh: false);
+        }
         $audit->log('policy.controller_categories_changed', $policy, ['filter' => $filter['name'], 'added' => $added, 'removed' => $removed, 'before' => $filter['categories']]);
 
         return back()->with('success', "{$filter['name']} now blocks ".count($categories).' categories ('.($added ? '+'.implode(', +', $added) : '').($added && $removed ? '; ' : '').($removed ? '−'.implode(', −', $removed) : '').').');

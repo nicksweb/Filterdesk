@@ -4,6 +4,7 @@ namespace App\Services\Network;
 
 use App\Models\WebsiteRequest;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class MockNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsContentFilters, WritesContentFilters
 {
@@ -53,6 +54,15 @@ class MockNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsCont
         $filters[$index]['allow'] = array_values($allow);
         $filters[$index]['block'] = array_values($block);
         Cache::forever(self::STATE_KEY, $filters);
+    }
+
+    public function createContentFilter(string $name, array $networkIds, array $categories): array
+    {
+        $filter = ['id' => 'sim-filter-'.Str::slug($name).'-'.Str::lower(Str::random(4)), 'name' => $name, 'enabled' => true, 'allow' => [], 'block' => [],
+            'network_ids' => array_values($networkIds), 'categories' => array_values($categories), 'safe_search' => []];
+        Cache::forever(self::STATE_KEY, [...$this->contentFilters(), $filter]);
+
+        return $filter;
     }
 
     public function availableCategories(): array

@@ -265,7 +265,7 @@ class ControllerPushTest extends TestCase
             ->assertSessionHas('error', fn (string $message) => str_contains($message, 'over the limit of 50'));
         $this->assertSame([], $this->filter('sim-filter-students')['block']);
 
-        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['max_filter_entries' => 5000, 'auto_push' => true, 'controller_authoritative' => true]]);
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['max_filter_entries' => 5000, 'max_automatic_changes' => 200, 'auto_push' => true, 'controller_authoritative' => true]]);
         foreach (range(61, 260) as $index) {
             $this->engine->upsertEntry($list, "site{$index}.example.org", ['source' => 'manual']);
         }

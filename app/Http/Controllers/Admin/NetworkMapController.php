@@ -26,7 +26,7 @@ class NetworkMapController extends Controller
     public function index(Request $request, ControllerSync $sync, ControllerPusher $pusher): View
     {
         $state = $sync->state($request->boolean('refresh'));
-        $policies = FilterPolicy::query()->ordered()->get();
+        $policies = FilterPolicy::query()->with('layerOf')->ordered()->get();
         $networks = $state['error'] ? collect() : $sync->networkReport($state);
 
         return view('admin.policy.networks', [
@@ -39,7 +39,7 @@ class NetworkMapController extends Controller
                 'policy' => $policies->first(fn (FilterPolicy $policy) => $policy->provider_reference === $filter['id']),
                 'network_names' => $networks->whereIn('id', $filter['network_ids'])->map(fn (array $network) => $network['name'].($network['vlan'] ? " (VLAN {$network['vlan']})" : ''))->values()->all(),
             ]),
-            'policies' => $policies,
+            'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
         ]);
     }
 

@@ -159,15 +159,16 @@ class ControllerSync
     /**
      * One row per controller network with the policy it is mapped to, the
      * controller filters actually attached, and whether the two agree. A
-     * network can sit in more than one controller filter; that is reported
-     * as "multiple_filters", because a hostname allowed by one filter can
-     * still be blocked by another on the same network.
+     * network can sit in more than one controller filter. The policy's own
+     * layer is expected there; any other filter is reported as
+     * "multiple_filters", because filters combine and a hostname allowed by
+     * one is still blocked by another on the same network.
      *
      * @return Collection<int, array<string, mixed>>
      */
     public function networkReport(array $state): Collection
     {
-        $assignments = NetworkAssignment::query()->with('filterPolicy')->get()->keyBy('provider_network_id');
+        $assignments = NetworkAssignment::query()->with('filterPolicy.layer')->get()->keyBy('provider_network_id');
         $filtersByNetwork = [];
         foreach ($state['filters'] as $filter) {
             foreach ($filter['network_ids'] as $networkId) {
@@ -180,20 +181,25 @@ class ControllerSync
             $policy = $assignment?->filterPolicy;
             $attached = $filtersByNetwork[$network['id']] ?? [];
             $attachedIds = array_column($attached, 'id');
+            // The policy's layer belongs on the same networks; it is expected, not a conflict.
+            $layer = $policy?->activeLayer();
+            $expected = array_filter([$policy?->provider_reference, $layer?->provider_reference]);
+            $others = $policy ? array_values(array_filter($attached, fn (array $filter) => ! in_array($filter['id'], $expected, true))) : [];
+            $linked = $policy && in_array($policy->provider_reference, $attachedIds, true);
 
             $status = match (true) {
                 $policy === null && $attached === [] => 'unfiltered',
                 $policy === null => 'unmapped',
                 blank($policy->provider_reference) => 'policy_unlinked',
-                in_array($policy->provider_reference, $attachedIds, true) && count($attached) > 1 => 'multiple_filters',
-                in_array($policy->provider_reference, $attachedIds, true) => 'ok',
+                $linked && $others !== [] => 'multiple_filters',
+                $linked && $layer && ! in_array($layer->provider_reference, $attachedIds, true) => 'layer_missing',
+                $linked => 'ok',
                 $attached === [] => 'missing_filter',
                 default => 'wrong_filter',
             };
 
             return $network + [
-                'assignment' => $assignment, 'policy' => $policy, 'attached' => $attached, 'status' => $status,
-                'others' => $policy ? array_values(array_filter($attached, fn (array $filter) => $filter['id'] !== $policy->provider_reference)) : [],
+                'assignment' => $assignment, 'policy' => $policy, 'layer' => $layer, 'attached' => $attached, 'status' => $status, 'others' => $others,
             ];
         });
     }

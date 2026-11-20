@@ -21,7 +21,7 @@
         <div class="policy-cards">
             @foreach($policies as ['policy' => $policy, 'report' => $report])
                 <a class="panel policy-card" href="{{ route('admin.policy.policies.show', $policy) }}">
-                    <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->audience->label() }}{{ $policy->provider_name ? ' · '.$policy->provider_name : '' }}{{ $policy->networkProfile ? ' · '.$policy->networkProfile->name : '' }}</small></span>
+                    <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->isLayer() ? 'Layer of '.$policy->layerOf?->name : $policy->audience->label() }}{{ $policy->provider_name ? ' · '.$policy->provider_name : '' }}{{ $policy->networkProfile ? ' · '.$policy->networkProfile->name : '' }}</small></span>
                         @if(!$policy->enabled)<x-status status="disabled" />@elseif(filled($policy->provider_reference))<x-sync-status :policy="$policy" />@elseif(!$report['has_snapshot'])<span class="status status-pending">No snapshot</span>@elseif($report['in_sync'])<span class="status status-ok">In sync</span>@else<span class="status status-action_required">Changes due</span>@endif
                     </div>
                     <dl class="mini-stats">

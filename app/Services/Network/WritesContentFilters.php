@@ -29,6 +29,18 @@ interface WritesContentFilters
     public function writeContentFilterCategories(string $filterId, array $categories): void;
 
     /**
+     * Create an enabled filter with empty lists on the given networks, then
+     * read it back. Returns the filter in the same shape as contentFilters().
+     *
+     * @param  list<string>  $networkIds
+     * @param  list<string>  $categories  at least one; UniFi rejects a filter without categories
+     * @return array{id: string, name: string, enabled: bool, allow: list<string>, block: list<string>, network_ids: list<string>, categories: list<string>, safe_search: list<string>}
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function createContentFilter(string $name, array $networkIds, array $categories): array;
+
+    /**
      * Save the filter back unchanged to prove the key may write it.
      *
      * @return array{ok: bool, message: string}

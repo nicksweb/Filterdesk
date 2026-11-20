@@ -43,7 +43,26 @@ After the connection test succeeds, **Policy lists → Networks & filters → Gu
 
 ## Networks in more than one filter
 
-A network can be attached to several content filters. Clients there get every filter, so a hostname allowed in one can still be blocked by another. The Networks page marks these networks, the guided setup lists them, and the sync check reports them as drift for the affected policies.
+A network can be attached to several content filters, and UniFi applies all of them. Tested on UniFi Network with two filters on one network:
+
+- a block in either filter blocks the hostname (filters add up);
+- a block in one filter wins over an allow for the same hostname in the other;
+- an allowed subdomain in one filter (`www.example.com`) kept the bare domain (`example.com`) resolving even though the other filter blocked it, while the blocked `www.` stayed blocked. Do not rely on mixing allows and blocks for one site across filters;
+- every save reloads the gateway's DNS for a few seconds; a blocked hostname resolved once during that window.
+
+The Networks page marks networks in a filter that is not managed as a layer, and the sync check reports them as drift for the affected policies.
+
+## Layers
+
+A layer is a second content filter on the same networks as a policy, created from the policy page (**Add a layer for blocklist feeds**). It holds the policy's block feeds (every blocklist feed that applies to the policy) plus the layer's own block lists, so the policy's own filter keeps only the entries IT and requests add and stays quick to edit in the UniFi web interface.
+
+Because a block in any filter wins, the app works out precedence before pushing: anything the policy allows (allow lists, approved requests) is left out of the layer. A layer never pushes allow entries. Its content categories copy the parent's and follow it when categories are changed here, because UniFi will not save a filter without at least one category (`MALWARE` is used if the parent has none).
+
+The layer is created with `POST /proxy/network/v2/api/site/<site>/content-filtering/create`, the call the Network settings page makes. **Move the feeds now** pushes the layer first and then removes the feeds from the parent, so nothing goes unblocked in between; scheduled pushes keep that order. If the layer filter is taken off a network in UniFi, the Networks page and the sync check say so.
+
+## List size
+
+UniFi stores up to about 100,000 entries per list, and filtering is not slowed by long lists. Its Content Filtering page loads every entry, though, so a filter with a few thousand or more is slow to open and edit in the browser. The policy page warns above 5,000. Pushes are refused above **Settings → Network provider → Largest list per content filter** (default 100,000), and automatic pushes with more than **Largest automatic push** changes (default 1,000) wait for someone to push them by hand.
 
 ## The controller is the source of truth
 

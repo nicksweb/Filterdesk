@@ -38,7 +38,8 @@ All notable changes to this project are documented here. Versions follow [Semant
 - `itrequests:upgrade`, `itrequests:admin-password` and `policy:digest` commands; versioned upgrades.
 
 ### Fixed
-- Push safety: pushes are refused when a filter list would exceed a configurable size (default 2,000; 16,000 entries made the UniFi web interface unusable), and automatic pushes stop above 200 changes until someone pushes them.
+- Push safety: pushes are refused when a filter list would exceed a configurable size (default 100,000, UniFi's practical ceiling), and automatic pushes with more than a configurable number of changes (default 1,000) wait until someone pushes them. The policy page warns above 5,000 entries that the UniFi web interface will be slow to open the filter.
+- Layers: a second UniFi content filter on the same networks as a policy, created from the policy page, carries that policy's blocklist feeds. Filters on one network add up and a block wins, so the app leaves anything the policy allows out of the layer. Layers are pushed before their parent and copy its categories.
 - Entries the app wrote to the controller and later dropped (deleted entries, feeds switched off) are removed from the controller instead of being imported back as hand-made.
 - Pagination uses a compact pager instead of unstyled framework markup.
 - A block for one audience was silently ignored when the hostname was also allowed site-wide or by an approval ("allow always wins").

@@ -152,11 +152,18 @@ class SyncChecker
             'allow_add' => $report['allow_add'], 'allow_remove' => $report['allow_remove'],
             'block_add' => $report['block_add'], 'block_remove' => $report['block_remove'],
         ];
-        $networkIssues = $networks->filter(fn (array $network) => $network['policy']?->is($policy) && in_array($network['status'], ['missing_filter', 'wrong_filter', 'multiple_filters'], true))
-            ->map(fn (array $network) => $network['name'].($network['vlan'] ? " (VLAN {$network['vlan']})" : '')
-                .($network['status'] === 'multiple_filters' ? ' is also in '.collect($network['others'])->pluck('name')->join(', ') : ''))->values()->all();
-        $sharedNetworks = $networks->filter(fn (array $network) => collect($network['attached'])->pluck('id')->contains($filter['id']) && count($network['attached']) > 1)
-            ->map(fn (array $network) => $network['name'].' also uses '.collect($network['attached'])->reject(fn ($other) => $other['id'] === $filter['id'])->pluck('name')->join(', '))->values()->all();
+        $owner = $policy->isLayer() ? $policy->layerOf : $policy;
+        $networkIssues = $networks->filter(fn (array $network) => $owner && $network['policy']?->is($owner) && in_array($network['status'], ['missing_filter', 'wrong_filter', 'multiple_filters', 'layer_missing'], true))
+            ->map(fn (array $network) => $network['name'].($network['vlan'] ? " (VLAN {$network['vlan']})" : '').match ($network['status']) {
+                'multiple_filters' => ' is also in '.collect($network['others'])->pluck('name')->join(', '),
+                'layer_missing' => ' is missing the layer '.($network['layer']->provider_name ?: $network['layer']->name),
+                default => '',
+            })->values()->all();
+        // The parent and its layer share networks by design.
+        $partners = array_filter([$owner?->provider_reference, $owner?->activeLayer()?->provider_reference]);
+        $sharedNetworks = $networks->filter(fn (array $network) => collect($network['attached'])->pluck('id')->contains($filter['id'])
+            && collect($network['attached'])->pluck('id')->diff([$filter['id'], ...$partners])->isNotEmpty())
+            ->map(fn (array $network) => $network['name'].' also uses '.collect($network['attached'])->reject(fn ($other) => in_array($other['id'], [$filter['id'], ...$partners], true))->pluck('name')->join(', '))->values()->all();
         $networkIssues = array_values(array_unique([...$networkIssues, ...$sharedNetworks]));
 
         $edited = collect($changedInController)->flatten()->isNotEmpty();

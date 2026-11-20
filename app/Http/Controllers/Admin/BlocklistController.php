@@ -61,7 +61,10 @@ class BlocklistController extends Controller
             'maxFilterEntries' => app(ControllerPusher::class)->maxEntries(),
             'feedLoad' => FilterPolicy::query()->where('enabled', true)->ordered()->get()->map(fn (FilterPolicy $policy) => [
                 'policy' => $policy,
-                'count' => $lists->filter(fn (PolicyList $list) => $list->appliesTo($policy))->sum(fn (PolicyList $list) => $feedCounts[$list->id] ?? 0),
+                // Once a policy has a layer, its block feeds go to the layer instead.
+                'count' => $lists->filter(fn (PolicyList $list) => $list->appliesTo($policy)
+                    && ($policy->isLayer() ? $list->kind === ListKind::Block : ! ($policy->activeLayer() && $list->kind === ListKind::Block)))
+                    ->sum(fn (PolicyList $list) => $feedCounts[$list->id] ?? 0),
             ]),
         ]);
     }

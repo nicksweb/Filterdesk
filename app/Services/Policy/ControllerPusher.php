@@ -28,12 +28,21 @@ use Throwable;
  */
 class ControllerPusher
 {
-    /** Automatic pushes (approvals, schedules) stop above this many changes and wait for a person. */
-    public const AUTOMATIC_CHANGE_LIMIT = 200;
+    /** Default for how many changes an automatic push (approvals, schedules, feed refreshes) may make before it waits for a person. */
+    public const AUTOMATIC_CHANGE_LIMIT = 1000;
 
-    public const DEFAULT_MAX_ENTRIES = 2000;
+    /** The largest content-filter list UniFi is reported to handle. */
+    public const DEFAULT_MAX_ENTRIES = 100000;
+
+    /** Above this, the UniFi web interface gets slow to open and edit the filter. */
+    public const SLOW_LIST_ENTRIES = 5000;
 
     /** Largest allow or block list a push may write to one controller filter. */
+    public function maxAutomaticChanges(): int
+    {
+        return (int) ($this->providers->integration()?->configuration['max_automatic_changes'] ?? self::AUTOMATIC_CHANGE_LIMIT);
+    }
+
     public function maxEntries(): int
     {
         return (int) ($this->providers->integration()?->configuration['max_filter_entries'] ?? self::DEFAULT_MAX_ENTRIES);
@@ -136,8 +145,12 @@ class ControllerPusher
     public function pushAll(?User $actor, string $trigger = 'manual', ?AccessScope $scope = null): Collection
     {
         $this->sync->forget();
-        $policies = ($scope ? $this->engine->policiesFor($scope) : FilterPolicy::query()->where('enabled', true)->ordered()->get())
-            ->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference));
+        $policies = $scope
+            ? $this->engine->policiesFor($scope)->flatMap(fn (FilterPolicy $policy) => array_filter([$policy->activeLayer(), $policy]))
+            : FilterPolicy::query()->where('enabled', true)->ordered()->get();
+        // Layers go first: a feed moving out of a parent is blocked in its layer before it leaves the parent.
+        $policies = $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference))
+            ->sortBy(fn (FilterPolicy $policy) => $policy->isLayer() ? 0 : 1)->values();
 
         return $policies->map(fn (FilterPolicy $policy) => ['policy' => $policy] + $this->push($policy, $actor, $trigger))->values();
     }
@@ -217,16 +230,16 @@ class ControllerPusher
         $limit = $this->maxEntries();
         if (count($plan['allow']) > $limit || count($plan['block']) > $limit) {
             $message = "{$plan['filter']['name']} would hold ".number_format(max(count($plan['allow']), count($plan['block'])))
-                .' entries in one list, over the limit of '.number_format($limit).'. Large lists can make the controller unusable. Use a smaller blocklist, or raise the limit under Settings → Network provider if you are sure.';
+                .' entries in one list, over the limit of '.number_format($limit).'. Use a smaller blocklist, split it across a layer, or raise the limit under Settings → Network provider (UniFi handles up to about 100,000).';
             $this->audit->log('policy.controller_push_refused', $policy, ['reason' => 'size', 'allow' => count($plan['allow']), 'block' => count($plan['block'])]);
 
             return ['ok' => false, 'message' => $message];
         }
         $changeCount = collect($plan['changes'])->sum(fn (array $values) => count($values));
-        if ($trigger !== 'manual' && $changeCount > self::AUTOMATIC_CHANGE_LIMIT) {
+        if ($trigger !== 'manual' && $changeCount > $this->maxAutomaticChanges()) {
             $this->audit->log('policy.controller_push_refused', $policy, ['reason' => 'automatic_change_limit', 'changes' => $changeCount]);
 
-            return ['ok' => false, 'message' => "{$policy->name}: ".number_format($changeCount).' changes are waiting. Automatic pushes stop at '.self::AUTOMATIC_CHANGE_LIMIT.' changes; review them and push from the policy page.'];
+            return ['ok' => false, 'message' => "{$policy->name}: ".number_format($changeCount).' changes are waiting. Automatic pushes stop at '.number_format($this->maxAutomaticChanges()).' changes; review them and push from the policy page.'];
         }
 
         $record = [

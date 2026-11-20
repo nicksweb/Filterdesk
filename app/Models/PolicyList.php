@@ -48,8 +48,20 @@ class PolicyList extends Model
     }
 
     /** @param Builder<self> $query */
+    /**
+     * Lists that reach a policy. A layer sees its parent's lists plus its own,
+     * because it carries the parent's feeds.
+     */
     public function scopeAppliesTo(Builder $query, FilterPolicy $policy): void
     {
+        if ($policy->isLayer() && $policy->layerOf) {
+            $query->where(fn (Builder $query) => $query
+                ->where(fn (Builder $query) => $query->appliesTo($policy->layerOf))
+                ->orWhere(fn (Builder $query) => $query->where('scope', ListScope::Policy)->where('filter_policy_id', $policy->id)));
+
+            return;
+        }
+
         $query->where(fn (Builder $query) => $query
             ->where('scope', ListScope::Site)
             ->orWhere(fn (Builder $query) => $query->where('scope', ListScope::Audience)->where('audience', $policy->audience))
@@ -67,7 +79,7 @@ class PolicyList extends Model
         return match ($this->scope) {
             ListScope::Site => true,
             ListScope::Audience => $this->audience === $policy->audience,
-            ListScope::Policy => $this->filter_policy_id === $policy->id,
+            ListScope::Policy => $this->filter_policy_id === $policy->id || ($policy->layer_of_id !== null && $this->filter_policy_id === $policy->layer_of_id),
         };
     }
 

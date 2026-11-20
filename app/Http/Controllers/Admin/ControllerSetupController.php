@@ -29,7 +29,7 @@ class ControllerSetupController extends Controller
     public function show(Request $request, ControllerSync $sync, ProbePlanner $planner): View
     {
         $state = $sync->state($request->boolean('refresh'));
-        $policies = FilterPolicy::query()->ordered()->get();
+        $policies = FilterPolicy::query()->main()->ordered()->get();
         $networks = $state['error'] ? collect() : $sync->networkReport($state);
 
         return view('admin.policy.setup', [
