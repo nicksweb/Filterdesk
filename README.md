@@ -36,6 +36,8 @@ The application is school-neutral: branding, identity, network profiles, policy 
 
 ## Setting it up
 
+> **Full guide:** [docs/SETUP.md](docs/SETUP.md) has every step with checks and a reference for every `.env` variable. [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md) is the security checklist, including post-quantum TLS. The steps below are the short version.
+
 ### 1. Requirements
 
 - A Linux host with **Docker Engine 28+** and **Compose v2.33+** (`docker version`, `docker compose version`), about 4 GB free RAM for screenshots.
@@ -125,7 +127,7 @@ mv .env .env.old && ./bin/install
 
 Keep `.env.old` with any backup: its `APP_KEY` is needed to read the encrypted credentials in it.
 
-See [deployment and operations](docs/DEPLOYMENT.md), [upgrading](docs/UPGRADING.md), [policy reconciliation](docs/POLICY_RECONCILIATION.md), [architecture](docs/ARCHITECTURE.md), and [UniFi compatibility](docs/UNIFI.md).
+See the [setup guide](docs/SETUP.md), [security hardening](docs/SECURITY_HARDENING.md), [deployment and operations](docs/DEPLOYMENT.md), [upgrading](docs/UPGRADING.md), [policy reconciliation](docs/POLICY_RECONCILIATION.md), [architecture](docs/ARCHITECTURE.md), and [UniFi compatibility](docs/UNIFI.md).
 
 ## UniFi API key
 
@@ -166,7 +168,7 @@ Laravel Pint is the formatter. Provider integrations implement `App\Services\Net
 
 ## Security
 
-Do not open public issues containing vulnerabilities, credentials, school names, internal domains, screenshots or topology. Follow [SECURITY.md](SECURITY.md). This software can be authorised to change network policy; validate it in read-only mode and apply least privilege.
+Do not open public issues containing vulnerabilities, credentials, school names, internal domains, screenshots or topology. Follow [SECURITY.md](SECURITY.md). This software can be authorised to change network policy; validate it in read-only mode and apply least privilege. Work through [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md) before going live.
 
 
 ## Third-party blocklists

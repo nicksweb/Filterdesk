@@ -7,3 +7,5 @@ Maintainers will acknowledge a complete report within five business days, assess
 Security fixes target the latest minor release. Rebuild regularly for patched PHP, Alpine, Chromium and dependency layers.
 
 The database, PHP-FPM and probes must remain private; only Nginx is proxied. Administrators retain `APP_KEY`, backups and API keys securely. UniFi starts read-only. Changing these assumptions requires a local threat review.
+
+For deployment hardening (host, secrets, proxy, sign-in, UniFi account, backups, post-quantum TLS), see [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md).
