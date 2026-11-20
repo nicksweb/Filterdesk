@@ -29,8 +29,9 @@ class ControllerSetupController extends Controller
         $policies = FilterPolicy::query()->with('layerOf', 'networkProfile')->ordered()->get();
         $networks = $state['error'] ? collect() : $sync->networkReport($state);
         $suggestions = $state['error'] ? [] : $importer->suggest($state);
-        $parent = (string) $request->query('parent', 'eth0');
-        $extra = $this->extraNetworks($request);
+        $saved = $planner->saved();
+        $parent = $this->parentOverride($request) ?? $saved['trunk'];
+        $extra = $this->extraNetworks($request) ?? $saved['extra'];
         $plans = $planner->plan($parent, $extra);
         $filterNames = collect($state['filters'])->pluck('name', 'id');
 
@@ -53,6 +54,7 @@ class ControllerSetupController extends Controller
                 'profiles' => NetworkProfile::query()->orderBy('sort_order')->get(),
             ],
             'parent' => $parent,
+            'saved' => $saved,
             'extra' => $extra,
             'extraOptions' => $networks->reject(fn (array $network) => $plans->contains(fn (array $plan) => $plan['network']->provider_network_id === $network['id'] && $plan['policy']))->values(),
             'plans' => $plans,
@@ -94,7 +96,7 @@ class ControllerSetupController extends Controller
         }
 
         $done = $importer->apply($state, $importer->suggest($state), $request->user());
-        $profiles = $this->prepareProfiles($planner, (string) $request->input('parent', 'eth0'), []);
+        $profiles = $this->prepareProfiles($planner, $this->parentOverride($request), null);
         $audit->log('policy.setup_imported_all', null, ['filters' => count($done), 'profiles' => $profiles]);
 
         return redirect()->route('admin.policy.setup.show')->withFragment('ready')
@@ -105,7 +107,7 @@ class ControllerSetupController extends Controller
     /** Create disabled network profiles for the planned probes and link them to their policies. */
     public function profiles(Request $request, ProbePlanner $planner, AuditLogger $audit): RedirectResponse
     {
-        $created = $this->prepareProfiles($planner, (string) $request->input('parent', 'eth0'), $this->extraNetworks($request));
+        $created = $this->prepareProfiles($planner, $this->parentOverride($request), $this->extraNetworks($request));
         $audit->log('policy.probe_profiles_prepared', null, ['created' => $created]);
 
         return back()->with('success', ($created ? 'Created disabled probe profiles: '.implode(', ', $created).'. ' : 'Probe profiles are linked. ')
@@ -115,7 +117,7 @@ class ControllerSetupController extends Controller
     /** The planned compose.vlan.yml for every probe, as a file. */
     public function compose(Request $request, ProbePlanner $planner): Response
     {
-        return response($planner->composeFile($planner->plan((string) $request->query('parent', 'eth0'), $this->extraNetworks($request))), 200, [
+        return response($planner->composeFile($planner->plan($this->parentOverride($request), $this->extraNetworks($request))), 200, [
             'Content-Type' => 'text/yaml; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="compose.vlan.yml"',
         ]);
@@ -124,10 +126,10 @@ class ControllerSetupController extends Controller
     /**
      * Create (disabled) and link a network profile per planned probe.
      *
-     * @param  list<string>  $extra
+     * @param  list<string>|null  $extra  null uses the saved extra networks
      * @return list<string> names of profiles created
      */
-    private function prepareProfiles(ProbePlanner $planner, string $parent, array $extra): array
+    private function prepareProfiles(ProbePlanner $planner, ?string $parent, ?array $extra): array
     {
         $created = [];
         foreach ($planner->plan($parent, $extra) as $plan) {
@@ -150,9 +152,42 @@ class ControllerSetupController extends Controller
         return $created;
     }
 
-    /** @return list<string> network ids picked for extra probes */
-    private function extraNetworks(Request $request): array
+    /** Save the probe interfaces and extra networks, so the download and probes:compose match the page. */
+    public function saveProbes(Request $request, ProbePlanner $planner, AuditLogger $audit): RedirectResponse
     {
+        $interface = ['nullable', 'string', 'regex:'.ProbePlanner::INTERFACE_PATTERN];
+        $validated = $request->validate([
+            'trunk' => ['required', 'string', 'regex:'.ProbePlanner::INTERFACE_PATTERN],
+            'interfaces' => ['nullable', 'array', 'max:200'],
+            'interfaces.*' => $interface,
+            'extra' => ['nullable', 'array', 'max:50'],
+            'extra.*' => ['string', 'regex:/^[A-Za-z0-9_-]{1,80}$/'],
+        ], ['regex' => 'Use a Linux interface name such as eno1, eno1.20, vlan20 or br0 (up to 15 characters).']);
+
+        $planner->save([
+            'trunk' => $validated['trunk'],
+            'interfaces' => collect($validated['interfaces'] ?? [])->filter(fn ($value, $key) => is_string($key) && preg_match('/^[A-Za-z0-9_-]{1,80}$/', $key))->all(),
+            'extra' => $validated['extra'] ?? [],
+        ]);
+        $audit->log('policy.probe_interfaces_saved', null, ['trunk' => $validated['trunk'], 'interfaces' => count(array_filter($validated['interfaces'] ?? []))]);
+
+        return redirect()->route('admin.policy.setup.show')->withFragment('probes')->with('success', 'Probe interfaces saved. The download and probes:compose now use them.');
+    }
+
+    private function parentOverride(Request $request): ?string
+    {
+        $parent = $request->input('parent');
+
+        return is_string($parent) && preg_match(ProbePlanner::INTERFACE_PATTERN, $parent) ? $parent : null;
+    }
+
+    /** @return list<string>|null network ids picked for extra probes; null when not given */
+    private function extraNetworks(Request $request): ?array
+    {
+        if (! $request->has('extra')) {
+            return null;
+        }
+
         return collect((array) $request->input('extra', []))->filter(fn ($id) => is_string($id) && preg_match('/^[A-Za-z0-9_-]{1,80}$/', $id))->values()->all();
     }
 }

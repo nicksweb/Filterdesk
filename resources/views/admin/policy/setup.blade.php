@@ -16,7 +16,7 @@
         <section class="panel policy-section setup-quick">
             <div class="panel-heading">
                 <div><h2>Bring everything in</h2><p>Reads every content filter in UniFi and sets the tool up to match it in one step: each filter becomes a policy (the default Students and Staff policies are reused where the audience fits), a filter that looks like a blocklist layer on the same networks becomes that policy's layer, every allow and block entry is imported, networks are mapped and categories are kept. Nothing is changed in UniFi, and the first push changes nothing. Review the choices below first if you prefer.</p></div>
-                <form method="post" action="{{ route('admin.policy.setup.import-all') }}">@csrf<input type="hidden" name="parent" value="{{ $parent }}">
+                <form method="post" action="{{ route('admin.policy.setup.import-all') }}">@csrf
                     <button class="button primary" data-confirm="Bring in all {{ $filters->count() }} content filters with the suggested settings? Nothing is changed in UniFi.">Bring everything in</button>
                 </form>
             </div>
@@ -83,32 +83,59 @@
     <section class="panel policy-section" id="probes">
         <div class="panel-heading">
             <div><h2>2. Probe containers</h2><p>Each probe sits on one VLAN of its policy and uses that VLAN's gateway for DNS, so checks see the same filtering students or staff do. One probe per policy is enough; other VLANs on the same filter behave the same.</p></div>
-            <form method="get" class="inline-search"><input name="parent" value="{{ $parent }}" aria-label="Host interface" placeholder="eth0"><button class="button small secondary">Use interface</button></form>
         </div>
         <details class="probe-why">
             <summary>Why the probes must sit on the VLANs</summary>
-            <p>UniFi content filtering works on DNS at the gateway, per network: a lookup is filtered by the filter attached to the network it comes from. A probe on the Docker host's own network would see that network's filtering (or none), not what students or staff get. So each probe needs its own interface on a VLAN the policy covers, an address outside UniFi's DHCP pool, and that VLAN's gateway as its DNS server. The host port on the switch must carry those VLANs tagged (a trunk), and the host interface named below must be that trunk.</p>
+            <p>UniFi content filtering works on DNS at the gateway, per network: a lookup is filtered by the filter attached to the network it comes from. A probe on the Docker host's own network would see that network's filtering (or none), not what students or staff get. So each probe gets its own address on a VLAN the policy covers, outside UniFi's DHCP pool, and uses that VLAN's gateway for DNS.</p>
         </details>
-        @if($extraOptions->isNotEmpty())
-            <form method="get" class="extra-probes">
-                <input type="hidden" name="parent" value="{{ $parent }}">
-                <p><strong>Extra probes</strong> <span class="hint">Test from any other network too, for example guests, BYOD or a single year level, even if it shares a policy.</span></p>
-                <div class="category-grid">
-                    @foreach($extraOptions as $network)
-                        <label class="choice compact"><input type="checkbox" name="extra[]" value="{{ $network['id'] }}" @checked(in_array($network['id'], $extra, true))><span>{{ $network['name'] }}{{ $network['vlan'] ? ' · VLAN '.$network['vlan'] : '' }}<small>{{ $network['policy']?->name ?? (collect($network['attached'])->pluck('name')->join(', ') ?: 'unfiltered') }}</small></span></label>
-                    @endforeach
+
+        <form method="post" action="{{ route('admin.policy.setup.probes') }}" class="probe-settings">@csrf
+            <label>Trunk interface on the Docker host
+                <input name="trunk" value="{{ old('trunk', $saved['trunk']) }}" required maxlength="15" pattern="[A-Za-z0-9_.@-]{1,15}" class="mono" placeholder="eno1">
+                <small>One interface whose switch port carries the probe VLANs tagged (in UniFi, a port profile with those VLANs as tagged, the native network untagged). Each probe gets <code>&lt;trunk&gt;.&lt;VLAN&gt;</code>; Docker creates the tagged sub-interface itself. A probe for the native, untagged network uses the trunk directly. Run <code>bin/probe-interfaces</code> on the host to see its interfaces and which networks they reach.</small>
+            </label>
+
+            @if($extraOptions->isNotEmpty())
+                <div class="extra-probes">
+                    <p><strong>Extra probes</strong> <span class="hint">Test from any other network too, for example guests, BYOD or a single year level, even if it shares a policy.</span></p>
+                    <div class="category-grid">
+                        @foreach($extraOptions as $network)
+                            <label class="choice compact"><input type="checkbox" name="extra[]" value="{{ $network['id'] }}" @checked(in_array($network['id'], $extra, true))><span>{{ $network['name'] }}{{ $network['vlan'] ? ' · VLAN '.$network['vlan'] : ' · untagged' }}<small>{{ $network['policy']?->name ?? (collect($network['attached'])->pluck('name')->join(', ') ?: 'unfiltered') }}</small></span></label>
+                        @endforeach
+                    </div>
                 </div>
-                <button class="button small secondary">Update plan</button>
-            </form>
-        @endif
+            @endif
+
+            @if($plans->isNotEmpty())
+                <div class="table-wrap compact"><table>
+                    <thead><tr><th>Probe</th><th>Network</th><th>Host interface</th></tr></thead>
+                    <tbody>
+                        @foreach($plans as $plan)
+                            <tr>
+                                <td><code>{{ $plan['service'] }}</code><small>{{ $plan['policy']?->name ?? $plan['label'] }} · {{ $plan['audience']->label() }}</small></td>
+                                <td>{{ $plan['network']->name }}<small>{{ $plan['network']->vlan ? 'VLAN '.$plan['network']->vlan.', tagged' : 'Untagged (native)' }}{{ $plan['subnet'] ? ' · '.$plan['subnet']['network'] : '' }}</small></td>
+                                <td><code>{{ $plan['interface'] }}</code>@if($plan['interface_saved'])<small>set by hand</small>@endif
+                                    <details class="interface-override"><summary>Different interface</summary>
+                                        <input name="interfaces[{{ $plan['network']->provider_network_id }}]" value="{{ $plan['interface_saved'] ? $plan['interface'] : '' }}" maxlength="15" pattern="[A-Za-z0-9_.@-]{1,15}" class="mono" placeholder="{{ $plan['interface_default'] }}" aria-label="Host interface for {{ $plan['service'] }}">
+                                        <small>Only if this network reaches the host another way: a separate NIC on an access port, or an existing VLAN interface or bridge. Leave blank to use the trunk.</small>
+                                    </details>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table></div>
+            @endif
+            <div class="form-actions"><button class="button primary">Save probe interfaces</button></div>
+        </form>
+
         @if($plans->isEmpty())
             <p class="hint">Set up and map at least one policy above to get probe recommendations.</p>
         @else
-            <div class="notice"><strong>All probes in one file.</strong> <a href="{{ route('admin.policy.setup.compose', ['parent' => $parent, 'extra' => $extra]) }}">Download compose.vlan.yml</a>, or write it on the Docker host with <code>docker compose exec -T app php artisan probes:compose --parent={{ $parent }}@foreach($extra as $id) --network={{ $id }}@endforeach > compose.vlan.yml</code>. The file starts with the network commands and .env lines below.</div>
-            <p class="hint">Host interface <code>{{ $parent }}</code> must be a trunk carrying the tagged VLANs. Reserve each suggested <code>/29</code> range outside UniFi's DHCP pool so containers don't clash with clients.</p>
+            <div class="notice"><strong>All probes in one file.</strong> <a href="{{ route('admin.policy.setup.compose') }}">Download compose.vlan.yml</a>, or write it on the Docker host with <code>docker compose exec -T app php artisan probes:compose > compose.vlan.yml</code>. Both use the saved interfaces. The file starts with the network commands and .env lines shown below.</div>
+            <p class="hint">Reserve each suggested <code>/29</code> range outside UniFi's DHCP pool so containers don't clash with clients.</p>
             @foreach($plans as $plan)
-                <article class="probe-plan">
-                    <h3>{{ $plan['policy']?->name ?? $plan['label'] }} <small>{{ $plan['audience']->label() }} · {{ $plan['network']->name }}{{ $plan['network']->vlan ? ' (VLAN '.$plan['network']->vlan.')' : '' }} · probe <code>{{ $plan['service'] }}</code>{{ $plan['profile'] ? ' · profile '.$plan['profile']->name.($plan['profile']->enabled ? '' : ' (disabled)') : '' }}</small></h3>
+                <details class="probe-plan">
+                    <summary><strong>{{ $plan['policy']?->name ?? $plan['label'] }}</strong> <small>{{ $plan['network']->name }}{{ $plan['network']->vlan ? ' (VLAN '.$plan['network']->vlan.')' : '' }} · <code>{{ $plan['service'] }}</code> on <code>{{ $plan['interface'] }}</code>{{ $plan['profile'] ? ' · profile '.$plan['profile']->name.($plan['profile']->enabled ? '' : ' (disabled)') : '' }}</small></summary>
                     @foreach($plan['warnings'] as $warning)<p class="network-status warn">{{ $warning }}</p>@endforeach
                     @if($plan['others']->isNotEmpty())<p class="hint">Also covers: {{ $plan['others']->map(fn ($network) => $network->name.($network->vlan ? ' (VLAN '.$network->vlan.')' : ''))->join(', ') }}.</p>@endif
                     <div class="fields two">
@@ -117,10 +144,10 @@
                     </div>
                     <label>compose.vlan.yml: under <code>services:</code><textarea class="mono" rows="{{ $plan['built_in'] ? 6 : 18 }}" readonly id="svc-{{ $plan['key'] }}">{{ $plan['compose'] }}</textarea><button type="button" class="button small secondary" data-copy="#svc-{{ $plan['key'] }}">Copy</button></label>
                     <label>compose.vlan.yml: under <code>networks:</code><textarea class="mono" rows="4" readonly id="net-{{ $plan['key'] }}">{{ $plan['compose_network'] }}</textarea><button type="button" class="button small secondary" data-copy="#net-{{ $plan['key'] }}">Copy</button></label>
-                </article>
+                </details>
             @endforeach
-            <div class="notice">Then run <code>docker compose -f compose.yml -f compose.vlan.yml up -d</code>. For new probes, also add <code>{{ $plans->reject(fn ($plan) => $plan['built_in'])->pluck('service')->map(fn ($service) => $service.': { condition: service_healthy }')->join(', ') ?: 'nothing' }}</code> to the app's <code>depends_on</code> if you want the app to wait for them.</div>
-            <form method="post" action="{{ route('admin.policy.setup.profiles') }}">@csrf<input type="hidden" name="parent" value="{{ $parent }}">@foreach($extra as $id)<input type="hidden" name="extra[]" value="{{ $id }}">@endforeach
+            <div class="notice">Then run <code>docker compose -f compose.yml -f compose.vlan.yml up -d</code> (with any other override you use). For new probes, also add <code>{{ $plans->reject(fn ($plan) => $plan['built_in'])->pluck('service')->map(fn ($service) => $service.': { condition: service_healthy }')->join(', ') ?: 'nothing' }}</code> to the app's <code>depends_on</code> if you want the app to wait for them.</div>
+            <form method="post" action="{{ route('admin.policy.setup.profiles') }}">@csrf
                 <div class="form-actions"><button class="button primary">Create and link probe profiles</button></div>
             </form>
         @endif

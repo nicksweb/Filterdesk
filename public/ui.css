@@ -160,3 +160,9 @@ a.pager-link:hover{border-color:#9fb4cc}
 .extra-probes p{margin:0 0 8px}
 .extra-probes .choice small{display:block;color:var(--muted)}
 .setup-callout .button{margin:0 4px}
+.probe-settings{margin:8px 0 18px}
+.probe-settings td small,.probe-settings td code+small{display:block;color:var(--muted)}
+.interface-override summary{cursor:pointer;font-size:.8rem;color:var(--muted)}
+.interface-override input{margin-top:6px;max-width:12rem}
+details.probe-plan summary{cursor:pointer}
+details.probe-plan summary small{color:var(--muted);font-weight:500}

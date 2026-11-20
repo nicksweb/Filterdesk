@@ -96,6 +96,26 @@ class ControllerImportTest extends TestCase
         $this->assertSame(Audience::Guest, $guest->audience);
     }
 
+    public function test_saved_trunk_tags_each_probe_and_an_override_or_extra_network_is_kept(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin)->post(route('admin.policy.setup.import-all'));
+
+        $this->actingAs($admin)->post(route('admin.policy.setup.probes'), ['trunk' => 'eno1; rm -rf /'])->assertSessionHasErrors('trunk');
+        $this->actingAs($admin)->post(route('admin.policy.setup.probes'), [
+            'trunk' => 'eno1', 'interfaces' => ['sim-student' => 'eno2', 'sim-staff' => ''], 'extra' => ['sim-guest'],
+        ])->assertSessionHas('success');
+
+        $file = $this->actingAs($admin)->get(route('admin.policy.setup.compose'))->assertOk()->getContent();
+        $this->assertStringContainsString('-o parent=eno1.10 itr_staff_vlan', $file, 'Tagged VLAN on the trunk');
+        $this->assertStringContainsString('-o parent=eno2 itr_student_vlan', $file, 'Per-probe override');
+        $this->assertStringContainsString('-o parent=eno1.80 itr_net_guest_wi_fi_80_vlan', $file, 'Saved extra network');
+        $this->assertStringContainsString('# Host interfaces: probe-student → eno2, probe-staff → eno1.10, probe-net-guest-wi-fi-80 → eno1.80', $file);
+
+        $this->artisan('probes:compose')->assertSuccessful()->expectsOutputToContain('-o parent=eno1.80');
+        $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('value="eno1"', false)->assertSee('set by hand');
+    }
+
     public function test_the_dashboard_points_a_new_install_at_guided_setup(): void
     {
         IntegrationConfig::query()->where('provider', 'mock')->update(['provider' => 'unifi', 'configuration' => ['controller_url' => 'https://unifi.example.test'], 'credentials' => ['api_key' => 'test']]);

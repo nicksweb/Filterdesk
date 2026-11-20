@@ -69,7 +69,18 @@ Website checks run in small probe containers (headless browsers). A check is onl
 2. **Use that VLAN's gateway for DNS** (`PROBE_DNS_SERVERS`), so lookups go uncached to the resolver UniFi filters on. With the host's resolver instead, checks show *DNS blocked* or *allowed* for the wrong network.
 3. **Have a fixed address outside the DHCP pool.** The suggested `/29` at the top of each subnet is for that; shrink the UniFi DHCP range or reserve it.
 
-The Docker host's switch port must carry those VLANs **tagged** (a UniFi port profile that allows them), and the host interface you give the planner (for example `eth0` or `eno1`) must be that trunk. The planner uses `<interface>.<vlan>` as the macvlan parent, which Docker creates as a VLAN sub-interface. An untagged network needs a host interface that is already on it.
+### One trunk, VLANs tagged
+
+The simplest setup is one host interface, the **trunk**, whose switch port carries every probe VLAN tagged (in UniFi, a port profile with the native network untagged and the probe VLANs tagged). Set it once under *Guided setup → Trunk interface*. Each probe then gets `<trunk>.<VLAN>` as its macvlan parent, which Docker creates as a tagged sub-interface; a probe for the native (untagged) network uses the trunk itself. Nothing needs configuring on the host beyond the cable.
+
+To find the trunk and confirm the port carries the tags, run on the Docker host:
+
+```bash
+bin/probe-interfaces                   # interfaces, kinds, VLAN ids, addresses; suggests the trunk
+sudo bin/probe-interfaces --listen eno1  # reports which VLAN tags arrive on eno1 (needs tcpdump)
+```
+
+If a network reaches the host some other way (a separate NIC on an access port, or a VLAN interface or bridge already defined in netplan), open *Different interface* next to that probe and enter it; leave it blank to use the trunk. The interfaces and extra probes are saved, and the download and `probes:compose` use them.
 
 ### Generating the file
 
@@ -78,7 +89,7 @@ After **Policy lists → Guided setup → Bring everything in**, the *Probe cont
 - **Download compose.vlan.yml** on that page, or on the Docker host:
 
   ```bash
-  docker compose exec -T app php artisan probes:compose --parent=eno1 > compose.vlan.yml
+  docker compose exec -T app php artisan probes:compose > compose.vlan.yml
   ```
 
 - The top of the file lists the `docker network create -d macvlan …` command for each probe and the `.env` lines for the built-in `probe-student` and `probe-staff`. Run the commands once on the host, then start the stack with the override:
@@ -91,7 +102,7 @@ After **Policy lists → Guided setup → Bring everything in**, the *Probe cont
 
 ### More than staff and students
 
-Every policy mapped to a network gets its own probe. Policies other than Students and Staff (a guest filter, or one per year level) get a full service definition in the generated file, named `probe-<policy>`. To test from a network that has no policy of its own, or a second VLAN worth checking separately (guest Wi-Fi, BYOD, a lab), tick it under **Extra probes** on the same page, or pass `--network=<controller network id>` to `probes:compose`; it becomes `probe-net-<name>` with its own profile. Checks run on every enabled profile, so the results show each network side by side. Layers share their parent's networks and need no probe of their own.
+Every policy mapped to a network gets its own probe. Policies other than Students and Staff (a guest filter, or one per year level) get a full service definition in the generated file, named `probe-<policy>`. To test from a network that has no policy of its own, or a second VLAN worth checking separately (guest Wi-Fi, BYOD, a lab), tick it under **Extra probes** on the same page, and save (or pass `--network=<controller network id>` to `probes:compose`); it becomes `probe-net-<name>` with its own profile. Checks run on every enabled profile, so the results show each network side by side. Layers share their parent's networks and need no probe of their own.
 
 Keep probes off the internet-facing side: they only talk to the app over the internal `probe_control` network and reject private targets unless listed in `*_ALLOWED_PRIVATE_HOSTS`.
 
