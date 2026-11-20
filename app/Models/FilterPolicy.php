@@ -17,7 +17,7 @@ class FilterPolicy extends Model
     protected $fillable = [
         'name', 'slug', 'audience', 'description', 'network_profile_id', 'provider_reference', 'provider_name',
         'enabled', 'sort_order', 'current_allowlist', 'current_blocklist', 'snapshot_at', 'snapshot_by_id',
-        'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline', 'controller_exclusions',
+        'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline', 'controller_exclusions', 'controller_managed',
     ];
 
     protected function casts(): array
@@ -32,6 +32,7 @@ class FilterPolicy extends Model
             'sync_details' => 'array',
             'sync_baseline' => 'array',
             'controller_exclusions' => 'array',
+            'controller_managed' => 'array',
         ];
     }
 
@@ -53,6 +54,16 @@ class FilterPolicy extends Model
     public function exclusions(): array
     {
         return ['allow' => array_values($this->controller_exclusions['allow'] ?? []), 'block' => array_values($this->controller_exclusions['block'] ?? [])];
+    }
+
+    /**
+     * Hostnames this app wrote into the controller filter, per list kind.
+     *
+     * @return array{allow: list<string>, block: list<string>}
+     */
+    public function managed(): array
+    {
+        return ['allow' => array_values($this->controller_managed['allow'] ?? []), 'block' => array_values($this->controller_managed['block'] ?? [])];
     }
 
     public function networkAssignments(): HasMany

@@ -38,6 +38,9 @@ All notable changes to this project are documented here. Versions follow [Semant
 - `itrequests:upgrade`, `itrequests:admin-password` and `policy:digest` commands; versioned upgrades.
 
 ### Fixed
+- Push safety: pushes are refused when a filter list would exceed a configurable size (default 2,000; 16,000 entries made the UniFi web interface unusable), and automatic pushes stop above 200 changes until someone pushes them.
+- Entries the app wrote to the controller and later dropped (deleted entries, feeds switched off) are removed from the controller instead of being imported back as hand-made.
+- Pagination uses a compact pager instead of unstyled framework markup.
 - A block for one audience was silently ignored when the hostname was also allowed site-wide or by an approval ("allow always wins").
 - Policy comparisons scale to feed-sized lists (set lookups instead of nested scans; plain rows instead of models).
 - Docker build: the Composer stage ignores only upper-bound PHP constraints, so builds keep working when the `composer:2` image moves to a newer PHP than the 8.5 runtime.

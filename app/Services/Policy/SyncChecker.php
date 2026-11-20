@@ -239,13 +239,15 @@ class SyncChecker
             }
         }
 
+        $written = $policy->managed();
         foreach (['allow', 'block'] as $kind) {
             $excluded = array_flip($exclusions[$kind]);
+            $writtenByApp = array_flip($written[$kind]);
             foreach ($live[$kind] as $domain) {
                 $wanted = $kind === 'allow'
                     ? $this->engine->coveredBy($sets['allow']['desired'], $domain, $rules)
                     : isset($sets['block']['desired'][$domain]);
-                if ($wanted || isset($excluded[$domain])) {
+                if ($wanted || isset($excluded[$domain]) || isset($writtenByApp[$domain])) {
                     continue;
                 }
                 if (! isset($sets[$kind]['baseline'][$domain]) || isset($sets[$kind]['review'][$domain])) {
@@ -290,7 +292,14 @@ class SyncChecker
             ));
         }
 
-        $policy->forceFill(['controller_exclusions' => ['allow' => array_values(array_unique($exclusions['allow'])), 'block' => array_values(array_unique($exclusions['block']))]])->save();
+        $policy->forceFill([
+            'controller_exclusions' => ['allow' => array_values(array_unique($exclusions['allow'])), 'block' => array_values(array_unique($exclusions['block']))],
+            // Entries the app wrote that are no longer in the controller are no longer the app's to remove.
+            'controller_managed' => [
+                'allow' => array_values(array_filter($written['allow'], fn (string $domain) => isset($sets['allow']['live'][$domain]))),
+                'block' => array_values(array_filter($written['block'], fn (string $domain) => isset($sets['block']['live'][$domain]))),
+            ],
+        ])->save();
         $this->setBaseline($policy, $live['allow'], $live['block'], $liveCategories);
 
         if (collect($result)->flatten()->isNotEmpty()) {

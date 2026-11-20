@@ -10,7 +10,7 @@
     </div>
 
     <section class="panel policy-section">
-        <div class="panel-heading"><div><h2>Add a list</h2><p>Lists refresh automatically. Approvals and lists for one audience or policy still override a site-wide feed, so an approved request is never blocked by a feed.</p></div></div>
+        <div class="panel-heading"><div><h2>Add a list</h2><p>Content filters push at most {{ number_format($maxFilterEntries) }} entries per list, so most presets are too large for them; IP lists go to a firewall group instead. Lists refresh automatically. Approvals and lists for one audience or policy still override a site-wide feed, so an approved request is never blocked by a feed.</p></div></div>
         <form method="post" action="{{ route('admin.policy.blocklists.feeds.store') }}">@csrf
             <label>Preset
                 <select name="preset">
@@ -58,7 +58,7 @@
 
     @if($feedLoad->contains(fn ($item) => $item['count'] > 0))
         <div class="notice"><strong>Feed domains per content filter:</strong> @foreach($feedLoad as $item){{ $item['policy']->name }} {{ number_format($item['count']) }}@if(!$loop->last) · @endif @endforeach.
-            Content filters are not built for very large lists: push a small list first and confirm the controller accepts it (the push reads the filter back and reports any shortfall). Lists of 100,000+ domains belong on a DNS resolver.</div>
+            Pushes are refused above {{ number_format($maxFilterEntries) }} entries per list (Settings → Network provider): the UniFi web interface becomes unusable with very long lists. Large lists belong on a DNS resolver; use the IP lists and small domain lists (encrypted DNS, about 3,600) here.</div>
     @endif
 
     <section class="panel table-wrap policy-section">

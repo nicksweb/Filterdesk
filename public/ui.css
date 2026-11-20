@@ -142,3 +142,10 @@ input.narrow{width:70px}
 .account-link small{color:#9fb1c8;font-size:.74rem}
 .tag.tag-block{background:#fde8e9;color:#a6222b;margin-left:6px}
 @media(max-width:620px){.account-link>span{display:none}}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;font-size:.82rem}
+.pager-summary{color:var(--muted)}
+.pager-links{display:flex;gap:4px;flex-wrap:wrap}
+.pager-link{display:inline-flex;align-items:center;min-width:32px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:#344054;font-weight:600;justify-content:center}
+a.pager-link:hover{border-color:#9fb4cc}
+.pager-link.current{background:var(--blue);border-color:var(--blue);color:#fff}
+.pager-link.disabled{color:#a0a9b6;background:#f6f8fa}

@@ -14,6 +14,7 @@ use App\Models\PolicyEntry;
 use App\Models\PolicyList;
 use App\Services\AuditLogger;
 use App\Services\Network\ProviderRequestFailed;
+use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\FeedFetcher;
 use App\Services\Policy\FeedParser;
 use App\Services\Policy\FirewallListPusher;
@@ -57,6 +58,7 @@ class BlocklistController extends Controller
             'groups' => $groups,
             'groupsError' => $groupsError,
             'canWrite' => $firewall->canWrite(),
+            'maxFilterEntries' => app(ControllerPusher::class)->maxEntries(),
             'feedLoad' => FilterPolicy::query()->where('enabled', true)->ordered()->get()->map(fn (FilterPolicy $policy) => [
                 'policy' => $policy,
                 'count' => $lists->filter(fn (PolicyList $list) => $list->appliesTo($policy))->sum(fn (PolicyList $list) => $feedCounts[$list->id] ?? 0),

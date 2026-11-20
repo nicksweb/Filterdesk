@@ -28,6 +28,17 @@ use Throwable;
  */
 class ControllerPusher
 {
+    /** Automatic pushes (approvals, schedules) stop above this many changes and wait for a person. */
+    public const AUTOMATIC_CHANGE_LIMIT = 200;
+
+    public const DEFAULT_MAX_ENTRIES = 2000;
+
+    /** Largest allow or block list a push may write to one controller filter. */
+    public function maxEntries(): int
+    {
+        return (int) ($this->providers->integration()?->configuration['max_filter_entries'] ?? self::DEFAULT_MAX_ENTRIES);
+    }
+
     public function __construct(
         private readonly NetworkProviderManager $providers,
         private readonly ControllerSync $sync,
@@ -162,6 +173,13 @@ class ControllerPusher
             return ['ok' => false, 'message' => $exception->getMessage()];
         }
 
+        if ($push->filterPolicy) {
+            $managed = $push->filterPolicy->managed();
+            $push->filterPolicy->forceFill(['controller_managed' => [
+                'allow' => array_values(array_diff($managed['allow'], $push->changes['allow_add'] ?? [])),
+                'block' => array_values(array_diff($managed['block'], $push->changes['block_add'] ?? [])),
+            ]])->save();
+        }
         ControllerPush::query()->create([
             'filter_policy_id' => $push->filter_policy_id, 'user_id' => $actor?->id, 'provider_reference' => $push->provider_reference,
             'provider_name' => $push->provider_name, 'trigger' => 'rollback', 'status' => 'ok',
@@ -196,6 +214,21 @@ class ControllerPusher
             return ['ok' => true, 'message' => "{$plan['filter']['name']} already matches {$policy->name}."];
         }
 
+        $limit = $this->maxEntries();
+        if (count($plan['allow']) > $limit || count($plan['block']) > $limit) {
+            $message = "{$plan['filter']['name']} would hold ".number_format(max(count($plan['allow']), count($plan['block'])))
+                .' entries in one list, over the limit of '.number_format($limit).'. Large lists can make the controller unusable. Use a smaller blocklist, or raise the limit under Settings → Network provider if you are sure.';
+            $this->audit->log('policy.controller_push_refused', $policy, ['reason' => 'size', 'allow' => count($plan['allow']), 'block' => count($plan['block'])]);
+
+            return ['ok' => false, 'message' => $message];
+        }
+        $changeCount = collect($plan['changes'])->sum(fn (array $values) => count($values));
+        if ($trigger !== 'manual' && $changeCount > self::AUTOMATIC_CHANGE_LIMIT) {
+            $this->audit->log('policy.controller_push_refused', $policy, ['reason' => 'automatic_change_limit', 'changes' => $changeCount]);
+
+            return ['ok' => false, 'message' => "{$policy->name}: ".number_format($changeCount).' changes are waiting. Automatic pushes stop at '.self::AUTOMATIC_CHANGE_LIMIT.' changes; review them and push from the policy page.'];
+        }
+
         $record = [
             'filter_policy_id' => $policy->id, 'user_id' => $actor?->id, 'provider_reference' => $plan['filter']['id'],
             'provider_name' => $plan['filter']['name'], 'trigger' => $trigger,
@@ -219,6 +252,11 @@ class ControllerPusher
 
         $message = "{$plan['filter']['name']}: {$plan['message']}";
         $push = ControllerPush::query()->create($record + ['status' => 'ok', 'message' => $message]);
+        $managed = $policy->managed();
+        $policy->forceFill(['controller_managed' => [
+            'allow' => array_values(array_diff(array_unique([...$managed['allow'], ...$plan['changes']['allow_add']]), $plan['changes']['allow_remove'])),
+            'block' => array_values(array_diff(array_unique([...$managed['block'], ...$plan['changes']['block_add']]), $plan['changes']['block_remove'])),
+        ]])->save();
         $this->sync->forget();
         $this->sync->pull($policy, $actor);
         $this->checker()->setBaseline($policy, $plan['allow'], $plan['block']);

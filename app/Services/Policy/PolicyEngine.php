@@ -363,12 +363,13 @@ class PolicyEngine
         $blockAdd = array_values(array_filter($desired['block'], fn (string $domain) => ! isset($currentBlockSet[$domain])));
         $blockExtra = array_values(array_filter($currentBlock, fn (string $domain) => ! isset($desiredBlockSet[$domain])));
 
-        $managedBlocks = $blockExtra === [] ? [] : array_flip(PolicyEntry::query()->whereIn('domain', $blockExtra)
-            ->whereHas('policyList', fn ($query) => $query->where('kind', ListKind::Block))->pluck('domain')->all());
+        $written = $policy->managed();
+        $managedBlocks = array_flip($written['block']) + ($blockExtra === [] ? [] : array_flip(PolicyEntry::query()->whereIn('domain', array_slice($blockExtra, 0, 5000))
+            ->whereHas('policyList', fn ($query) => $query->where('kind', ListKind::Block))->pluck('domain')->all()));
         $blockRemove = array_values(array_filter($blockExtra, fn (string $domain) => isset($managedBlocks[$domain])
             || isset($desiredAllowSet[$domain]) || $this->coveredBy($desiredAllowSet, $domain, $rules)));
 
-        $known = PolicyEntry::query()->whereIn('domain', $allowExtra)->pluck('domain')
+        $known = collect($written['allow'])->merge(PolicyEntry::query()->whereIn('domain', array_slice($allowExtra, 0, 5000))->pluck('domain'))
             ->merge(WebsiteRequest::query()->whereIn('status', [RequestStatus::Expired, RequestStatus::Revoked])->latest()->limit(2000)->get()->flatMap->effectiveDomains())
             ->unique()->all();
 

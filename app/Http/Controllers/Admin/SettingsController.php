@@ -257,6 +257,7 @@ class SettingsController extends Controller
             'entry_matching' => ['required', 'in:exact,includes_subdomains'],
             'auto_push' => ['nullable', 'boolean'],
             'controller_authoritative' => ['nullable', 'boolean'],
+            'max_filter_entries' => ['nullable', 'integer', 'min:50', 'max:50000'],
         ]);
 
         $integration = IntegrationConfig::query()->where('provider', $validated['provider'])->first()
@@ -281,6 +282,7 @@ class SettingsController extends Controller
                 'entry_matching' => $validated['entry_matching'],
                 'auto_push' => $validated['mode'] === 'active' && $request->boolean('auto_push'),
                 'controller_authoritative' => $request->boolean('controller_authoritative', true),
+                'max_filter_entries' => (int) ($validated['max_filter_entries'] ?? 2000),
             ],
         ]);
         if (filled($validated['api_key'] ?? null)) {

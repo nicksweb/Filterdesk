@@ -217,4 +217,15 @@ class PolicyManagementTest extends TestCase
         $this->assertSame(2, PolicyEntry::query()->where('website_request_id', $request->id)->count());
         $this->assertSame(config('version.app'), app(SettingsRepository::class)->get('installation.version'));
     }
+
+    public function test_list_pages_use_the_compact_pager(): void
+    {
+        $list = $this->engine->defaultAllowList(Audience::Student);
+        foreach (range(1, 105) as $index) {
+            $this->engine->upsertEntry($list, "page{$index}.example.org", ['source' => 'manual']);
+        }
+
+        $this->actingAs(User::factory()->admin()->create())->get(route('admin.policy.lists.show', $list))
+            ->assertOk()->assertSee('class="pager"', false)->assertSee('1–100 of 105', false)->assertDontSee('<svg', false);
+    }
 }

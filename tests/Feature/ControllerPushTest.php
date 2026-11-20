@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Enums\AccessScope;
 use App\Enums\Audience;
+use App\Enums\ListKind;
 use App\Enums\RequestStatus;
 use App\Models\ControllerPush;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
+use App\Models\PolicyEntry;
 use App\Models\PolicyList;
 use App\Models\User;
 use App\Notifications\FilterSyncAlertNotification;
@@ -249,5 +251,46 @@ class ControllerPushTest extends TestCase
         $this->artisan('policy:check-sync');
         $this->assertSame([], $this->students->refresh()->exclusions()['allow']);
         $this->assertSame('in_sync', $this->students->sync_status);
+    }
+
+    public function test_pushes_are_refused_over_the_list_size_limit_and_large_automatic_changes_wait(): void
+    {
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['max_filter_entries' => 50, 'auto_push' => true, 'controller_authoritative' => true]]);
+        $list = $this->engine->ownList($this->students, ListKind::Block);
+        foreach (range(1, 60) as $index) {
+            $this->engine->upsertEntry($list, "site{$index}.example.org", ['source' => 'manual']);
+        }
+
+        $this->actingAs(User::factory()->it()->create())->post(route('admin.policy.policies.push', $this->students))
+            ->assertSessionHas('error', fn (string $message) => str_contains($message, 'over the limit of 50'));
+        $this->assertSame([], $this->filter('sim-filter-students')['block']);
+
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['max_filter_entries' => 5000, 'auto_push' => true, 'controller_authoritative' => true]]);
+        foreach (range(61, 260) as $index) {
+            $this->engine->upsertEntry($list, "site{$index}.example.org", ['source' => 'manual']);
+        }
+        $this->artisan('policy:push');
+        $this->assertSame([], $this->filter('sim-filter-students')['block'], 'Over 200 automatic changes wait for a person');
+
+        $this->actingAs(User::factory()->it()->create())->post(route('admin.policy.policies.push', $this->students))->assertSessionHas('success');
+        $this->assertCount(260, $this->filter('sim-filter-students')['block']);
+    }
+
+    public function test_entries_the_app_wrote_are_removed_from_the_controller_when_dropped_not_imported_back(): void
+    {
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['controller_authoritative' => true]]);
+        $it = User::factory()->it()->create();
+        $siteBlock = PolicyList::query()->where('scope', 'site')->where('kind', 'block')->firstOrFail();
+        $entry = $this->engine->upsertEntry($siteBlock, 'temporary-block.example.org', ['source' => 'manual']);
+        $this->actingAs($it)->post(route('admin.policy.policies.push', $this->students));
+        $this->assertContains('temporary-block.example.org', $this->filter('sim-filter-students')['block']);
+
+        $entry->delete();
+        $this->artisan('policy:check-sync');
+        $this->assertSame([], $this->engine->reconcile($this->students->refresh())['block_review']);
+        $this->actingAs($it)->post(route('admin.policy.policies.push', $this->students))->assertSessionHas('success');
+
+        $this->assertNotContains('temporary-block.example.org', $this->filter('sim-filter-students')['block']);
+        $this->assertSame(0, PolicyEntry::query()->where('domain', 'temporary-block.example.org')->count(), 'Not imported back as a hand-made entry');
     }
 }
