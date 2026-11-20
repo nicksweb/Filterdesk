@@ -110,14 +110,38 @@ class PolicyEngine
         return $this->defaultAllowList($audience);
     }
 
-    /** @return list<PolicyList> */
-    public function targetListsFor(AccessScope $scope): array
+    /** The block list that receives block requests for an audience (or site-wide). */
+    public function defaultBlockList(?Audience $audience): PolicyList
     {
-        if ($scope === AccessScope::SiteWide) {
-            return [$this->defaultAllowList(null)];
+        if ($audience === null) {
+            return $this->ensureList(ListKind::Block, ListScope::Site, null, 'Site-wide block', 'Blocked on every network unless allowed by a more specific list.');
         }
 
-        return array_map(fn (Audience $audience) => $this->defaultAllowList($audience), $scope->audiences());
+        $list = PolicyList::query()->where('kind', ListKind::Block)->where('scope', ListScope::Audience)
+            ->where('audience', $audience)->orderByDesc('is_default')->orderBy('id')->first();
+        if ($list) {
+            return $list;
+        }
+        $this->ensureAudienceLists($audience);
+
+        return $this->defaultBlockList($audience);
+    }
+
+    /** @return list<PolicyList> */
+    public function targetListsFor(AccessScope $scope, ListKind $kind = ListKind::Allow): array
+    {
+        $resolve = fn (?Audience $audience) => $kind === ListKind::Block ? $this->defaultBlockList($audience) : $this->defaultAllowList($audience);
+
+        if ($scope === AccessScope::SiteWide) {
+            return [$resolve(null)];
+        }
+
+        return array_map($resolve, $scope->audiences());
+    }
+
+    public function kindFor(WebsiteRequest $request): ListKind
+    {
+        return $request->isBlock() ? ListKind::Block : ListKind::Allow;
     }
 
     /** @return Collection<int, FilterPolicy> */
@@ -136,7 +160,7 @@ class PolicyEngine
     public function grant(WebsiteRequest $request, array $domains, AccessScope $scope, ?User $actor): void
     {
         DB::transaction(function () use ($request, $domains, $scope, $actor): void {
-            foreach ($this->targetListsFor($scope) as $list) {
+            foreach ($this->targetListsFor($scope, $this->kindFor($request)) as $list) {
                 foreach ($domains as $domain) {
                     $this->upsertEntry($list, $domain, [
                         'source' => EntrySource::Request,
@@ -168,7 +192,7 @@ class PolicyEngine
 
             foreach ($entries as $entry) {
                 $successor = $others->first(fn (WebsiteRequest $other) => in_array($entry->domain, $other->effectiveDomains(), true)
-                    && collect($this->targetListsFor($other->effectiveScope()))->contains('id', $entry->policy_list_id));
+                    && collect($this->targetListsFor($other->effectiveScope(), $this->kindFor($other)))->contains('id', $entry->policy_list_id));
 
                 if ($successor) {
                     $entry->update([

@@ -27,7 +27,7 @@
                 @endif
             </nav>
             <div class="account">
-                <a class="account-link" href="{{ route('profile.edit') }}"><span><strong>{{ auth()->user()->name }}</strong><small>{{ ucfirst(auth()->user()->role) }}</small></span></a>
+                <a class="account-link" href="{{ route('profile.edit') }}"><span><strong>{{ auth()->user()->name }}</strong><small>{{ ['teacher' => 'Staff', 'it' => 'IT', 'admin' => 'Administrator', 'student' => 'Student'][auth()->user()->role] ?? ucfirst(auth()->user()->role) }}</small></span></a>
                 <form method="post" action="{{ route('logout') }}">@csrf<button class="link-button">Sign out</button></form>
             </div>
         @endauth

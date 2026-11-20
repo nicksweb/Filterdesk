@@ -7,6 +7,7 @@ use App\Enums\RequestStatus;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Domains\DomainNormalizer;
+use App\Services\Network\DomainRules;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
 use App\Services\Policy\PolicyEngine;
@@ -84,6 +85,7 @@ class WebsiteRequestController extends Controller
         }
 
         return view('requests.create', [
+            'block' => $request->query('type') === 'block',
             'categories' => $settings->get('approval.categories', ['Teaching and learning', 'Research', 'Professional development', 'Administration', 'Other']),
             'prefillDomains' => $prefillDomains,
             'defaultTemporaryDays' => (int) $settings->get('approval.default_temporary_days', 30),
@@ -95,9 +97,11 @@ class WebsiteRequestController extends Controller
         abort_unless($this->canRequest($request->user(), $settings), 403);
 
         $categories = $settings->get('approval.categories', []);
+        $block = $request->input('request_type') === 'block';
         $validated = $request->validate([
+            'request_type' => ['nullable', 'in:allow,block'],
             'domains' => ['required', 'string', 'max:4000'],
-            'access_scope' => ['required', Rule::in(array_map(fn (AccessScope $scope) => $scope->value, AccessScope::requestable()))],
+            'access_scope' => ['required', Rule::in(array_map(fn (AccessScope $scope) => $scope->value, AccessScope::requestable($block)))],
             'category' => ['required', 'string', 'max:100', ...($categories ? [Rule::in($categories)] : [])],
             'use_case' => ['required', 'string', 'min:20', 'max:5000'],
             'standards_confirmed' => ['accepted'],
@@ -117,6 +121,7 @@ class WebsiteRequestController extends Controller
         }
 
         $websiteRequest = $workflow->submit($request->user(), [
+            'request_type' => $block ? 'block' : 'allow',
             'domains' => $normalizer->many($validated['domains']),
             'access_scope' => AccessScope::from($validated['access_scope']),
             'category' => $validated['category'],
@@ -125,7 +130,7 @@ class WebsiteRequestController extends Controller
             'requested_until' => $until,
         ]);
 
-        $automaticallyApproved = $websiteRequest->access_scope === AccessScope::Staff
+        $automaticallyApproved = ! $block && $websiteRequest->access_scope === AccessScope::Staff
             && (bool) $settings->get('approval.auto_approve_staff', false);
 
         if ($automaticallyApproved) {
@@ -134,7 +139,7 @@ class WebsiteRequestController extends Controller
 
         return redirect()->route('requests.show', $websiteRequest)->with(
             'success',
-            $automaticallyApproved ? 'Staff-only request approved under the configured policy.' : 'Request submitted to IT.'
+            $automaticallyApproved ? 'Staff-only request approved under the configured policy.' : ($block ? 'Block request submitted to IT.' : 'Request submitted to IT.')
         );
     }
 
@@ -153,7 +158,7 @@ class WebsiteRequestController extends Controller
                 'itStaff' => User::query()->itStaff()->get(['id', 'name', 'email', 'role']),
                 'rules' => $rules,
                 'recommendations' => $websiteRequest->status->isOpen()
-                    ? $recommender->recommend($websiteRequest->domains, $websiteRequest->related_domains ?? [], $rules, $policy->alreadyAllowed($websiteRequest->access_scope))
+                    ? $this->recommendations($websiteRequest, $recommender, $policy, $rules)
                     : [],
                 'existing' => collect($websiteRequest->domains)->mapWithKeys(fn (string $domain) => [$domain => $policy->locate($domain)])->filter->isNotEmpty(),
                 'policies' => $policy->policiesFor($websiteRequest->effectiveScope()),
@@ -162,6 +167,24 @@ class WebsiteRequestController extends Controller
         }
 
         return view('requests.show', $data);
+    }
+
+    /**
+     * Hostnames to suggest on approval. For a block, the site's own
+     * hostnames are selected; third-party hosts (CDNs, fonts, sign-in) are
+     * listed but not selected, because blocking them breaks other sites.
+     *
+     * @return list<array{domain: string, kind: string, reason: string, selected: bool}>
+     */
+    private function recommendations(WebsiteRequest $websiteRequest, DomainRecommender $recommender, PolicyEngine $policy, DomainRules $rules): array
+    {
+        if (! $websiteRequest->isBlock()) {
+            return $recommender->recommend($websiteRequest->domains, $websiteRequest->related_domains ?? [], $rules, $policy->alreadyAllowed($websiteRequest->access_scope));
+        }
+
+        return array_map(fn (array $item) => $item['kind'] === 'third_party'
+            ? ['selected' => false, 'reason' => 'Third-party host the page loads. Usually shared with other sites, so not blocked by default.'] + $item
+            : ['selected' => true] + $item, $recommender->recommend($websiteRequest->domains, $websiteRequest->related_domains ?? [], $rules));
     }
 
     public function reply(Request $request, WebsiteRequest $websiteRequest, RequestWorkflow $workflow): RedirectResponse

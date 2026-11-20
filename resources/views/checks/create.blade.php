@@ -80,7 +80,7 @@
             @endforeach
 
             <section class="panel request-shortlist">
-                <div class="panel-heading"><div><h2>Build access request</h2><p>Select every domain to include. Domains detected as blocked are selected automatically.</p></div></div>
+                <div class="panel-heading"><div><h2>Ask IT to allow or block</h2><p>Select the domains to include. Domains detected as blocked are selected automatically for an access request; for a block request, select the ones that should be blocked.</p></div></div>
                 <div class="shortlist-grid">
                     @foreach($checks as $check)
                         @php($isBlocked = collect($check['results'])->contains(fn ($result) => in_array($result['status'] ?? '', ['blocked', 'dns_failed'], true)))
@@ -93,8 +93,11 @@
             </section>
 
             <div class="batch-request-bar">
-                <p>Selected domains will be combined into one access request.</p>
-                <button class="button primary" type="submit">Continue to access request</button>
+                <p>Selected domains are combined into one request.</p>
+                <div class="button-row">
+                    <button class="button secondary" type="submit" name="type" value="block">Request a block</button>
+                    <button class="button primary" type="submit">Request access</button>
+                </div>
             </div>
         </form>
     @endisset

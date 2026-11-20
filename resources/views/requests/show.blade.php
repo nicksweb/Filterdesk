@@ -3,7 +3,7 @@
     @php($status = $websiteRequest->status)
     <div class="page-heading">
         <div>
-            <p class="eyebrow">{{ $websiteRequest->reference }}</p>
+            <p class="eyebrow">{{ $websiteRequest->reference }} · {{ $websiteRequest->isBlock() ? 'Block request' : 'Access request' }}</p>
             <h1>{{ implode(', ', $websiteRequest->domains) }}</h1>
             <p>Requested by {{ $websiteRequest->requester->name }} · {{ $websiteRequest->created_at->local()->format('j M Y, g:i a') }}</p>
         </div>
@@ -15,7 +15,7 @@
             <section class="panel">
                 <h2>Request details</h2>
                 <dl class="details">
-                    <div><dt>Requested access</dt><dd>{{ $websiteRequest->access_scope->label() }}</dd></div>
+                    <div><dt>{{ $websiteRequest->isBlock() ? 'Block for' : 'Requested access' }}</dt><dd>{{ $websiteRequest->access_scope->label() }}</dd></div>
                     <div><dt>Category</dt><dd>{{ $websiteRequest->category }}</dd></div>
                     <div><dt>Assigned to</dt><dd>{{ $websiteRequest->assignedTo?->name ?? 'Unassigned' }}</dd></div>
                     <div><dt>Requested period</dt><dd>@if($websiteRequest->requested_until){{ $websiteRequest->requested_from?->local()->format('j M Y g:i a') ?? 'As soon as approved' }} – {{ $websiteRequest->requested_until->local()->format('j M Y g:i a') }}@else Permanent @endif</dd></div>
@@ -28,7 +28,7 @@
                 <h3>Use case</h3>
                 <p class="prose">{{ $websiteRequest->use_case }}</p>
                 @if($websiteRequest->approved_domains)
-                    <h3>Allowed hostnames</h3>
+                    <h3>{{ $websiteRequest->isBlock() ? 'Blocked hostnames' : 'Allowed hostnames' }}</h3>
                     <div class="chip-list">@foreach($websiteRequest->approved_domains as $domain)<span class="chip">{{ $domain }}</span>@endforeach</div>
                 @endif
                 @if($websiteRequest->resolution)<h3>Resolution</h3><p class="prose">{{ $websiteRequest->resolution }}</p>@endif
@@ -36,7 +36,7 @@
 
             @if($isIt && $status->isOpen())
                 <section class="panel">
-                    <div class="panel-heading"><div><h2>Approve</h2><p>Choose the hostnames to allow. DNS filtering only sees hostnames, so include the bare domain and every subdomain the site needs.</p></div></div>
+                    <div class="panel-heading"><div><h2>{{ $websiteRequest->isBlock() ? 'Approve block' : 'Approve' }}</h2><p>{{ $websiteRequest->isBlock() ? 'Choose the hostnames to block. Third-party hosts are not selected because other sites share them. A block for an audience overrides an older allow at the same level and any site-wide allow.' : 'Choose the hostnames to allow. DNS filtering only sees hostnames, so include the bare domain and every subdomain the site needs.' }}</p></div></div>
                     <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}" class="approve-form">
                         @csrf
                         <input type="hidden" name="action" value="approve">
@@ -72,7 +72,7 @@
                             <label>Note to requester <span class="optional">optional</span><input name="message" value="{{ old('action') === 'approve' ? old('message') : '' }}"></label>
                         </div>
                         <ul class="rule-notes">@foreach($rules->notes as $note)<li>{{ $note }}</li>@endforeach</ul>
-                        <div class="form-actions"><button class="button primary">Approve selected hostnames</button></div>
+                        <div class="form-actions"><button class="button primary">{{ $websiteRequest->isBlock() ? 'Block selected hostnames' : 'Approve selected hostnames' }}</button></div>
                     </form>
                 </section>
             @endif
@@ -169,7 +169,7 @@
                             <form method="post" action="{{ route('admin.policy.networks.push') }}">@csrf<button class="button primary full" data-confirm="Push pending changes to every linked content filter?">Push to linked filters</button></form>
                             <p class="hint">Or apply by hand:</p>
                         @else
-                            <p class="section-copy">Add these hostnames to the content-filter allow list of each policy below, then mark the request applied.</p>
+                            <p class="section-copy">Add these hostnames to the content-filter {{ $websiteRequest->isBlock() ? 'block' : 'allow' }} list of each policy below, then mark the request applied.</p>
                         @endif
                         <ul class="policy-targets">@foreach($policies as $target)<li><a href="{{ route('admin.policy.policies.show', $target) }}">{{ $target->name }}</a> <small>{{ $target->audience->label() }}{{ $target->provider_reference ? ' · '.$target->provider_reference : '' }}</small></li>@endforeach</ul>
                         <textarea class="mono" rows="4" readonly id="apply-domains">{{ implode("\n", $websiteRequest->effectiveDomains()) }}</textarea>

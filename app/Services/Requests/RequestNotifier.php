@@ -26,7 +26,7 @@ class RequestNotifier
             return;
         }
 
-        $this->toIt(new RequestActivityNotification($request, 'New website access request', [
+        $this->toIt(new RequestActivityNotification($request, $request->isBlock() ? 'New website block request' : 'New website access request', [
             'Use case: '.str($request->use_case)->limit(400),
         ]), includeOptedInStaff: true);
     }

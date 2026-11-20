@@ -36,7 +36,7 @@
             <tbody>
                 @forelse($requests as $item)
                     <tr>
-                        <td><a href="{{ route('requests.show', $item) }}">{{ $item->reference }}</a>@if($item->requested_until)<small>Until {{ $item->requested_until->local()->format('j M') }}</small>@endif</td>
+                        <td><a href="{{ route('requests.show', $item) }}">{{ $item->reference }}</a>@if($item->isBlock())<span class="tag tag-block">Block</span>@endif @if($item->requested_until)<small>Until {{ $item->requested_until->local()->format('j M') }}</small>@endif</td>
                         <td><strong>{{ implode(', ', array_slice($item->domains, 0, 2)) }}</strong>@if(count($item->domains) > 2)<small>+{{ count($item->domains) - 2 }} more</small>@endif</td>
                         @if($isIt)<td>{{ $item->requester->name }}</td><td>{{ $item->assignedTo?->name ?? '—' }}</td>@endif
                         <td>{{ $item->effectiveScope()->label() }}</td>

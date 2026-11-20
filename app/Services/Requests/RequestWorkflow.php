@@ -123,7 +123,9 @@ class RequestWorkflow
         });
 
         $opens = $websiteRequest->accessFrom()?->isFuture() ? ' Access opens '.$websiteRequest->accessFrom()->local()->format('j M Y \a\t g:i a').'.' : '';
-        $this->notifier->decision($websiteRequest, trim(($note ? "{$note}\n\n" : 'Your request was approved. ').'Allowed: '.implode(', ', $domains).'.'.$opens
+        $verb = $websiteRequest->isBlock() ? 'Blocked' : 'Allowed';
+        $opens = $opens && $websiteRequest->isBlock() ? str_replace('Access opens', 'The block starts', $opens) : $opens;
+        $this->notifier->decision($websiteRequest, trim(($note ? "{$note}\n\n" : 'Your request was approved. ')."{$verb}: ".implode(', ', $domains).'.'.$opens
             .($websiteRequest->windowChanged() ? ' IT set the access window to '.$websiteRequest->windowLabel().'.' : '')));
 
         if ($websiteRequest->status === RequestStatus::ActionRequired && $this->pusher()->automatic()) {
@@ -150,7 +152,7 @@ class RequestWorkflow
             }
 
             $applied = $policies->every(fn ($policy) => collect($websiteRequest->effectiveDomains())->every(
-                fn (string $domain) => collect($policy->current_allowlist ?? [])->contains(fn (string $entry) => $rules->covers($entry, $domain))
+                fn (string $domain) => collect(($websiteRequest->isBlock() ? $policy->current_blocklist : $policy->current_allowlist) ?? [])->contains(fn (string $entry) => $rules->covers($entry, $domain))
             ));
             if (! $applied) {
                 continue;
@@ -160,7 +162,7 @@ class RequestWorkflow
             $websiteRequest->forceFill(['status' => RequestStatus::Active, 'resolved_at' => now()])->save();
             $this->event($websiteRequest, $actor, 'applied', "Applied automatically to the controller content filters: {$names}.");
             $this->audit->log('website_request.applied', $websiteRequest, ['automatic' => true]);
-            $this->notifier->decision($websiteRequest, 'Your approved access is now live on the network.');
+            $this->notifier->decision($websiteRequest, $websiteRequest->isBlock() ? 'The block you asked for is now in place on the network.' : 'Your approved access is now live on the network.');
             $settled++;
         }
 

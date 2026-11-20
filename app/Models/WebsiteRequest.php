@@ -12,7 +12,7 @@ use Illuminate\Support\Carbon;
 class WebsiteRequest extends Model
 {
     protected $fillable = [
-        'reference', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
+        'reference', 'request_type', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
         'category', 'use_case', 'standards_confirmed', 'status', 'requested_from',
         'requested_until', 'approved_at', 'access_from', 'expires_at', 'expiry_reminded_at', 'resolved_at', 'resolution',
         'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at',
@@ -74,6 +74,17 @@ class WebsiteRequest extends Model
     public function effectiveScope(): AccessScope
     {
         return $this->applied_scope ?? $this->access_scope;
+    }
+
+    /** The request asks for the websites to be blocked rather than allowed. */
+    public function isBlock(): bool
+    {
+        return $this->request_type === 'block';
+    }
+
+    public function typeLabel(): string
+    {
+        return $this->isBlock() ? 'Block' : 'Access';
     }
 
     /** Start of access: as approved once approved, otherwise as requested. */
