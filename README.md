@@ -111,3 +111,7 @@ Laravel Pint is the formatter. Provider integrations implement `App\Services\Net
 Do not open public issues containing vulnerabilities, credentials, school names, internal domains, screenshots or topology. Follow [SECURITY.md](SECURITY.md). This software can be authorised to change network policy; validate it in read-only mode and apply least privilege.
 
 Released under the [MIT License](LICENSE).
+
+## Third-party blocklists
+
+The optional blocklist presets (Policy lists → Blocklists & firewall) point to [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists), maintained by hagezi and contributors and published under GPL-3.0. IT Requests does not include any list content: lists are downloaded from the publisher when an administrator subscribes and on each scheduled refresh. Review a list's description in that repository before using it, and report false positives to the publisher.

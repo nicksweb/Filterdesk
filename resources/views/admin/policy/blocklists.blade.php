@@ -15,16 +15,26 @@
             <label>Preset
                 <select name="preset">
                     <option value="">Custom list (enter below)</option>
-                    @foreach($presets->groupBy('group') as $group => $items)
+                    @foreach($presets->groupBy('group', preserveKeys: true) as $group => $items)
                         <optgroup label="{{ $group }}">
                             @foreach($items as $key => $preset)<option value="{{ $key }}">{{ $preset['name'] }} · {{ $preset['type'] === 'ips' ? 'IPs' : 'domains' }} · ~{{ number_format($preset['size']) }}</option>@endforeach
                         </optgroup>
                     @endforeach
                 </select>
             </label>
-            <details class="preset-help"><summary>What the presets contain</summary>
-                @foreach($presets as $preset)<p class="hint"><strong>{{ $preset['name'] }}</strong> (~{{ number_format($preset['size']) }}): {{ $preset['description'] }}</p>@endforeach
-                <p class="hint">Presets are from <a href="https://github.com/hagezi/dns-blocklists" rel="noopener" target="_blank">hagezi/dns-blocklists</a> (GPL-3.0), in wildcard format: each domain stands for all its subdomains. Set <em>DNS filter entry matching</em> in Settings → Network provider to match how your controller treats subdomains.</p>
+            <details class="preset-help" open><summary>About the presets</summary>
+                @foreach(config('blocklists.publishers') as $key => $publisher)
+                    <div class="publisher">
+                        <p><strong><a href="{{ $publisher['url'] }}" rel="noopener" target="_blank">{{ $publisher['name'] }}</a></strong> · maintained by {{ $publisher['maintainer'] }} · licence <a href="{{ $publisher['licence_url'] }}" rel="noopener" target="_blank">{{ $publisher['licence'] }}</a></p>
+                        <p class="hint">{{ $publisher['summary'] }} {{ $publisher['format'] }} The lists are downloaded from the publisher when you add them and on each refresh; none of their content is shipped with IT Requests. Check a list's description in the repository before blocking with it, and report false positives to the publisher.</p>
+                        <table class="preset-table"><thead><tr><th>Preset</th><th>Type</th><th>Size</th><th>What it blocks</th></tr></thead><tbody>
+                            @foreach($presets->where('publisher', $key) as $preset)
+                                <tr><td><strong>{{ str($preset['name'])->after(': ') }}</strong><small>{{ $preset['group'] }} · <a href="{{ $preset['url'] }}" rel="noopener" target="_blank">raw list</a></small></td><td>{{ $preset['type'] === 'ips' ? 'IPs' : 'Domains' }}</td><td>~{{ number_format($preset['size']) }}</td><td>{{ $preset['description'] }}</td></tr>
+                            @endforeach
+                        </tbody></table>
+                    </div>
+                @endforeach
+                <p class="hint">Sizes are approximate and change daily. Set <em>DNS filter entry matching</em> in Settings → Network provider to match how your controller treats subdomains.</p>
             </details>
             <div class="fields three">
                 <label>Custom name<input name="name" placeholder="Our partner allow list"></label>
@@ -58,7 +68,7 @@
             <tbody>
                 @forelse($sources as $source)
                     <tr @class(['muted-row' => !$source->enabled])>
-                        <td><strong>{{ $source->name }}</strong><small><a href="{{ $source->url }}" rel="noopener" target="_blank">{{ str($source->url)->after('://')->limit(60) }}</a></small></td>
+                        <td><strong>{{ $source->name }}</strong>@php($publisher = $source->preset ? config('blocklists.publishers.'.config("blocklists.presets.{$source->preset}.publisher")) : null)<small>@if($publisher)From <a href="{{ $publisher['url'] }}" rel="noopener" target="_blank">{{ $publisher['name'] }}</a> ({{ $publisher['licence'] }}) · @endif<a href="{{ $source->url }}" rel="noopener" target="_blank">{{ str($source->url)->after('://')->limit(60) }}</a></small></td>
                         <td>@if($source->policyList)<a href="{{ route('admin.policy.lists.show', $source->policyList) }}">{{ $source->policyList->name }}</a><small>{{ $source->policyList->kind->label() }} · {{ $source->policyList->scopeLabel() }}</small>@elseif($source->firewallList){{ $source->firewallList->name }}<small>Firewall IP list</small>@endif</td>
                         <td>{{ number_format($source->entry_count) }}<small>max {{ number_format($source->max_entries) }}</small></td>
                         <td>@if($source->last_fetched_at)<span class="status status-{{ $source->last_status === 'failed' ? 'failed' : ($source->last_status === 'truncated' ? 'action_required' : 'ok') }}">{{ ucfirst($source->last_status) }}</span><small>{{ $source->last_fetched_at->diffForHumans() }} · {{ $source->last_message }}</small>@else<span class="hint">Never</span>@endif</td>

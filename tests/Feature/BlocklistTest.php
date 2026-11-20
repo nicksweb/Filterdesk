@@ -131,6 +131,16 @@ class BlocklistTest extends TestCase
         $this->actingAs($this->admin)->get(route('admin.policy.blocklists.index'))->assertOk()->assertSee('DNS bypass');
     }
 
+    public function test_every_preset_option_on_the_page_submits_a_valid_preset(): void
+    {
+        $html = $this->actingAs($this->admin)->get(route('admin.policy.blocklists.index'))->assertOk()
+            ->assertSee('hagezi DNS Blocklists')->assertSee('GPL-3.0')->getContent();
+        preg_match('/<select name="preset">(.*?)<\/select>/s', $html, $select);
+        preg_match_all('/<option value="([^"]+)"/', $select[1], $values);
+
+        $this->assertEqualsCanonicalizing(array_keys(config('blocklists.presets')), $values[1]);
+    }
+
     public function test_feed_parser_handles_common_formats(): void
     {
         $parser = app(FeedParser::class);

@@ -131,3 +131,10 @@ input.narrow{width:70px}
 .row-actions form{margin:0}
 .preset-help{margin:8px 0 14px}
 .preset-help summary{cursor:pointer;font-size:.84rem;font-weight:650}
+.publisher{margin:8px 0 14px}
+.publisher p{margin:4px 0}
+.preset-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:8px}
+.preset-table th{text-align:left;color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--line)}
+.preset-table td{padding:7px 8px;border-bottom:1px solid #edf0f3;vertical-align:top}
+.preset-table td small{display:block;color:var(--muted)}
+@media(max-width:620px){.preset-table{display:block;overflow-x:auto}}
