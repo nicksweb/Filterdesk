@@ -3,19 +3,16 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\Audience;
-use App\Enums\EntrySource;
-use App\Enums\ListKind;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
 use App\Models\NetworkProfile;
 use App\Services\AuditLogger;
+use App\Services\Policy\ControllerImporter;
 use App\Services\Policy\ControllerSync;
-use App\Services\Policy\PolicyEngine;
-use App\Services\Policy\PolicyListParser;
 use App\Services\Policy\ProbePlanner;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -26,34 +23,51 @@ use Illuminate\View\View;
  */
 class ControllerSetupController extends Controller
 {
-    public function show(Request $request, ControllerSync $sync, ProbePlanner $planner): View
+    public function show(Request $request, ControllerSync $sync, ProbePlanner $planner, ControllerImporter $importer): View
     {
         $state = $sync->state($request->boolean('refresh'));
-        $policies = FilterPolicy::query()->main()->ordered()->get();
+        $policies = FilterPolicy::query()->with('layerOf', 'networkProfile')->ordered()->get();
         $networks = $state['error'] ? collect() : $sync->networkReport($state);
+        $suggestions = $state['error'] ? [] : $importer->suggest($state);
+        $parent = (string) $request->query('parent', 'eth0');
+        $extra = $this->extraNetworks($request);
+        $plans = $planner->plan($parent, $extra);
+        $filterNames = collect($state['filters'])->pluck('name', 'id');
 
         return view('admin.policy.setup', [
             'state' => $state,
             'filters' => collect($state['filters'])->map(fn (array $filter) => $filter + [
                 'linked' => $policies->firstWhere('provider_reference', $filter['id']),
-                'suggested_audience' => $this->suggestAudience($filter['name'], $networks->whereIn('id', $filter['network_ids'])),
+                'suggestion' => $suggestions[$filter['id']] ?? ['action' => 'create', 'policy_id' => null, 'audience' => Audience::Other->value, 'import' => true, 'parent' => null],
+                'parent_name' => $filterNames[$suggestions[$filter['id']]['parent'] ?? ''] ?? null,
                 'networks' => $networks->whereIn('id', $filter['network_ids'])->values(),
-                'shared' => $networks->whereIn('id', $filter['network_ids'])->filter(fn ($network) => count($network['attached']) > 1)->values(),
+                'shared' => $networks->whereIn('id', $filter['network_ids'])->filter(fn ($network) => in_array($network['status'], ['multiple_filters', 'unmapped'], true) && count($network['attached']) > 1)->values(),
             ]),
-            'policies' => $policies,
-            'parent' => (string) $request->query('parent', 'eth0'),
-            'plans' => $planner->plan((string) $request->query('parent', 'eth0')),
+            'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
+            'parentFilters' => collect($state['filters'])->reject(fn (array $filter) => ($suggestions[$filter['id']]['action'] ?? null) === 'layer')->values(),
+            'linkedCount' => $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference))->count(),
+            'ready' => [
+                'policies' => $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference))->values(),
+                'mapped' => $networks->whereNotNull('policy')->count(),
+                'networks' => $networks->count(),
+                'profiles' => NetworkProfile::query()->orderBy('sort_order')->get(),
+            ],
+            'parent' => $parent,
+            'extra' => $extra,
+            'extraOptions' => $networks->reject(fn (array $network) => $plans->contains(fn (array $plan) => $plan['network']->provider_network_id === $network['id'] && $plan['policy']))->values(),
+            'plans' => $plans,
         ]);
     }
 
-    public function store(Request $request, ControllerSync $sync, PolicyEngine $engine, PolicyListParser $parser, AuditLogger $audit): RedirectResponse
+    public function store(Request $request, ControllerSync $sync, ControllerImporter $importer): RedirectResponse
     {
         $validated = $request->validate([
             'filters' => ['required', 'array'],
-            'filters.*.action' => ['required', 'in:skip,link,create'],
+            'filters.*.action' => ['required', 'in:skip,link,create,layer'],
             'filters.*.policy_id' => ['nullable', 'integer', 'exists:filter_policies,id'],
             'filters.*.audience' => ['nullable', Rule::enum(Audience::class)],
             'filters.*.import' => ['nullable', 'boolean'],
+            'filters.*.parent' => ['nullable', 'string', 'max:120'],
         ]);
 
         $state = $sync->state(true);
@@ -61,98 +75,84 @@ class ControllerSetupController extends Controller
             return back()->with('error', $state['error']);
         }
 
-        $done = [];
-        foreach ($validated['filters'] as $filterId => $choice) {
-            $filter = collect($state['filters'])->firstWhere('id', (string) $filterId);
-            if (! $filter || $choice['action'] === 'skip') {
-                continue;
-            }
-
-            if ($choice['action'] === 'link' && filled($choice['policy_id'] ?? null)) {
-                $policy = FilterPolicy::query()->findOrFail($choice['policy_id']);
-            } else {
-                $audience = Audience::from($choice['audience'] ?? Audience::Other->value);
-                $policy = FilterPolicy::query()->create([
-                    'name' => $filter['name'], 'slug' => $engine->uniqueSlug($filter['name']), 'audience' => $audience,
-                    'description' => "Content filter {$filter['name']} in the controller.",
-                ]);
-                $engine->ensureAudienceLists($audience);
-            }
-
-            $imported = 0;
-            if (! empty($choice['import'])) {
-                $imported = $this->importEntries($policy, $filter, $parser, $engine, $request);
-            }
-
-            $sync->link($filter, $policy, $request->user(), remapNetworks: true);
-            $audit->log('policy.setup_from_controller', $policy, ['filter' => $filter['name'], 'imported' => $imported]);
-            $done[] = "{$filter['name']} → {$policy->name}".($imported ? " ({$imported} entries imported)" : '');
-        }
+        $done = $importer->apply($state, $validated['filters'], $request->user());
 
         return redirect()->route('admin.policy.setup.show')->withFragment('probes')
             ->with('success', $done ? 'Set up: '.implode('; ', $done).'. Next, set up a probe for each policy below.' : 'Nothing was changed.');
     }
 
+    /**
+     * One step: take every suggestion (link the default policies, create the
+     * rest, recognise layers, import every entry, map networks), then prepare
+     * the probe profiles. Nothing is changed in the controller.
+     */
+    public function importAll(Request $request, ControllerSync $sync, ControllerImporter $importer, ProbePlanner $planner, AuditLogger $audit): RedirectResponse
+    {
+        $state = $sync->state(true);
+        if ($state['error']) {
+            return back()->with('error', $state['error']);
+        }
+
+        $done = $importer->apply($state, $importer->suggest($state), $request->user());
+        $profiles = $this->prepareProfiles($planner, (string) $request->input('parent', 'eth0'), []);
+        $audit->log('policy.setup_imported_all', null, ['filters' => count($done), 'profiles' => $profiles]);
+
+        return redirect()->route('admin.policy.setup.show')->withFragment('ready')
+            ->with('success', ($done ? 'Brought in: '.implode('; ', $done).'.' : 'Every filter was already set up.')
+                .($profiles ? ' Prepared probe profiles: '.implode(', ', $profiles).'.' : '').' Follow the probe steps below, then enable each profile.');
+    }
+
     /** Create disabled network profiles for the planned probes and link them to their policies. */
     public function profiles(Request $request, ProbePlanner $planner, AuditLogger $audit): RedirectResponse
     {
-        $created = [];
-        foreach ($planner->plan((string) $request->input('parent', 'eth0')) as $plan) {
-            $profile = $plan['profile'] ?? NetworkProfile::query()->firstOrCreate(['key' => $plan['key']], [
-                'name' => $plan['policy']->name.' network',
-                'audience' => $plan['policy']->audience->value,
-                'probe_url' => $plan['probe_url'],
-                'enabled' => false,
-                'sort_order' => (int) NetworkProfile::query()->max('sort_order') + 1,
-            ]);
-            $profile->update(['unifi_network_id' => $plan['network']->provider_network_id, 'unifi_policy_id' => $plan['policy']->provider_reference]);
-            if ($plan['policy']->network_profile_id !== $profile->id) {
-                $plan['policy']->update(['network_profile_id' => $profile->id]);
-            }
-            if ($profile->wasRecentlyCreated) {
-                $created[] = $profile->name;
-            }
-        }
+        $created = $this->prepareProfiles($planner, (string) $request->input('parent', 'eth0'), $this->extraNetworks($request));
         $audit->log('policy.probe_profiles_prepared', null, ['created' => $created]);
 
         return back()->with('success', ($created ? 'Created disabled probe profiles: '.implode(', ', $created).'. ' : 'Probe profiles are linked. ')
             .'Enable each one under Settings → Network profiles once its container is running.');
     }
 
-    /**
-     * Import a controller filter's current entries into lists owned by
-     * this policy only, so filters sharing an audience stay separate.
-     *
-     * @param  array<string, mixed>  $filter
-     */
-    private function importEntries(FilterPolicy $policy, array $filter, PolicyListParser $parser, PolicyEngine $engine, Request $request): int
+    /** The planned compose.vlan.yml for every probe, as a file. */
+    public function compose(Request $request, ProbePlanner $planner): Response
     {
-        $count = 0;
-        foreach ([[ListKind::Allow, $filter['allow']], [ListKind::Block, $filter['block']]] as [$kind, $entries]) {
-            $domains = $parser->parse(implode("\n", $entries));
-            if ($domains === []) {
-                continue;
+        return response($planner->composeFile($planner->plan((string) $request->query('parent', 'eth0'), $this->extraNetworks($request))), 200, [
+            'Content-Type' => 'text/yaml; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="compose.vlan.yml"',
+        ]);
+    }
+
+    /**
+     * Create (disabled) and link a network profile per planned probe.
+     *
+     * @param  list<string>  $extra
+     * @return list<string> names of profiles created
+     */
+    private function prepareProfiles(ProbePlanner $planner, string $parent, array $extra): array
+    {
+        $created = [];
+        foreach ($planner->plan($parent, $extra) as $plan) {
+            $profile = $plan['profile'] ?? NetworkProfile::query()->firstOrCreate(['key' => $plan['key']], [
+                'name' => $plan['label'],
+                'audience' => $plan['audience']->value,
+                'probe_url' => $plan['probe_url'],
+                'enabled' => false,
+                'sort_order' => (int) NetworkProfile::query()->max('sort_order') + 1,
+            ]);
+            $profile->update(['unifi_network_id' => $plan['network']->provider_network_id, 'unifi_policy_id' => $plan['policy']?->provider_reference]);
+            if ($plan['policy'] && $plan['policy']->network_profile_id !== $profile->id) {
+                $plan['policy']->update(['network_profile_id' => $profile->id]);
             }
-            $list = $engine->ownList($policy, $kind, "Imported from the controller filter {$filter['name']}.");
-            foreach ($domains as $domain) {
-                $engine->upsertEntry($list, $domain, ['source' => EntrySource::Import, 'added_by_id' => $request->user()->id, 'note' => "Imported from {$filter['name']}"]);
-                $count++;
+            if ($profile->wasRecentlyCreated) {
+                $created[] = $profile->name;
             }
         }
 
-        return $count;
+        return $created;
     }
 
-    /** Guess an audience from the filter and network names. */
-    private function suggestAudience(string $name, $networks): Audience
+    /** @return list<string> network ids picked for extra probes */
+    private function extraNetworks(Request $request): array
     {
-        $text = Str::lower($name.' '.$networks->pluck('name')->join(' '));
-
-        return match (true) {
-            Str::contains($text, ['student', 'pupil', 'learner', 'junior', 'senior', 'boarding', 'byod']) => Audience::Student,
-            Str::contains($text, ['guest', 'visitor', 'public', 'untrusted']) => Audience::Guest,
-            Str::contains($text, ['staff', 'teacher', 'admin', 'corporate', 'employee', 'faculty']) => Audience::Staff,
-            default => Audience::Other,
-        };
+        return collect((array) $request->input('extra', []))->filter(fn ($id) => is_string($id) && preg_match('/^[A-Za-z0-9_-]{1,80}$/', $id))->values()->all();
     }
 }

@@ -54,7 +54,7 @@ Do not expose PostgreSQL, PHP-FPM, or either probe to the internet. The supplied
 
 ## Network probes and VLANs
 
-The default probes use normal Docker egress, useful for evaluation but not a real two-VLAN comparison. Create one Docker macvlan/ipvlan network per access network, copy `compose.vlan.example.yml` to `compose.vlan.yml`, update `.env`, then start with:
+The default probes use normal Docker egress, useful for evaluation but not a real comparison: UniFi filters DNS per network, so each probe must sit on its policy's VLAN and use that VLAN's gateway for DNS. After connecting UniFi, **Policy lists → Guided setup** plans one probe per policy (plus extra probes for any other network, such as guest Wi-Fi) and generates `compose.vlan.yml` with the host commands; see [probe containers on the VLANs](docs/DEPLOYMENT.md#probe-containers-on-the-vlans). To write it by hand instead, create one Docker macvlan/ipvlan network per access network, copy `compose.vlan.example.yml` to `compose.vlan.yml`, update `.env`, then start with:
 
 ```bash
 docker compose -f compose.yml -f compose.vlan.yml up -d --build

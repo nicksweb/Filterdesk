@@ -39,7 +39,16 @@ When a hostname is in both an allow list and a block list that apply to a filter
 
 ## Guided setup
 
-After the connection test succeeds, **Policy lists → Networks & filters → Guided setup** lists every content filter with the networks it applies to. For each one, create a policy (with a suggested audience) or link an existing one, and optionally import its current entries into lists owned by that policy, so the first push changes nothing. The page then recommends one probe container per policy: a macvlan network on one of the policy's VLANs (`docker network create … -o parent=<trunk>.<vlan>`), the VLAN gateway as the probe's DNS server, and the `compose.vlan.yml` snippet. **Create and link probe profiles** adds disabled network profiles to enable once the containers run.
+After the connection test succeeds (and on the dashboard until it is done), the app sends admins to **Policy lists → Guided setup**. **Bring everything in** reads every content filter and sets the tool up to match it in one step:
+
+- each filter becomes a policy with an audience guessed from its name and networks; the default *Students* and *Staff* policies are linked rather than duplicated;
+- a filter that covers the same networks as exactly one other filter and is named like a blocklist (or has no allows and more blocks than the other) becomes that policy's [layer](#layers);
+- every allow and block entry is imported into lists owned by that policy (a layer takes blocks only), as imported entries, so a later allow by IT or an approval still wins over them;
+- networks are mapped to their policy, categories are kept as they are, and a disabled probe profile is prepared per policy.
+
+Nothing is changed in UniFi and the first push changes nothing. Running it again leaves linked filters alone. The table below the button shows the same suggestions to review or change filter by filter.
+
+The page then plans one probe container per policy (plus any extra networks ticked) and generates `compose.vlan.yml`; see [probe containers on the VLANs](DEPLOYMENT.md#probe-containers-on-the-vlans).
 
 ## Networks in more than one filter
 

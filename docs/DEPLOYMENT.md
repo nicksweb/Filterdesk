@@ -61,6 +61,40 @@ For Entra ID, the issuer is normally `https://login.microsoftonline.com/<tenant-
 
 Use the app hostname as a Schoolbox tile/link. If embedding in an iframe, configure the exact Schoolbox origin in step 2. Prefer launching into a new tab unless both applications share the same registrable domain.
 
+## Probe containers on the VLANs
+
+Website checks run in small probe containers (headless browsers). A check is only meaningful if the probe sees the same filtering as the people it stands for, and UniFi content filtering is applied per network at the gateway's DNS: a lookup is filtered by whichever filter is attached to the network it comes from. A probe that uses the Docker host's own network sees that network's filtering, or none. So each probe must:
+
+1. **Sit on a VLAN its policy covers.** Give it a macvlan (or ipvlan) interface on that VLAN, made the probe's default route (`gw_priority: 1`).
+2. **Use that VLAN's gateway for DNS** (`PROBE_DNS_SERVERS`), so lookups go uncached to the resolver UniFi filters on. With the host's resolver instead, checks show *DNS blocked* or *allowed* for the wrong network.
+3. **Have a fixed address outside the DHCP pool.** The suggested `/29` at the top of each subnet is for that; shrink the UniFi DHCP range or reserve it.
+
+The Docker host's switch port must carry those VLANs **tagged** (a UniFi port profile that allows them), and the host interface you give the planner (for example `eth0` or `eno1`) must be that trunk. The planner uses `<interface>.<vlan>` as the macvlan parent, which Docker creates as a VLAN sub-interface. An untagged network needs a host interface that is already on it.
+
+### Generating the file
+
+After **Policy lists → Guided setup → Bring everything in**, the *Probe containers* section plans one probe per policy and writes the whole `compose.vlan.yml`:
+
+- **Download compose.vlan.yml** on that page, or on the Docker host:
+
+  ```bash
+  docker compose exec -T app php artisan probes:compose --parent=eno1 > compose.vlan.yml
+  ```
+
+- The top of the file lists the `docker network create -d macvlan …` command for each probe and the `.env` lines for the built-in `probe-student` and `probe-staff`. Run the commands once on the host, then start the stack with the override:
+
+  ```bash
+  docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
+  ```
+
+- **Create and link probe profiles** adds a disabled network profile per probe. Enable each one under *Settings → Network profiles* once its container is healthy, then check a hostname you know is blocked on that network. *Settings → Diagnostics* checks every enabled probe.
+
+### More than staff and students
+
+Every policy mapped to a network gets its own probe. Policies other than Students and Staff (a guest filter, or one per year level) get a full service definition in the generated file, named `probe-<policy>`. To test from a network that has no policy of its own, or a second VLAN worth checking separately (guest Wi-Fi, BYOD, a lab), tick it under **Extra probes** on the same page, or pass `--network=<controller network id>` to `probes:compose`; it becomes `probe-net-<name>` with its own profile. Checks run on every enabled profile, so the results show each network side by side. Layers share their parent's networks and need no probe of their own.
+
+Keep probes off the internet-facing side: they only talk to the app over the internal `probe_control` network and reject private targets unless listed in `*_ALLOWED_PRIVATE_HOSTS`.
+
 ## Backups
 
 Retain `.env` (especially `APP_KEY`) separately:

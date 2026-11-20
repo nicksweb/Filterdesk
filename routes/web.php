@@ -94,6 +94,8 @@ Route::middleware('installed')->group(function (): void {
                     Route::get('/setup', [ControllerSetupController::class, 'show'])->name('setup.show');
                     Route::post('/setup', [ControllerSetupController::class, 'store'])->middleware('throttle:10,1')->name('setup.store');
                     Route::post('/setup/profiles', [ControllerSetupController::class, 'profiles'])->name('setup.profiles');
+                    Route::post('/setup/import-all', [ControllerSetupController::class, 'importAll'])->middleware('throttle:6,1')->name('setup.import-all');
+                    Route::get('/setup/compose-vlan', [ControllerSetupController::class, 'compose'])->name('setup.compose');
                     Route::post('/networks/link', [NetworkMapController::class, 'link'])->name('networks.link');
                     Route::post('/policies/{policy}/categories', [FilterPolicyController::class, 'categories'])->middleware('throttle:10,1')->name('policies.categories');
                     Route::post('/policies/{policy}/layer', [PolicyLayerController::class, 'store'])->middleware('throttle:6,1')->name('policies.layer.store');

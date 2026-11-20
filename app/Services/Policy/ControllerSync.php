@@ -142,7 +142,8 @@ class ControllerSync
         FilterPolicy::query()->whereKeyNot($policy->id)->where('provider_reference', $filter['id'])->update(['provider_reference' => null, 'provider_name' => null]);
         $policy->update(['provider_reference' => $filter['id'], 'provider_name' => $filter['name']]);
 
-        foreach ($filter['network_ids'] as $networkId) {
+        // A layer shares its parent's networks; they stay mapped to the parent.
+        foreach ($policy->isLayer() ? [] : $filter['network_ids'] as $networkId) {
             NetworkAssignment::query()->where('provider_network_id', $networkId)
                 ->when(! $remapNetworks, fn ($query) => $query->whereNull('filter_policy_id'))
                 ->update(['filter_policy_id' => $policy->id]);

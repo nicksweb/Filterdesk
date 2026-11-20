@@ -149,3 +149,14 @@ input.narrow{width:70px}
 a.pager-link:hover{border-color:#9fb4cc}
 .pager-link.current{background:var(--blue);border-color:var(--blue);color:#fff}
 .pager-link.disabled{color:#a0a9b6;background:#f6f8fa}
+.setup-quick{border-left:4px solid var(--accent,#2563eb)}
+.setup-quick .panel-heading{align-items:center;gap:18px}
+.ready-list{margin:8px 0 12px;padding-left:18px;display:grid;gap:6px}
+.ready-list .status{margin-left:6px}
+.probe-why{margin:6px 0 14px}
+.probe-why summary{cursor:pointer;font-weight:600}
+.probe-why p{color:var(--muted);margin:8px 0 0}
+.extra-probes{margin:10px 0 16px;padding:12px 14px;border:1px dashed var(--line);border-radius:10px}
+.extra-probes p{margin:0 0 8px}
+.extra-probes .choice small{display:block;color:var(--muted)}
+.setup-callout .button{margin:0 4px}

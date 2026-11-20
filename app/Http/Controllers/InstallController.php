@@ -113,7 +113,7 @@ class InstallController extends Controller
             $this->complete($data);
             $request->session()->forget('installation');
 
-            return redirect()->route('login')->with('success', 'Installation complete. Sign in with the administrator account.');
+            return redirect()->route('login')->with('success', 'Installation complete. Sign in with the administrator account'.(($data['unifi_enabled'] ?? false) ? ', then open Policy lists → Guided setup to bring your UniFi filters in.' : '.'));
         }
 
         return redirect()->route('install.show', $step + 1);

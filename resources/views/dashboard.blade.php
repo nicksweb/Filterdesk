@@ -1,5 +1,8 @@
 <x-layouts.app title="Overview">
     <div class="page-heading"><div><p class="eyebrow">School IT self-service</p><h1>Good {{ now()->hour < 12 ? 'morning' : (now()->hour < 17 ? 'afternoon' : 'evening') }}, {{ str(auth()->user()->name)->before(' ') }}</h1><p>Check website access or follow a request from submission to resolution.</p></div>@unless(auth()->user()->isStudent())<a class="button primary" href="{{ route('requests.create') }}">Request website access</a>@endunless</div>
+    @if($needsControllerSetup)
+        <div class="alert success setup-callout"><strong>Next: bring your UniFi setup in.</strong> The controller is connected but none of its content filters are in the tool yet. <a class="button small primary" href="{{ route('admin.policy.setup.show') }}">Open guided setup</a> to import every filter, list and network in one step, then set up the probes.</div>
+    @endif
     @if($filtersOutOfSync->isNotEmpty())
         <div class="alert error" role="alert"><strong>Web filters need attention:</strong>
             @foreach($filtersOutOfSync as $policy)<a href="{{ route('admin.policy.policies.show', $policy) }}">{{ $policy->name }}</a> ({{ $policy->sync_details['summary'] ?? $policy->sync_status }})@if(!$loop->last); @endif @endforeach
