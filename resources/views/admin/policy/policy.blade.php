@@ -118,7 +118,7 @@
                 </article>
             @endforeach
         </div>
-        @if($report['conflicts'])<div class="notice"><strong>In both an allow and a block list.</strong> The more specific list wins (this policy, then its audience, then site-wide); at the same level the most recent entry wins. @foreach($report['resolved'] as $domain => $winner){{ $domain }}: {{ $winner === 'block' ? 'blocked' : 'allowed' }}@if(!$loop->last) · @endif @endforeach</div>@endif
+        @if($report['conflicts'])<div class="notice"><strong>In both an allow and a block list.</strong> An entry added by IT or an approved request beats one from a feed or imported from the controller; then the more specific list wins (this policy, then its audience, then site-wide); then the most recent entry. @foreach($report['resolved'] as $domain => $winner){{ $domain }}: {{ $winner === 'block' ? 'blocked' : 'allowed' }}@if(!$loop->last) · @endif @endforeach</div>@endif
         @if($report['shadowed'])<div class="notice"><strong>Blocked parent domains with allowed subdomains:</strong> @foreach($report['shadowed'] as $pair){{ $pair['allow'] }} (under blocked {{ $pair['block'] }})@if(!$loop->last), @endif @endforeach. Check the controller gives allow-list entries priority.</div>@endif
     </section>
 

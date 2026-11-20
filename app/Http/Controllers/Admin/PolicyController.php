@@ -109,8 +109,12 @@ class PolicyController extends Controller
             }
             $desired = $engine->desired($policy);
             $overridden = array_values(array_filter($parsed['entries'], fn (string $domain) => ($desired['resolved'][$domain] ?? null) !== null && $desired['resolved'][$domain] !== $list->kind->value));
+            $winning = array_values(array_filter($parsed['entries'], fn (string $domain) => ($desired['resolved'][$domain] ?? null) === $list->kind->value));
             if ($overridden) {
-                $messages[] = "For {$policy->name}, ".implode(', ', $overridden).' stay '.($list->kind === ListKind::Allow ? 'blocked' : 'allowed').' because a more specific list overrides '.$list->name.'. Add them to a list for that policy instead, or remove the other entry.';
+                $messages[] = "For {$policy->name}, ".implode(', ', $overridden).' stay '.($list->kind === ListKind::Allow ? 'blocked' : 'allowed').' because an entry added on purpose to a more specific list overrides '.$list->name.'. Add them to a list for that policy instead, or remove the other entry.';
+            }
+            if ($winning) {
+                $messages[] = "For {$policy->name}, ".implode(', ', $winning).' were '.($list->kind === ListKind::Allow ? 'blocked' : 'allowed').' by another list and are now '.($list->kind === ListKind::Allow ? 'allowed' : 'blocked').'.';
             }
         }
         if ($list->kind === ListKind::Allow) {

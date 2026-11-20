@@ -267,15 +267,19 @@ class PolicyEngine
                 ->get(['id', 'domain', 'source', 'website_request_id', 'expires_at', 'created_at']);
             $references = WebsiteRequest::query()->whereIn('id', $entries->pluck('website_request_id')->filter()->unique()->all())->pluck('reference', 'id');
             $feed = EntrySource::Feed->value;
+            $bulk = [EntrySource::Feed->value, EntrySource::Import->value];
 
             foreach ($entries as $entry) {
                 $isFeed = $entry->source === $feed;
-                // Feed entries rank below entries IT or a request added at the same level.
-                $rank = [$specificity, $isFeed ? 0 : 1, $entry->created_at ? strtotime((string) $entry->created_at) : 0, $entry->id];
+                // Entries IT or a request added on purpose outrank bulk entries (feeds and
+                // controller imports) at any level, so allowing a host that a list already
+                // blocks works even when nobody knew it was there. Between two deliberate
+                // entries the more specific list wins, then the newest.
+                $rank = [in_array($entry->source, $bulk, true) ? 0 : 1, $specificity, $entry->created_at ? strtotime((string) $entry->created_at) : 0, $entry->id];
                 if ($list->kind === ListKind::Allow) {
-                    $allow[$entry->domain] = max($allow[$entry->domain] ?? [-1, 0, 0, 0], $rank);
+                    $allow[$entry->domain] = max($allow[$entry->domain] ?? [-1, -1, 0, 0], $rank);
                 } else {
-                    $block[$entry->domain] = max($block[$entry->domain] ?? [-1, 0, 0, 0], $rank);
+                    $block[$entry->domain] = max($block[$entry->domain] ?? [-1, -1, 0, 0], $rank);
                     $carried = $isFeed || ($policy->isLayer() && $list->filter_policy_id === $policy->id);
                     $layerBlocks[$entry->domain] = ($layerBlocks[$entry->domain] ?? true) && $carried;
                 }
@@ -301,9 +305,9 @@ class PolicyEngine
             unset($block[$domain]);
         }
 
-        // A hostname in both an allow and a block list: the more specific
-        // list wins (one policy > an audience > site-wide); at the same level
-        // the most recently added entry wins.
+        // A hostname in both an allow and a block list: an entry added on
+        // purpose beats a feed or import; then the more specific list wins
+        // (one policy > an audience > site-wide); then the newest entry.
         $conflicts = [];
         $resolved = [];
         foreach (array_intersect_key($allow, $block) as $domain => $allowRank) {

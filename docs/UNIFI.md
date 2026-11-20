@@ -26,7 +26,7 @@ With them, **Policy lists → Networks & filters** shows each controller filter 
 
 ## Allow and block precedence
 
-When a hostname is in both an allow list and a block list that apply to a filter, the more specific list wins: a list for one policy beats an audience list, which beats a site-wide list. At the same level the most recently added entry wins, except that entries from blocklist feeds always lose to entries added by IT or by an approved request. The policy page lists every such hostname and which way it went, and adding an entry that is overridden says so.
+When a hostname is in both an allow list and a block list that apply to a filter, an entry added on purpose (by IT or an approved request) beats a bulk entry (a blocklist feed or an import from the controller) wherever each sits, so allowing a host that a feed or an import already blocks works even when nobody knew it was there. Between two entries of the same kind the more specific list wins: a list for one policy beats an audience list, which beats a site-wide list. At the same level the most recently added entry wins. A hostname newly blocked by hand in UniFi still wins over an older allow, because the import turns that allow off for the filter (see below). The policy page lists every such hostname and which way it went, and adding an entry that is overridden says so.
 
 ## Blocklists and firewall IP lists
 

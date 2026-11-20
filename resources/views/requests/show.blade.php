@@ -91,7 +91,7 @@
             @if($isIt && $existing->isNotEmpty())
                 <section class="panel">
                     <h2>Already in policy</h2>
-                    <p class="section-copy">These requested hostnames, or a parent domain, already appear in a managed list.</p>
+                    <p class="section-copy">These requested hostnames, or a parent domain, already appear in a managed list.@if(!$websiteRequest->isBlock() && $existing->flatten()->contains(fn ($entry) => $entry->policyList->kind === \App\Enums\ListKind::Block)) Approving overrides a block that came from a feed or was imported from the controller. A block IT added on purpose to a more specific list (one policy) still wins; remove it there if the site should open.@endif</p>
                     @foreach($existing as $domain => $found)
                         <div class="list-row static"><span><strong>{{ $domain }}</strong><small>@foreach($found as $entry){{ $entry->domain }} in {{ $entry->policyList->name }} ({{ $entry->policyList->kind->value }})@if(!$loop->last) · @endif @endforeach</small></span></div>
                     @endforeach
