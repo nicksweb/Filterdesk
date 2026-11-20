@@ -108,7 +108,7 @@
 
             @if($plans->isNotEmpty())
                 <div class="table-wrap compact"><table>
-                    <thead><tr><th>Probe</th><th>Network</th><th>Host interface</th></tr></thead>
+                    <thead><tr><th>Probe</th><th>Network</th><th>Host interface</th><th>Fixed address</th></tr></thead>
                     <tbody>
                         @foreach($plans as $plan)
                             <tr>
@@ -120,6 +120,7 @@
                                         <small>Only if this network reaches the host another way: a separate NIC on an access port, or an existing VLAN interface or bridge. Leave blank to use the trunk.</small>
                                     </details>
                                 </td>
+                                <td><code>{{ $plan['ipv4'] ?? 'set by hand' }}</code><small>MAC <code>{{ $plan['mac'] }}</code></small>@if($plan['profile'])<small><a href="{{ route('admin.settings.show', 'profiles') }}">What it reports now</a></small>@endif</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -132,7 +133,7 @@
             <p class="hint">Set up and map at least one policy above to get probe recommendations.</p>
         @else
             <div class="notice"><strong>All probes in one file.</strong> <a href="{{ route('admin.policy.setup.compose') }}">Download compose.vlan.yml</a>, or write it on the Docker host with <code>docker compose exec -T app php artisan probes:compose > compose.vlan.yml</code>. Both use the saved interfaces. The file starts with the network commands and .env lines shown below.</div>
-            <p class="hint">Reserve each suggested <code>/29</code> range outside UniFi's DHCP pool so containers don't clash with clients.</p>
+            <p class="hint">Each probe gets the fixed address and MAC above, inside the suggested <code>/29</code>. Keep that range outside UniFi's DHCP pool so it never clashes with a client; the probe then shows up in UniFi as the same client every time, and you can name it there. Settings → Network profiles shows the address and MAC each running probe reports.</p>
             @foreach($plans as $plan)
                 <details class="probe-plan">
                     <summary><strong>{{ $plan['policy']?->name ?? $plan['label'] }}</strong> <small>{{ $plan['network']->name }}{{ $plan['network']->vlan ? ' (VLAN '.$plan['network']->vlan.')' : '' }} · <code>{{ $plan['service'] }}</code> on <code>{{ $plan['interface'] }}</code>{{ $plan['profile'] ? ' · profile '.$plan['profile']->name.($plan['profile']->enabled ? '' : ' (disabled)') : '' }}</small></summary>

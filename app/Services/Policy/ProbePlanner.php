@@ -190,12 +190,17 @@ class ProbePlanner
             ? "docker network create -d macvlan \\\n  --subnet={$subnet['network']} --gateway={$subnet['gateway']} \\\n  --ip-range={$subnet['probe_range']} \\\n  -o parent={$parentInterface} {$dockerNetwork}"
             : "docker network create -d macvlan --subnet=<network/prefix> --gateway=<gateway> \\\n  --ip-range=<small reserved range> -o parent={$parentInterface} {$dockerNetwork}";
         $plan['dns'] = $subnet['gateway'] ?? '<gateway>';
+        // Fixed address and MAC, so the probe is the same client in UniFi on every restart
+        // and can be named or reserved there. The MAC is locally administered (02:…).
+        $plan['ipv4'] = $subnet ? long2ip(ip2long(explode('/', $subnet['probe_range'])[0]) + 1) : null;
+        $plan['mac'] = '02:'.implode(':', str_split(substr(md5($key.'|'.$network->provider_network_id), 0, 10), 2));
+        $address = ($plan['ipv4'] ? "\n        ipv4_address: {$plan['ipv4']}" : '')."\n        mac_address: {$plan['mac']}";
         $plan['env'] = $builtIn
             ? "{$builtIn['env']}_DOCKER_NETWORK={$dockerNetwork}\n{$builtIn['env']}_PROBE_DNS_SERVERS={$plan['dns']}"
             : null;
         $plan['compose'] = $builtIn
-            ? "  {$service}:\n    networks:\n      probe_control: {}\n      {$vlanKey}:\n        gw_priority: 1"
-            : "  {$service}:\n    image: it-edu-selfservice-probe:\${APP_IMAGE_TAG:-local}\n    restart: unless-stopped\n    shm_size: 256mb\n    security_opt: [no-new-privileges:true]\n    cap_drop: [ALL]\n    environment:\n      PROBE_SHARED_KEY: \${PROBE_SHARED_KEY}\n      PROBE_TIMEOUT_MS: \${PROBE_TIMEOUT_MS:-2800}\n      BLOCK_PAGE_PATTERN: \${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}\n      PROBE_DNS_SERVERS: {$plan['dns']}\n      BLOCK_PAGE_ADDRESSES: \${BLOCK_PAGE_ADDRESSES:-}\n      PROBE_REUSE_BROWSER: \"false\"\n    healthcheck:\n      test: [\"CMD\", \"curl\", \"-fsS\", \"http://127.0.0.1:3000/health\"]\n      interval: 20s\n      timeout: 3s\n      retries: 5\n    networks:\n      probe_control: {}\n      {$vlanKey}:\n        gw_priority: 1";
+            ? "  {$service}:\n    networks:\n      probe_control: {}\n      {$vlanKey}:\n        gw_priority: 1{$address}"
+            : "  {$service}:\n    image: it-edu-selfservice-probe:\${APP_IMAGE_TAG:-local}\n    restart: unless-stopped\n    shm_size: 256mb\n    security_opt: [no-new-privileges:true]\n    cap_drop: [ALL]\n    environment:\n      PROBE_SHARED_KEY: \${PROBE_SHARED_KEY}\n      PROBE_TIMEOUT_MS: \${PROBE_TIMEOUT_MS:-2800}\n      BLOCK_PAGE_PATTERN: \${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}\n      PROBE_DNS_SERVERS: {$plan['dns']}\n      BLOCK_PAGE_ADDRESSES: \${BLOCK_PAGE_ADDRESSES:-}\n      PROBE_REUSE_BROWSER: \"false\"\n    healthcheck:\n      test: [\"CMD\", \"curl\", \"-fsS\", \"http://127.0.0.1:3000/health\"]\n      interval: 20s\n      timeout: 3s\n      retries: 5\n    networks:\n      probe_control: {}\n      {$vlanKey}:\n        gw_priority: 1{$address}";
         $plan['compose_network'] = "  {$vlanKey}:\n    external: true\n    name: {$dockerNetwork}";
 
         return $plan;

@@ -19,7 +19,11 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - Approval, rejection, reassignment, information requests and manual completion
 - Explicit permanent access or temporary access windows with scheduled expiry
 - Site-wide, audience (Staff/Student/Guest) and per-policy allow and block lists
-- Per-policy reconciliation against pasted UniFi content-filter lists, with copy-ready desired lists
+- Live UniFi content filters: read, push with read-back verification and rollback, sync checks, and the controller kept as the source of truth (edits made in UniFi are imported)
+- Guided setup that brings every UniFi filter, list, network and category in with one click, ready to use
+- Content categories, timed allow and block windows, and block requests as well as access requests
+- Third-party DNS blocklists (such as hagezi) and IP blocklists pushed to UniFi firewall groups, with *layers* that keep big feeds in a second filter
+- Per-policy reconciliation and copy-ready desired lists when pushing is off
 - DNS-aware approval recommendations: registrable domain plus the subdomains and CDN hosts a page loads
 - Fresh browser and uncached DNS on every check run, with Secure DNS disabled so it cannot bypass the filter
 - Assignment to IT staff, internal notes, revoke, request queue filters and IT email alerts
@@ -32,7 +36,7 @@ The application is school-neutral: branding, identity, network profiles, policy 
 
 ## Quick start
 
-Requirements: Docker Engine 27+ with Compose v2, a dedicated hostname/reverse proxy, and 4 GB free RAM if screenshots are enabled.
+Requirements: Docker Engine 28+ with Compose v2.33+ (for probe VLAN routing), a dedicated hostname/reverse proxy, and 4 GB free RAM if screenshots are enabled.
 
 ```bash
 git clone https://github.com/nicksweb/it-edu-selfservice.git itrequests
@@ -51,6 +55,18 @@ docker compose ps
 Open `http://127.0.0.1:8088` locally, or configure the reverse proxy first and open `APP_URL`. The installation wizard creates the initial administrator and configures the school, OIDC, UniFi, probes, email and approval defaults.
 
 Do not expose PostgreSQL, PHP-FPM, or either probe to the internet. The supplied Compose file publishes only Nginx on loopback.
+
+## Trying a release
+
+A first run, roughly in this order:
+
+1. Install as above and complete the wizard (school, administrator, sign-in, UniFi key in **read-only** mode, email).
+2. Sign in. The dashboard points you to **Policy lists → Guided setup**; choose **Bring everything in** and check each policy's change set is empty.
+3. Plan the probes on the same page (trunk interface, extra networks), write `compose.vlan.yml`, start it, enable the profiles and confirm each probe's address under **Settings → Network profiles**.
+4. Check a few websites, raise a request, approve it, and compare the policy page with UniFi.
+5. Only then switch the network provider to **Active** to let the app push changes.
+
+Report problems with the steps, the UniFi Network version and what *Settings → Diagnostics* shows.
 
 ## Network probes and VLANs
 

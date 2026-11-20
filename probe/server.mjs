@@ -2,6 +2,8 @@ import http from 'node:http';
 import dns from 'node:dns/promises';
 import crypto from 'node:crypto';
 import net from 'node:net';
+import os from 'node:os';
+import { readFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 const port = Number(process.env.PORT || 3000);
@@ -243,11 +245,48 @@ function readJson(request, limit) {
   });
 }
 
+/** The interface the default route leaves by: the probe's VLAN. */
+function defaultRouteInterface() {
+  try {
+    const rows = readFileSync('/proc/net/route', 'utf8').trim().split('\n').slice(1).map(line => line.trim().split(/\s+/));
+    const route = rows.find(columns => columns[1] === '00000000');
+    if (!route) return null;
+    const gateway = route[2].match(/../g).reverse().map(hex => parseInt(hex, 16)).join('.');
+    return { interface: route[0], gateway };
+  } catch {
+    return null;
+  }
+}
+
+/** Addresses and MACs, so IT can find the probe in UniFi. */
+function identity() {
+  const route = defaultRouteInterface();
+  const interfaces = Object.entries(os.networkInterfaces())
+    .filter(([name]) => name !== 'lo')
+    .map(([name, addresses]) => ({
+      name,
+      mac: addresses.find(address => address.mac && address.mac !== '00:00:00:00:00:00')?.mac || null,
+      ipv4: addresses.filter(address => address.family === 'IPv4' && !address.internal).map(address => `${address.address}/${address.netmask.split('.').reduce((bits, octet) => bits + Number(octet).toString(2).split('1').length - 1, 0)}`),
+      default_route: route?.interface === name,
+    }));
+  return {
+    hostname: os.hostname(),
+    interfaces,
+    gateway: route?.gateway || null,
+    dns: resolver ? resolver.getServers() : dns.getServers(),
+    dns_mode: resolver ? 'direct' : 'system',
+  };
+}
+
 const server = http.createServer(async (request, response) => {
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
   if (request.url === '/health') {
     return response.end(JSON.stringify({ ok: true, dns: resolver ? 'direct' : 'system', fresh_browser_per_run: !reuseBrowser }));
+  }
+  if (request.method === 'GET' && request.url === '/identity') {
+    if (!authorised(request.headers['x-probe-key'])) { response.statusCode = 401; return response.end(JSON.stringify({ message: 'Unauthorised.' })); }
+    return response.end(JSON.stringify(identity()));
   }
   if (request.method !== 'POST' || !['/check', '/check-batch'].includes(request.url)) {
     response.statusCode = 404;

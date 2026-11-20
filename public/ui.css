@@ -166,3 +166,4 @@ a.pager-link:hover{border-color:#9fb4cc}
 .interface-override input{margin-top:6px;max-width:12rem}
 details.probe-plan summary{cursor:pointer}
 details.probe-plan summary small{color:var(--muted);font-weight:500}
+.probe-identity small{display:block;color:var(--muted)}.probe-identity{min-width:14rem}

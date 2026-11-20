@@ -6,6 +6,7 @@ use App\Enums\Audience;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
+use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
 use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
@@ -16,7 +17,9 @@ use App\Services\Network\UniFiNetworkProvider;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Policy\ProbePlanner;
 use App\Services\SettingsRepository;
+use App\Services\Website\ProbeIdentity;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Notification;
@@ -40,7 +43,7 @@ class SettingsController extends Controller
         'approval' => 'Approval policy',
     ];
 
-    public function show(string $section, SettingsRepository $settings, NetworkProviderManager $providers): View
+    public function show(Request $request, string $section, SettingsRepository $settings, NetworkProviderManager $providers): View
     {
         abort_unless(array_key_exists($section, self::SECTIONS), 404);
 
@@ -60,7 +63,10 @@ class SettingsController extends Controller
             'network' => $network,
             'networkHasKey' => filled($network?->credentials['api_key'] ?? null),
             'discovery' => session('discovery'),
-            'profiles' => NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
+            'profiles' => $profiles = NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
+            'identities' => $section === 'profiles' ? $profiles->mapWithKeys(fn (NetworkProfile $profile) => [$profile->id => app(ProbeIdentity::class)->for($profile, $request->boolean('refresh'))]) : collect(),
+            'expectedGateways' => $section === 'profiles' ? NetworkAssignment::query()->whereIn('provider_network_id', $profiles->pluck('unifi_network_id')->filter())->get()
+                ->mapWithKeys(fn (NetworkAssignment $network) => [$network->provider_network_id => app(ProbePlanner::class)->subnet($network->subnet)['gateway'] ?? null]) : collect(),
             'redirectUri' => route('auth.oidc.callback'),
         ]);
     }

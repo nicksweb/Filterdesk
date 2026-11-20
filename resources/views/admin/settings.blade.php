@@ -153,9 +153,9 @@
 
     @elseif($section === 'profiles')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'profiles') }}">@csrf @method('PUT')
-            <p class="section-copy">Each profile is a network path checked by its own probe container. The audience links the profile to filter policies and lists.</p>
+            <p class="section-copy">Each profile is a network path checked by its own probe container. The audience links the profile to filter policies and lists. <em>Probe address</em> is what the container reports about itself: the address and MAC on its VLAN, which you can name or reserve in UniFi. <a href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Refresh</a></p>
             <div class="table-wrap"><table>
-                <thead><tr><th>Name</th><th>Audience</th><th>Probe URL</th><th>UniFi network ID</th><th>Order</th><th>On</th></tr></thead>
+                <thead><tr><th>Name</th><th>Audience</th><th>Probe URL</th><th>UniFi network ID</th><th>Probe address</th><th>Order</th><th>On</th></tr></thead>
                 <tbody>
                     @foreach($profiles as $profile)
                         <tr>
@@ -163,6 +163,21 @@
                             <td><select name="profiles[{{ $profile->id }}][audience]">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}" @selected($profile->audience?->value === $value)>{{ $label }}</option>@endforeach</select></td>
                             <td><input name="profiles[{{ $profile->id }}][probe_url]" value="{{ $profile->probe_url }}" required></td>
                             <td><input name="profiles[{{ $profile->id }}][unifi_network_id]" value="{{ $profile->unifi_network_id }}"></td>
+                            <td class="probe-identity">
+                                @php($identity = $identities[$profile->id] ?? ['ok' => false, 'message' => 'Not checked.'])
+                                @if($identity['ok'] && $identity['vlan'])
+                                    <strong>{{ implode(', ', $identity['vlan']['ipv4']) ?: 'no IPv4' }}</strong>
+                                    <small>MAC <code>{{ $identity['vlan']['mac'] ?? '?' }}</code> · {{ $identity['vlan']['name'] }} · gateway {{ $identity['gateway'] ?? '?' }}</small>
+                                    <small>DNS {{ implode(', ', $identity['dns']) }} ({{ $identity['dns_mode'] }})</small>
+                                    @php($expected = $expectedGateways[$profile->unifi_network_id] ?? null)
+                                    @if($expected && $identity['gateway'] !== $expected)<small class="network-status warn">Default route is not this network's gateway ({{ $expected }}): the probe is not on its VLAN.</small>@endif
+                                    @if($expected && !in_array($expected, $identity['dns'], true))<small class="network-status warn">DNS is not {{ $expected }}, so checks may not see this network's filtering.</small>@endif
+                                @elseif($identity['ok'])
+                                    <small class="network-status warn">No default route reported.</small>
+                                @else
+                                    <small class="hint">{{ $identity['message'] }}</small>
+                                @endif
+                            </td>
                             <td><input type="number" class="narrow" name="profiles[{{ $profile->id }}][sort_order]" value="{{ $profile->sort_order }}"></td>
                             <td><input type="hidden" name="profiles[{{ $profile->id }}][enabled]" value="0"><input type="checkbox" name="profiles[{{ $profile->id }}][enabled]" value="1" @checked($profile->enabled)></td>
                         </tr>
@@ -176,7 +191,7 @@
                 <label>Audience<select name="new[audience]">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
             </div>
             <label>Probe URL<input name="new[probe_url]" placeholder="http://probe-guest:3000"></label>
-            <p class="hint">A new probe needs its own container on that network's VLAN. Add a service to <code>compose.vlan.yml</code> based on <code>probe-student</code>.</p>
+            <p class="hint">A new probe needs its own container on that network's VLAN. Plan it under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Extra probes</a>, which generates the service and creates the profile.</p>
             <div class="form-actions"><button class="button primary">Save profiles</button></div>
         </form>
 
