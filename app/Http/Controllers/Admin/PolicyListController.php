@@ -71,6 +71,9 @@ class PolicyListController extends Controller
             'domains' => ['nullable', 'string', 'max:400000'],
             'mode' => ['required', 'in:merge,replace'],
         ]);
+        if ($list->feed()->exists()) {
+            return back()->with('error', "{$list->name} is filled from a blocklist feed and cannot be imported into.");
+        }
         $parsed = $parser->parseDetailed($validated['domains'] ?? '', 'domains');
 
         $removed = 0;

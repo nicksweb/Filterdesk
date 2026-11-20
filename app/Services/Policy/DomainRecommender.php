@@ -104,9 +104,12 @@ class DomainRecommender
             return $domains;
         }
 
-        return array_values(array_filter($domains, function (string $domain) use ($domains): bool {
-            foreach ($domains as $other) {
-                if ($other !== $domain && str_ends_with($domain, '.'.$other)) {
+        $set = array_flip($domains);
+
+        return array_values(array_filter($domains, function (string $domain) use ($set): bool {
+            $labels = explode('.', $domain);
+            for ($index = 1; $index < count($labels) - 1; $index++) {
+                if (isset($set[implode('.', array_slice($labels, $index))])) {
                     return false;
                 }
             }

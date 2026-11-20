@@ -7,6 +7,7 @@ enum EntrySource: string
     case Manual = 'manual';
     case Request = 'request';
     case Import = 'import';
+    case Feed = 'feed';
 
     public function label(): string
     {
@@ -14,6 +15,7 @@ enum EntrySource: string
             self::Manual => 'Added by IT',
             self::Request => 'Approved request',
             self::Import => 'Imported',
+            self::Feed => 'Blocklist feed',
         };
     }
 }

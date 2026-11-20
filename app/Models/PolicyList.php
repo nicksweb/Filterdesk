@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * A named allow or block list. Scope decides which filter policies inherit it:
@@ -53,6 +54,12 @@ class PolicyList extends Model
             ->where('scope', ListScope::Site)
             ->orWhere(fn (Builder $query) => $query->where('scope', ListScope::Audience)->where('audience', $policy->audience))
             ->orWhere(fn (Builder $query) => $query->where('scope', ListScope::Policy)->where('filter_policy_id', $policy->id)));
+    }
+
+    /** The blocklist feed that fills this list, if any. */
+    public function feed(): HasOne
+    {
+        return $this->hasOne(ListSource::class);
     }
 
     public function appliesTo(FilterPolicy $policy): bool

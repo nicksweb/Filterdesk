@@ -125,3 +125,9 @@ input.narrow{width:70px}
 .window-fields{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:16px 0}
 .window-fields legend{padding:0 6px;font-size:.84rem;font-weight:680}
 @media(max-width:620px){.users-table .inline-form{grid-template-columns:1fr}}
+.feed-settings{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.feed-settings input[type=number]{width:90px;padding:6px 8px}
+.row-actions{display:flex;gap:8px;align-items:center}
+.row-actions form{margin:0}
+.preset-help{margin:8px 0 14px}
+.preset-help summary{cursor:pointer;font-size:.84rem;font-weight:650}

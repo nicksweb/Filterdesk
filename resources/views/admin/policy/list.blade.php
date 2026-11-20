@@ -39,6 +39,12 @@
         </section>
 
         <div class="stack">
+            @if($list->feed)
+            <section class="panel policy-section">
+                <h2>Filled from a blocklist</h2>
+                <p class="hint">{{ $list->feed->name }} replaces this list's entries every {{ $list->feed->refresh_hours }} hour(s). To exempt a site, add it to an allow list for an audience or policy, which overrides a site-wide list. Manage the feed under <a href="{{ route('admin.policy.blocklists.index') }}">Blocklists &amp; firewall</a>.</p>
+            </section>
+            @else
             <section class="panel policy-section">
                 <h2>Add hostnames</h2>
                 <form method="post" action="{{ route('admin.policy.entries.store') }}">@csrf
@@ -48,6 +54,7 @@
                         <label>Starts<input type="datetime-local" name="starts_at"></label>
                         <label>Expires<input type="datetime-local" name="expires_at"></label>
                     </div>
+                <label class="choice compact"><input type="hidden" name="include_www" value="0"><input type="checkbox" name="include_www" value="1" @checked(old('include_www', true))><span><strong>Include www. and the bare domain</strong><small>Typing example.com also adds www.example.com, and the other way round.</small></span></label>
                     <label>Note<input name="note"></label>
                     <div class="form-actions"><button class="button primary">Add</button></div>
                 </form>
@@ -61,6 +68,8 @@
                     <div class="form-actions"><button class="button secondary" data-confirm="Import into {{ $list->name }}?">Import</button></div>
                 </form>
             </section>
+
+            @endif
 
             @if(auth()->user()->isAdmin())
                 <section class="panel policy-section">

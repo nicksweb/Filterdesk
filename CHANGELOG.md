@@ -5,6 +5,9 @@ All notable changes to this project are documented here. Versions follow [Semant
 ## 0.2.0
 
 ### Added
+- Blocklists & firewall: subscribe to hagezi presets or any URL (hosts, adblock, wildcard, plain); domain feeds fill their own allow/block list, IP feeds and manual addresses keep a UniFi IP group in step through the official API, with firewall-rule usage shown; hourly refresh (`blocklists:refresh`).
+- Allow/block precedence: the most specific list wins, then the most recent entry; feed entries never override IT or approvals. Overridden additions are reported.
+- "Include www. and the bare domain" when adding hostnames.
 - Timed access: IT can approve a different window from the one requested, or change it later (or make it permanent). Timed allow and block entries go live 5 minutes early and are removed 5 minutes late (configurable), and a once-a-minute scheduler pushes only the filters whose windows open or close.
 - Sign-in protection: account lockout after 5 failures in 15 minutes, per-IP limit, audit of failures, lockout emails, and a per-account password sign-in switch; the recovery command re-enables it.
 - Requester emails: received confirmation, scheduled approval, expiry reminder for longer access, and access ended; clearer subjects ("approved and scheduled", "access is live").
@@ -35,6 +38,8 @@ All notable changes to this project are documented here. Versions follow [Semant
 - `itrequests:upgrade`, `itrequests:admin-password` and `policy:digest` commands; versioned upgrades.
 
 ### Fixed
+- A block for one audience was silently ignored when the hostname was also allowed site-wide or by an approval ("allow always wins").
+- Policy comparisons scale to feed-sized lists (set lookups instead of nested scans; plain rows instead of models).
 - Docker build: the Composer stage ignores only upper-bound PHP constraints, so builds keep working when the `composer:2` image moves to a newer PHP than the 8.5 runtime.
 - Settings were cached as Eloquent objects and silently fell back to defaults (school name, URL, timezone, Schoolbox origin, local login flag).
 - Temporary windows were stored as wall-clock time in a UTC column; times displayed in UTC.

@@ -5,7 +5,7 @@ namespace App\Services\Network;
 use App\Models\WebsiteRequest;
 use Illuminate\Support\Facades\Cache;
 
-class MockNetworkProvider implements NetworkProvider, ReadsContentFilters, WritesContentFilters
+class MockNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsContentFilters, WritesContentFilters
 {
     public function capabilities(): array
     {
@@ -69,6 +69,44 @@ class MockNetworkProvider implements NetworkProvider, ReadsContentFilters, Write
         }
         $filters[$index]['categories'] = array_values($categories);
         Cache::forever(self::STATE_KEY, $filters);
+    }
+
+    private const GROUPS_KEY = 'mock.ip_groups';
+
+    /** @return array<string, array{id: string, name: string, family: string, items: list<string>}> */
+    public function rawIpGroups(): array
+    {
+        return Cache::get(self::GROUPS_KEY, fn () => ['sim-group-1' => ['id' => 'sim-group-1', 'name' => 'Blocked IPs', 'family' => 'ipv4', 'items' => []]]);
+    }
+
+    public function ipGroups(): array
+    {
+        return array_values(array_map(fn (array $group) => ['id' => $group['id'], 'name' => $group['name'], 'family' => $group['family'], 'count' => count($group['items'])], $this->rawIpGroups()));
+    }
+
+    public function writeIpGroup(string $id, string $name, string $family, array $entries): void
+    {
+        $groups = $this->rawIpGroups();
+        if (! isset($groups[$id])) {
+            throw new ProviderRequestFailed('That IP group no longer exists in the simulation.');
+        }
+        $groups[$id]['items'] = array_values($entries);
+        Cache::forever(self::GROUPS_KEY, $groups);
+    }
+
+    public function createIpGroup(string $name, string $family, array $entries): string
+    {
+        $groups = $this->rawIpGroups();
+        $id = 'sim-group-'.(count($groups) + 1);
+        $groups[$id] = ['id' => $id, 'name' => $name, 'family' => $family, 'items' => array_values($entries)];
+        Cache::forever(self::GROUPS_KEY, $groups);
+
+        return $id;
+    }
+
+    public function firewallRulesUsing(string $id): array
+    {
+        return $id === 'sim-group-1' ? [['name' => 'Block listed IPs', 'action' => 'BLOCK', 'enabled' => true]] : [];
     }
 
     public function verifyContentFilterWrite(string $filterId): array

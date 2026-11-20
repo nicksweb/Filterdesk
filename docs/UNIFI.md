@@ -24,6 +24,19 @@ The app **reads** (never writes) two endpoints of the Network application itself
 
 With them, **Policy lists → Networks & filters** shows each controller filter and the VLANs it is attached to, lets an admin link a filter to a filter policy and map each VLAN to a policy (and so to staff, student or guest filtering), and flags VLANs whose controller filter differs from the mapping. Each policy gets **Fetch from controller**, and entries added in the controller by hand are listed as *Only in the controller* with an option to import them into a managed list.
 
+## Allow and block precedence
+
+When a hostname is in both an allow list and a block list that apply to a filter, the more specific list wins: a list for one policy beats an audience list, which beats a site-wide list. At the same level the most recently added entry wins, except that entries from blocklist feeds always lose to entries added by IT or by an approved request. The policy page lists every such hostname and which way it went, and adding an entry that is overridden says so.
+
+## Blocklists and firewall IP lists
+
+**Policy lists → Blocklists & firewall** (admins) subscribes to third-party lists, with presets for [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists) (DNS bypass, encrypted DNS, threat intelligence, social, gambling and more) or any https URL in hosts, adblock, wildcard or plain format.
+
+- **Domain lists** fill their own list (site-wide, an audience or one policy, allow or block), refreshed on a schedule, and reach content filters through the normal push. Content filters are not built for very large lists: start with the bypass list (about 17,000 domains) or smaller, and check the push reports no shortfall. Lists of 100,000+ domains belong on a DNS resolver.
+- **IP lists** (and your own addresses) keep a UniFi IP group (traffic matching list) up to date through the official API. Create the group from the app or link an existing one, then add a firewall rule in UniFi that blocks it, for example *Block · Internal → External · destination: the group*. The app shows which firewall rules use each group. It manages the group's contents, never the rules.
+
+`blocklists:refresh` runs hourly and downloads feeds that are due; with automatic pushing on, firewall IP groups are updated straight after.
+
 ## Guided setup
 
 After the connection test succeeds, **Policy lists → Networks & filters → Guided setup** lists every content filter with the networks it applies to. For each one, create a policy (with a suggested audience) or link an existing one, and optionally import its current entries into lists owned by that policy, so the first push changes nothing. The page then recommends one probe container per policy: a macvlan network on one of the policy's VLANs (`docker network create … -o parent=<trunk>.<vlan>`), the VLAN gateway as the probe's DNS server, and the `compose.vlan.yml` snippet. **Create and link probe profiles** adds disabled network profiles to enable once the containers run.

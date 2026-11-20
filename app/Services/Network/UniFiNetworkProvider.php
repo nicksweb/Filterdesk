@@ -28,7 +28,7 @@ use Throwable;
  * release changes the endpoint, calls fail with a clear message and IT can
  * still paste the lists by hand.
  */
-class UniFiNetworkProvider implements NetworkProvider, ReadsContentFilters, WritesContentFilters
+class UniFiNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsContentFilters, WritesContentFilters
 {
     /** Network purposes a content filter can apply to. */
     private const FILTERABLE_PURPOSES = ['corporate', 'guest', 'vlan-only', 'remote-user-vpn'];
@@ -44,6 +44,7 @@ class UniFiNetworkProvider implements NetworkProvider, ReadsContentFilters, Writ
             'network_discovery' => true,
             'firewall_policies' => true,
             'content_filter_read' => true,
+            'ip_groups' => true,
             'content_filter_write' => ($this->integration->mode ?? 'read_only') === 'active',
             // The official API currently has no portable content-filter domain
             // allowlist operation. Never claim automation without a supported API.
@@ -290,6 +291,106 @@ class UniFiNetworkProvider implements NetworkProvider, ReadsContentFilters, Writ
     private function contentFilterPath(string $suffix = ''): string
     {
         return $this->networkPath('/v2/api/site/'.rawurlencode($this->siteReference()).'/content-filtering'.$suffix);
+    }
+
+    public function ipGroups(): array
+    {
+        return collect($this->paginated('/traffic-matching-lists'))
+            ->filter(fn ($group) => in_array($group['type'] ?? '', ['IPV4_ADDRESSES', 'IPV6_ADDRESSES'], true))
+            ->map(fn (array $group) => [
+                'id' => (string) $group['id'],
+                'name' => (string) ($group['name'] ?? $group['id']),
+                'family' => $group['type'] === 'IPV6_ADDRESSES' ? 'ipv6' : 'ipv4',
+                'count' => count($group['items'] ?? []),
+            ])->values()->all();
+    }
+
+    public function writeIpGroup(string $id, string $name, string $family, array $entries): void
+    {
+        $path = $this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists/'.rawurlencode($id));
+        $response = $this->client()->timeout(60)->put($path, $this->ipGroupBody($name, $family, $entries));
+        $this->ensureSuccessful($response, 'IP group changes', writing: true);
+
+        $saved = $this->client()->timeout(30)->get($path);
+        $this->ensureSuccessful($saved, 'the IP group');
+        $savedValues = collect($saved->json('items', []))->pluck('value')->map(fn ($value) => (string) $value)->sort()->values()->all();
+        if ($savedValues !== collect($entries)->sort()->values()->all()) {
+            throw new ProviderRequestFailed('UniFi accepted the IP group change but it read back differently ('.count($savedValues).' of '.count($entries).' entries). The controller may limit the group size.');
+        }
+    }
+
+    public function createIpGroup(string $name, string $family, array $entries): string
+    {
+        $response = $this->client()->timeout(60)->post($this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists'), $this->ipGroupBody($name, $family, $entries));
+        $this->ensureSuccessful($response, 'a new IP group', writing: true);
+        $id = (string) ($response->json('id') ?? $response->json('data.id') ?? '');
+        if ($id === '') {
+            throw new ProviderRequestFailed('UniFi created the IP group but did not return its ID. Refresh and link it by name.');
+        }
+
+        return $id;
+    }
+
+    public function firewallRulesUsing(string $id): array
+    {
+        return collect($this->paginated('/firewall/policies'))
+            ->filter(fn ($policy) => is_array($policy) && str_contains((string) json_encode($policy), $id))
+            ->map(fn (array $policy) => [
+                'name' => (string) ($policy['name'] ?? $policy['id'] ?? ''),
+                'action' => (string) ($policy['action']['type'] ?? ''),
+                'enabled' => (bool) ($policy['enabled'] ?? false),
+            ])->values()->all();
+    }
+
+    /**
+     * @param  list<string>  $entries
+     * @return array<string, mixed>
+     */
+    private function ipGroupBody(string $name, string $family, array $entries): array
+    {
+        return [
+            'type' => $family === 'ipv6' ? 'IPV6_ADDRESSES' : 'IPV4_ADDRESSES',
+            'name' => $name,
+            'items' => array_map(fn (string $value) => ['type' => str_contains($value, '/') ? 'SUBNET' : 'IP_ADDRESS', 'value' => $value], array_values($entries)),
+        ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function paginated(string $endpoint): array
+    {
+        $items = [];
+        $offset = 0;
+        do {
+            $response = $this->client()->timeout(30)->get($this->path('/sites/'.rawurlencode($this->siteId()).$endpoint), ['limit' => 200, 'offset' => $offset]);
+            $this->ensureSuccessful($response, ltrim($endpoint, '/'));
+            $page = $response->json('data', []);
+            $items = [...$items, ...$page];
+            $offset += 200;
+        } while (count($page) === 200 && $offset < 10000);
+
+        return $items;
+    }
+
+    private ?string $siteIdentifier = null;
+
+    /** The integration API's site ID: as configured, or the first site. */
+    private function siteId(): string
+    {
+        if ($this->siteIdentifier !== null) {
+            return $this->siteIdentifier;
+        }
+        $configured = $this->integration->configuration['site_id'] ?? null;
+        if (filled($configured)) {
+            return $this->siteIdentifier = (string) $configured;
+        }
+        $response = $this->client()->get($this->path('/sites'));
+        $this->ensureSuccessful($response, 'sites');
+        $first = $response->json('data.0.id');
+        if (! $first) {
+            throw new ProviderRequestFailed('The controller reported no sites.');
+        }
+
+        return $this->siteIdentifier = (string) $first;
     }
 
     public function networks(): array

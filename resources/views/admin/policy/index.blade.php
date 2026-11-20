@@ -56,7 +56,7 @@
             <form method="post" action="{{ route('admin.policy.entries.store') }}">@csrf
                 <label>List
                     <select name="policy_list_id" required>
-                        @foreach($lists as $list)<option value="{{ $list->id }}" @selected(old('policy_list_id') == $list->id)>{{ $list->name }} ({{ $list->scopeLabel() }} · {{ $list->kind->value }})</option>@endforeach
+                        @foreach($lists->reject(fn ($list) => $list->feed) as $list)<option value="{{ $list->id }}" @selected(old('policy_list_id') == $list->id)>{{ $list->name }} ({{ $list->scopeLabel() }} · {{ $list->kind->value }})</option>@endforeach
                     </select>
                 </label>
                 <label>Hostnames <span class="optional">one per line; schemes, paths and *. are stripped</span><textarea name="domains" rows="4" required class="mono">{{ old('domains') }}</textarea></label>
@@ -65,6 +65,7 @@
                     <label>Expires <span class="optional">blank = permanent</span><input type="datetime-local" name="expires_at" value="{{ old('expires_at') }}"></label>
                 </div>
                 <p class="hint">Timed entries work on allow and block lists, so a site can be opened or closed for a lesson or exam. They go live {{ \App\Models\PolicyEntry::margins()['lead'] }} min early and are removed {{ \App\Models\PolicyEntry::margins()['lag'] }} min late to allow for syncing.</p>
+                <label class="choice compact"><input type="hidden" name="include_www" value="0"><input type="checkbox" name="include_www" value="1" @checked(old('include_www', true))><span><strong>Include www. and the bare domain</strong><small>Typing example.com also adds www.example.com, and the other way round.</small></span></label>
                 <label>Note <span class="optional">why it was added</span><input name="note" value="{{ old('note') }}"></label>
                 <div class="form-actions"><button class="button primary">Add to list</button></div>
             </form>

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\BlocklistController;
 use App\Http\Controllers\Admin\ControllerSetupController;
 use App\Http\Controllers\Admin\DiagnosticsController;
 use App\Http\Controllers\Admin\DomainScanController;
@@ -79,6 +80,16 @@ Route::middleware('installed')->group(function (): void {
 
                 Route::middleware('role:admin')->group(function (): void {
                     Route::put('/networks', [NetworkMapController::class, 'update'])->name('networks.update');
+                    Route::get('/blocklists', [BlocklistController::class, 'index'])->name('blocklists.index');
+                    Route::post('/blocklists/feeds', [BlocklistController::class, 'storeFeed'])->middleware('throttle:10,1')->name('blocklists.feeds.store');
+                    Route::put('/blocklists/feeds/{source}', [BlocklistController::class, 'updateFeed'])->name('blocklists.feeds.update');
+                    Route::post('/blocklists/feeds/{source}/refresh', [BlocklistController::class, 'refreshFeed'])->middleware('throttle:10,1')->name('blocklists.feeds.refresh');
+                    Route::delete('/blocklists/feeds/{source}', [BlocklistController::class, 'destroyFeed'])->name('blocklists.feeds.destroy');
+                    Route::post('/blocklists/firewall', [BlocklistController::class, 'storeFirewallList'])->name('blocklists.firewall.store');
+                    Route::put('/blocklists/firewall/{list}', [BlocklistController::class, 'updateFirewallList'])->name('blocklists.firewall.update');
+                    Route::post('/blocklists/firewall/{list}/create-group', [BlocklistController::class, 'createGroup'])->middleware('throttle:6,1')->name('blocklists.firewall.create-group');
+                    Route::post('/blocklists/firewall/{list}/push', [BlocklistController::class, 'pushFirewallList'])->middleware('throttle:10,1')->name('blocklists.firewall.push');
+                    Route::delete('/blocklists/firewall/{list}', [BlocklistController::class, 'destroyFirewallList'])->name('blocklists.firewall.destroy');
                     Route::get('/setup', [ControllerSetupController::class, 'show'])->name('setup.show');
                     Route::post('/setup', [ControllerSetupController::class, 'store'])->middleware('throttle:10,1')->name('setup.store');
                     Route::post('/setup/profiles', [ControllerSetupController::class, 'profiles'])->name('setup.profiles');

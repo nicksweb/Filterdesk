@@ -247,9 +247,10 @@ class ControllerPusher
     {
         $kept = [];
         $present = [];
+        $removing = array_flip($remove);
         foreach ($current as $raw) {
             $normalised = $this->parser->normalise($raw);
-            if (in_array($normalised, $remove, true) || isset($present[$normalised])) {
+            if (isset($removing[$normalised]) || isset($present[$normalised])) {
                 continue;
             }
             $present[$normalised] = true;

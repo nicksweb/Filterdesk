@@ -45,7 +45,7 @@
                 <div class="fields two">
                     <label>Add selected to
                         <select name="policy_list_id" required>
-                            @foreach($lists as $list)<option value="{{ $list->id }}">{{ $list->name }} ({{ $list->scopeLabel() }} · {{ $list->kind->value }})</option>@endforeach
+                            @foreach($lists->reject(fn ($list) => $list->feed) as $list)<option value="{{ $list->id }}">{{ $list->name }} ({{ $list->scopeLabel() }} · {{ $list->kind->value }})</option>@endforeach
                         </select>
                     </label>
                     <label>Note <span class="optional">why</span><input name="note" value="Scanned {{ implode(', ', $scan['apexes']) }}"></label>
@@ -54,6 +54,7 @@
                     <label>Starts <span class="optional">optional</span><input type="datetime-local" name="starts_at"></label>
                     <label>Expires <span class="optional">blank = permanent</span><input type="datetime-local" name="expires_at"></label>
                 </div>
+                <label class="choice compact"><input type="hidden" name="include_www" value="0"><input type="checkbox" name="include_www" value="1" @checked(old('include_www', true))><span><strong>Include www. and the bare domain</strong><small>Typing example.com also adds www.example.com, and the other way round.</small></span></label>
                 <ul class="rule-notes">@foreach($rules->notes as $note)<li>{{ $note }}</li>@endforeach</ul>
                 <div class="form-actions"><button class="button primary">Add selected hostnames</button></div>
             </form>

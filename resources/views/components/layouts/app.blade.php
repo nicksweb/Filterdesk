@@ -58,6 +58,7 @@
                 <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.index', 'admin.policy.lists.*', 'admin.policy.policies.*')])>Policies &amp; lists</a>
                 <a href="{{ route('admin.policy.networks.index') }}" @class(['active' => request()->routeIs('admin.policy.networks.*')])>Networks &amp; filters</a>
                 <a href="{{ route('admin.policy.scan.show') }}" @class(['active' => request()->routeIs('admin.policy.scan.*')])>Domain scanner</a>
+                @if(auth()->user()->isAdmin())<a href="{{ route('admin.policy.blocklists.index') }}" @class(['active' => request()->routeIs('admin.policy.blocklists.*')])>Blocklists &amp; firewall</a>@endif
             </nav>
         @endif
         {{ $slot }}

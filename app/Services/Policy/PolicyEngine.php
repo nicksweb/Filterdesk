@@ -225,23 +225,39 @@ class PolicyEngine
      */
     public function desired(FilterPolicy $policy, ?CarbonInterface $at = null): array
     {
-        $lists = PolicyList::query()->appliesTo($policy)->with(['entries' => fn ($query) => $query->effective($at)->with('websiteRequest:id,reference')])->get();
+        $lists = PolicyList::query()->appliesTo($policy)->get();
         $allow = [];
         $block = [];
         $sources = [];
 
         foreach ($lists as $list) {
-            foreach ($list->entries as $entry) {
+            $specificity = match ($list->scope) {
+                ListScope::Policy => 2,
+                ListScope::Audience => 1,
+                ListScope::Site => 0,
+            };
+            // Plain rows, not models: feed lists can hold tens of thousands of entries.
+            $entries = PolicyEntry::query()->where('policy_list_id', $list->id)->effective($at)->toBase()
+                ->get(['id', 'domain', 'source', 'website_request_id', 'expires_at', 'created_at']);
+            $references = WebsiteRequest::query()->whereIn('id', $entries->pluck('website_request_id')->filter()->unique()->all())->pluck('reference', 'id');
+            $feed = EntrySource::Feed->value;
+
+            foreach ($entries as $entry) {
+                $isFeed = $entry->source === $feed;
+                // Feed entries rank below entries IT or a request added at the same level.
+                $rank = [$specificity, $isFeed ? 0 : 1, $entry->created_at ? strtotime((string) $entry->created_at) : 0, $entry->id];
                 if ($list->kind === ListKind::Allow) {
-                    $allow[$entry->domain] = true;
+                    $allow[$entry->domain] = max($allow[$entry->domain] ?? [-1, 0, 0, 0], $rank);
                 } else {
-                    $block[$entry->domain] = true;
+                    $block[$entry->domain] = max($block[$entry->domain] ?? [-1, 0, 0, 0], $rank);
                 }
-                $sources[$entry->domain][] = [
-                    'list' => $list->name, 'list_id' => $list->id, 'kind' => $list->kind->value,
-                    'source' => $entry->source->value, 'expires_at' => $entry->expires_at?->toIso8601String(),
-                    'request' => $entry->websiteRequest?->reference,
-                ];
+                if (! $isFeed) {
+                    $sources[$entry->domain][] = [
+                        'list' => $list->name, 'list_id' => $list->id, 'kind' => $list->kind->value,
+                        'source' => $entry->source, 'expires_at' => $entry->expires_at ? Carbon::parse($entry->expires_at)->toIso8601String() : null,
+                        'request' => $entry->website_request_id ? ($references[$entry->website_request_id] ?? null) : null,
+                    ];
+                }
             }
         }
 
@@ -253,18 +269,38 @@ class PolicyEngine
             unset($block[$domain]);
         }
 
-        $rules = $this->rules();
-        $allowList = $this->recommender->compact(array_keys($allow), $rules);
-        $conflicts = array_values(array_intersect(array_keys($block), array_keys($allow)));
-        $blockList = array_values(array_diff(array_keys($block), array_keys($allow)));
-        sort($blockList);
+        // A hostname in both an allow and a block list: the more specific
+        // list wins (one policy > an audience > site-wide); at the same level
+        // the most recently added entry wins.
+        $conflicts = [];
+        $resolved = [];
+        foreach (array_intersect_key($allow, $block) as $domain => $allowRank) {
+            $conflicts[] = $domain;
+            $blockWins = $block[$domain] > $allowRank;
+            $resolved[$domain] = $blockWins ? 'block' : 'allow';
+            if ($blockWins) {
+                unset($allow[$domain]);
+            } else {
+                unset($block[$domain]);
+            }
+        }
         sort($conflicts);
 
+        $rules = $this->rules();
+        $allowList = $this->recommender->compact(array_keys($allow), $rules);
+        $blockList = array_keys($block);
+        sort($blockList);
+
         $shadowed = [];
-        foreach ($blockList as $blocked) {
+        if ($allowList !== [] && $blockList !== []) {
+            $blocked = array_flip($blockList);
             foreach ($allowList as $allowed) {
-                if (str_ends_with($allowed, '.'.$blocked)) {
-                    $shadowed[] = ['block' => $blocked, 'allow' => $allowed];
+                $labels = explode('.', $allowed);
+                for ($index = 1; $index < count($labels) - 1; $index++) {
+                    $parent = implode('.', array_slice($labels, $index));
+                    if (isset($blocked[$parent])) {
+                        $shadowed[] = ['block' => $parent, 'allow' => $allowed];
+                    }
                 }
             }
         }
@@ -273,6 +309,7 @@ class PolicyEngine
             'allow' => $allowList,
             'block' => $this->recommender->compact($blockList, $rules),
             'conflicts' => $conflicts,
+            'resolved' => $resolved,
             'shadowed' => $shadowed,
             'sources' => $sources,
             'excluded' => $exclusions,
@@ -292,17 +329,20 @@ class PolicyEngine
         $currentBlock = $policy->current_blocklist ?? [];
         $hasSnapshot = $policy->snapshot_at !== null;
 
-        $covered = fn (array $entries, string $host): bool => collect($entries)->contains(fn (string $entry) => $rules->covers($entry, $host));
+        $allowSet = array_flip($currentAllow);
+        $desiredAllowSet = array_flip($desired['allow']);
+        $desiredBlockSet = array_flip($desired['block']);
+        $currentBlockSet = array_flip($currentBlock);
 
-        $allowAdd = array_values(array_filter($desired['allow'], fn (string $domain) => ! $covered($currentAllow, $domain)));
-        $allowExtra = array_values(array_filter($currentAllow, fn (string $domain) => ! in_array($domain, $desired['allow'], true)));
-        $blockAdd = array_values(array_filter($desired['block'], fn (string $domain) => ! in_array($domain, $currentBlock, true)));
-        $blockExtra = array_values(array_diff($currentBlock, $desired['block']));
+        $allowAdd = array_values(array_filter($desired['allow'], fn (string $domain) => ! $this->coveredBy($allowSet, $domain, $rules)));
+        $allowExtra = array_values(array_filter($currentAllow, fn (string $domain) => ! isset($desiredAllowSet[$domain])));
+        $blockAdd = array_values(array_filter($desired['block'], fn (string $domain) => ! isset($currentBlockSet[$domain])));
+        $blockExtra = array_values(array_filter($currentBlock, fn (string $domain) => ! isset($desiredBlockSet[$domain])));
 
-        $managedBlocks = PolicyEntry::query()->whereIn('domain', $blockExtra)
-            ->whereHas('policyList', fn ($query) => $query->where('kind', ListKind::Block))->pluck('domain')->all();
-        $blockRemove = array_values(array_filter($blockExtra, fn (string $domain) => in_array($domain, $managedBlocks, true)
-            || collect($desired['allow'])->contains(fn (string $allowed) => $rules->covers($domain, $allowed) || $rules->covers($allowed, $domain))));
+        $managedBlocks = $blockExtra === [] ? [] : array_flip(PolicyEntry::query()->whereIn('domain', $blockExtra)
+            ->whereHas('policyList', fn ($query) => $query->where('kind', ListKind::Block))->pluck('domain')->all());
+        $blockRemove = array_values(array_filter($blockExtra, fn (string $domain) => isset($managedBlocks[$domain])
+            || isset($desiredAllowSet[$domain]) || $this->coveredBy($desiredAllowSet, $domain, $rules)));
 
         $known = PolicyEntry::query()->whereIn('domain', $allowExtra)->pluck('domain')
             ->merge(WebsiteRequest::query()->whereIn('status', [RequestStatus::Expired, RequestStatus::Revoked])->latest()->limit(2000)->get()->flatMap->effectiveDomains())
@@ -321,6 +361,30 @@ class PolicyEngine
             'controller_blocks_allowed' => array_values(array_intersect($currentBlock, $desired['allow'])),
             'in_sync' => $hasSnapshot && $allowAdd === [] && $allowExtra === [] && $blockAdd === [] && $blockExtra === [],
         ];
+    }
+
+    /**
+     * Whether a hostname is matched by any entry in a set (domain => true),
+     * itself or, when entries cover subdomains, a parent domain.
+     *
+     * @param  array<string, mixed>  $set
+     */
+    public function coveredBy(array $set, string $host, ?DomainRules $rules = null): bool
+    {
+        if (isset($set[$host])) {
+            return true;
+        }
+        if (! ($rules ?? $this->rules())->entriesIncludeSubdomains) {
+            return false;
+        }
+        $labels = explode('.', $host);
+        for ($index = 1; $index < count($labels) - 1; $index++) {
+            if (isset($set[implode('.', array_slice($labels, $index))])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

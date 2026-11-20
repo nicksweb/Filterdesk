@@ -220,9 +220,19 @@ class SyncChecker
         $result = ['allow_imported' => [], 'block_imported' => [], 'allow_excluded' => [], 'block_excluded' => [], 'restored' => [], 'categories_changed' => []];
 
         $exclusions = $policy->exclusions();
+        $sets = [];
+        foreach (['allow', 'block'] as $kind) {
+            $sets[$kind] = [
+                'live' => array_flip($live[$kind]),
+                'baseline' => array_flip($baseline[$kind] ?? []),
+                'desired' => array_flip($desired[$kind]),
+                'review' => array_flip($report["{$kind}_review"]),
+            ];
+        }
+
         foreach (['allow', 'block'] as $kind) {
             foreach ($exclusions[$kind] as $domain) {
-                if (in_array($domain, $live[$kind], true) && ! in_array($domain, $baseline[$kind] ?? [], true)) {
+                if (isset($sets[$kind]['live'][$domain]) && ! isset($sets[$kind]['baseline'][$domain])) {
                     $exclusions[$kind] = array_values(array_diff($exclusions[$kind], [$domain]));
                     $result['restored'][] = $domain;
                 }
@@ -230,29 +240,30 @@ class SyncChecker
         }
 
         foreach (['allow', 'block'] as $kind) {
+            $excluded = array_flip($exclusions[$kind]);
             foreach ($live[$kind] as $domain) {
                 $wanted = $kind === 'allow'
-                    ? collect($desired['allow'])->contains(fn (string $entry) => $rules->covers($entry, $domain))
-                    : in_array($domain, $desired['block'], true);
-                if ($wanted || in_array($domain, $exclusions[$kind], true)) {
+                    ? $this->engine->coveredBy($sets['allow']['desired'], $domain, $rules)
+                    : isset($sets['block']['desired'][$domain]);
+                if ($wanted || isset($excluded[$domain])) {
                     continue;
                 }
-                $addedThere = ! in_array($domain, $baseline[$kind] ?? [], true);
-                if ($addedThere || in_array($domain, $report["{$kind}_review"], true)) {
+                if (! isset($sets[$kind]['baseline'][$domain]) || isset($sets[$kind]['review'][$domain])) {
                     $result["{$kind}_imported"][] = $domain;
                 }
             }
 
             foreach (array_diff($baseline[$kind] ?? [], $live[$kind]) as $domain) {
-                if (in_array($domain, $desired[$kind], true) && ! in_array($domain, $exclusions[$kind], true)) {
+                if (isset($sets[$kind]['desired'][$domain]) && ! isset($excluded[$domain])) {
                     $exclusions[$kind][] = $domain;
                     $result["{$kind}_excluded"][] = $domain;
                 }
             }
         }
 
+        $excludedAllow = array_flip($exclusions['allow']);
         foreach ($result['block_imported'] as $domain) {
-            if (in_array($domain, $desired['allow'], true) && ! in_array($domain, $exclusions['allow'], true)) {
+            if (isset($sets['allow']['desired'][$domain]) && ! isset($excludedAllow[$domain])) {
                 $exclusions['allow'][] = $domain;
                 $result['allow_excluded'][] = $domain;
             }
