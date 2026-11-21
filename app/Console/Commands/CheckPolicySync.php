@@ -25,6 +25,9 @@ class CheckPolicySync extends Command
             $this->line(str_pad($policy->sync_status, 12).$policy->name.': '.($policy->sync_details['summary'] ?? ''));
         }
 
+        // Category changes are picked up by the check above; keep smart approvals working.
+        $this->call('categories:guard');
+
         return self::SUCCESS;
     }
 }

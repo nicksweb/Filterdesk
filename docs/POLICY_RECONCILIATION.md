@@ -70,6 +70,8 @@ With website categories turned on (Settings → Website categories), approving a
 | Nothing | Adds nothing |
 | Category unknown, or timed access | Adds an allow entry, as before |
 
+**If a category becomes blocked later.** A smart approval stores each hostname's UniFi categories. When a filter's categories change (saved here, or picked up by the 15-minute sync check), the app checks the hostnames it approved without an allow entry; if one of their categories is now blocked by a filter the request covers, it adds the allow entry, notes it on the request and pushes. This uses the stored categories, so it makes no lookups. Once a day (`categories:guard --refresh`) it re-asks the category service about those hostnames only, using the week-long cache, so a site Cloudflare re-categorises is caught too. Fresh lookups are capped at 300 an hour; above that, smart approval falls back to allow entries. Blocklists and feeds are never looked up.
+
 Untick *Only add allow entries where needed* to add an allow entry for every hostname. Removed blocks are not restored if the access is later revoked. Categories come from Cloudflare and UniFi's own category database can differ, so check the site afterwards; if it is still blocked, add an allow entry from the policy page.
 
 Use **Where is a hostname?** to see every list containing a hostname or any

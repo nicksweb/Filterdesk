@@ -77,7 +77,7 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function availableCategories(): array
     {
-        return ['ADULT', 'GAMBLING', 'GAMES', 'SOCIAL_NETWORKS', 'STREAMING_MEDIA'];
+        return ['ADULT', 'GAMBLING', 'GAMES', 'RELIGION', 'SOCIAL_NETWORKS', 'STREAMING_MEDIA'];
     }
 
     public function writeContentFilterCategories(string $filterId, array $categories): void

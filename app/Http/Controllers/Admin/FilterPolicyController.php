@@ -19,6 +19,7 @@ use App\Services\Policy\SyncChecker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -205,6 +206,10 @@ class FilterPolicyController extends Controller
         $checker->checkOne($policy->refresh());
         if ($layer) {
             $checker->checkOne($layer->refresh(), refresh: false);
+        }
+        if ($added !== []) {
+            // Newly blocked categories may cover sites approved without an allow entry.
+            Artisan::call('categories:guard');
         }
         $audit->log('policy.controller_categories_changed', $policy, ['filter' => $filter['name'], 'added' => $added, 'removed' => $removed, 'before' => $filter['categories']]);
 

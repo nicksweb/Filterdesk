@@ -93,12 +93,13 @@ class AccessPlanner
             }
         }
         $categories = implode(', ', $lookup['categories']);
+        $unifi = array_values(array_column($lookup['unifi'], 'id'));
 
         $blocks = $this->engine->locate($domain)
             ->filter(fn (PolicyEntry $entry) => $entry->policyList->kind === ListKind::Block && $this->isEffective($entry)
                 && $policies->contains(fn (FilterPolicy $policy) => $entry->policyList->appliesTo($policy)));
         if ($blocks->isEmpty()) {
-            return ['action' => 'none', 'reason' => "Categorised as {$categories}; no filter blocks that category and no list blocks the site, so nothing needs adding.", 'entries' => [], 'lists' => []];
+            return ['action' => 'none', 'reason' => "Categorised as {$categories}; no filter blocks that category and no list blocks the site, so nothing needs adding.", 'entries' => [], 'lists' => [], 'unifi' => $unifi];
         }
 
         // A feed puts its entries back on every refresh, so only an allow entry can override it.
@@ -118,6 +119,7 @@ class AccessPlanner
                 .($blocks->contains(fn (PolicyEntry $entry) => $entry->source === EntrySource::Import) ? ' (a block made in UniFi)' : '').', so removing that block is enough.',
             'entries' => $blocks->pluck('id')->values()->all(),
             'lists' => $blocks->pluck('policyList.name')->unique()->values()->all(),
+            'unifi' => $unifi,
         ];
     }
 

@@ -19,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\RateLimiter;
 use Tests\Concerns\BuildsPolicies;
 use Tests\TestCase;
 
@@ -119,5 +120,33 @@ class SmartApprovalTest extends TestCase
 
         $this->artisan('policy:check-sync')->assertSuccessful();
         $this->assertFalse(PolicyEntry::query()->where('domain', 'church.example')->whereHas('policyList', fn ($q) => $q->where('kind', ListKind::Block))->exists(), 'It is not imported back');
+    }
+
+    public function test_a_category_blocked_after_a_smart_approval_gets_an_allow_entry_without_new_lookups(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->engine->upsertEntry($this->engine->defaultBlockList('staff'), 'church.example', ['source' => 'manual']);
+        $request = $this->pendingRequest(['church.example', 'news.example'], Reach::types('staff'));
+        $this->actingAs($admin)->post(route('it.requests.action', $request), ['action' => 'approve', 'smart' => '1', 'domains' => ['church.example', 'news.example']]);
+        $this->assertSame('RELIGION', $request->refresh()->access_plan['church.example']['unifi'][0]);
+        $lookups = count(Http::recorded());
+
+        $this->actingAs($admin)->post(route('admin.policy.policies.categories', $this->staff), ['categories' => ['GAMBLING', 'RELIGION']])->assertSessionHas('success');
+
+        $request->refresh();
+        $this->assertSame('allow', $request->access_plan['church.example']['action']);
+        $this->assertSame('none', $request->access_plan['news.example']['action'], 'News is still not blocked');
+        $this->assertContains('church.example', collect((new MockNetworkProvider)->contentFilters())->firstWhere('id', 'sim-filter-staff')['allow']);
+        $this->assertTrue($request->events()->where('type', 'category_guard')->exists());
+        $this->assertSame($lookups, count(Http::recorded()), 'The guard uses the stored categories, not new lookups');
+    }
+
+    public function test_category_lookups_stop_at_the_hourly_limit(): void
+    {
+        RateLimiter::increment('domain-categories', 3600, DomainCategorizer::HOURLY_LIMIT);
+        $result = app(DomainCategorizer::class)->lookup('fresh.example');
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('hourly limit', $result['message']);
+        $this->assertSame('allow', app(AccessPlanner::class)->plan(['fresh.example'], Reach::types('staff'), timed: false)['fresh.example']['action'], 'Falls back to an allow entry');
     }
 }

@@ -7,6 +7,7 @@ use App\Models\IntegrationConfig;
 use App\Services\Policy\ControllerSync;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -20,6 +21,9 @@ use Throwable;
 class DomainCategorizer
 {
     public const PROVIDER = 'categories';
+
+    /** Fresh lookups allowed per hour; cached answers do not count. */
+    public const HOURLY_LIMIT = 300;
 
     /** Cloudflare category names that differ from UniFi's category ids. */
     private const SYNONYMS = [
@@ -72,6 +76,11 @@ class DomainCategorizer
 
         $raw = Cache::get($key);
         if ($raw === null) {
+            // Cap fresh lookups so a burst (or a large request) cannot use up the service's quota.
+            if (RateLimiter::tooManyAttempts('domain-categories', self::HOURLY_LIMIT)) {
+                return ['ok' => false, 'categories' => [], 'risks' => [], 'unifi' => [], 'message' => 'The hourly limit of '.self::HOURLY_LIMIT.' category lookups was reached; it resets within the hour.'];
+            }
+            RateLimiter::hit('domain-categories', 3600);
             $raw = $this->fetch($domain);
             // Cache answers for a week; failures only briefly, so a fixed token takes effect quickly.
             Cache::put($key, $raw, $raw['ok'] ? now()->addWeek() : now()->addMinutes(5));
