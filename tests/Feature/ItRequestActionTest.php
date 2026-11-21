@@ -2,13 +2,13 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AccessScope;
 use App\Enums\RequestStatus;
 use App\Models\PolicyEntry;
 use App\Models\Setting;
 use App\Models\User;
 use App\Notifications\RequestActivityNotification;
 use App\Notifications\RequestDecisionNotification;
+use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Tests\Concerns\BuildsPolicies;
@@ -71,7 +71,7 @@ class ItRequestActionTest extends TestCase
     public function test_approval_uses_selected_hostnames_and_scope_override(): void
     {
         $it = User::factory()->it()->create();
-        $request = $this->pendingRequest(['learn.example.edu.au'], AccessScope::StaffAndStudents);
+        $request = $this->pendingRequest(['learn.example.edu.au'], Reach::types('staff', 'student'));
 
         $this->actingAs($it)->post(route('it.requests.action', $request), [
             'action' => 'approve',
@@ -83,7 +83,7 @@ class ItRequestActionTest extends TestCase
         $request->refresh();
         $this->assertSame(RequestStatus::ActionRequired, $request->status);
         $this->assertSame(['cdn.example.net', 'example.edu.au', 'learn.example.edu.au'], $request->approved_domains);
-        $this->assertSame(AccessScope::Staff, $request->applied_scope);
+        $this->assertSame('staff', $request->applied_scope->value());
         $this->assertSame(3, PolicyEntry::query()->where('website_request_id', $request->id)->count());
         Notification::assertSentTo($request->requester, RequestDecisionNotification::class);
     }
@@ -91,7 +91,7 @@ class ItRequestActionTest extends TestCase
     public function test_actions_respect_the_current_status(): void
     {
         $it = User::factory()->it()->create();
-        $request = $this->pendingRequest(['example.com'], AccessScope::Staff, ['status' => RequestStatus::Rejected]);
+        $request = $this->pendingRequest(['example.com'], Reach::types('staff'), ['status' => RequestStatus::Rejected]);
 
         $this->actingAs($it)->post(route('it.requests.action', $request), ['action' => 'approve'])->assertSessionHas('error');
         $this->assertSame(RequestStatus::Rejected, $request->refresh()->status);
@@ -140,9 +140,9 @@ class ItRequestActionTest extends TestCase
     public function test_request_index_filters_by_status_and_assignment(): void
     {
         $it = User::factory()->it()->create();
-        $mine = $this->pendingRequest(['mine.example.org'], AccessScope::Staff, ['assigned_to_id' => $it->id]);
+        $mine = $this->pendingRequest(['mine.example.org'], Reach::types('staff'), ['assigned_to_id' => $it->id]);
         $this->pendingRequest(['unassigned.example.org']);
-        $this->pendingRequest(['closed.example.org'], AccessScope::Staff, ['status' => RequestStatus::Rejected]);
+        $this->pendingRequest(['closed.example.org'], Reach::types('staff'), ['status' => RequestStatus::Rejected]);
 
         $this->actingAs($it)->get(route('requests.index', ['status' => 'open', 'assigned' => 'me']))
             ->assertOk()->assertSee($mine->reference)->assertDontSee('unassigned.example.org')->assertDontSee('closed.example.org');

@@ -2,8 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AccessScope;
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Enums\RequestStatus;
 use App\Models\FilterPolicy;
@@ -15,6 +13,7 @@ use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
+use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
@@ -35,7 +34,7 @@ class TimedAccessTest extends TestCase
         Notification::fake();
         Cache::flush();
         $this->engine = $this->installWithPolicies('active');
-        $this->students = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $this->students = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $this->students->update(['provider_reference' => 'sim-filter-students']);
         app(SettingsRepository::class)->set('notifications.it_address', 'it@example.test');
         $this->freezeTime();
@@ -48,7 +47,7 @@ class TimedAccessTest extends TestCase
 
     public function test_timed_entries_go_live_five_minutes_early_and_leave_five_minutes_late(): void
     {
-        $list = $this->engine->defaultAllowList(Audience::Student);
+        $list = $this->engine->defaultAllowList('student');
         $entry = $this->engine->upsertEntry($list, 'lesson.example.org', ['source' => 'manual', 'starts_at' => now()->addMinutes(30), 'expires_at' => now()->addMinutes(90)]);
 
         $this->travel(24)->minutes();
@@ -67,7 +66,7 @@ class TimedAccessTest extends TestCase
     {
         IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['auto_push' => true, 'controller_authoritative' => false]]);
         $block = $this->engine->ownList($this->students, ListKind::Block);
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'exam-tool.example.org', ['source' => 'manual', 'starts_at' => now()->addMinutes(10), 'expires_at' => now()->addMinutes(40)]);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'exam-tool.example.org', ['source' => 'manual', 'starts_at' => now()->addMinutes(10), 'expires_at' => now()->addMinutes(40)]);
         $this->engine->upsertEntry($block, 'chat.example.org', ['source' => 'manual', 'starts_at' => now()->addMinutes(10), 'expires_at' => now()->addMinutes(40)]);
 
         $this->artisan('policy:push --boundaries')->assertSuccessful();
@@ -86,7 +85,7 @@ class TimedAccessTest extends TestCase
     public function test_it_can_approve_a_different_window_and_change_it_later(): void
     {
         $it = User::factory()->it()->create();
-        $request = $this->pendingRequest(['film.example.org'], AccessScope::StaffAndStudents);
+        $request = $this->pendingRequest(['film.example.org'], Reach::types('staff', 'student'));
 
         $this->actingAs($it)->post(route('it.requests.action', $request), [
             'action' => 'approve', 'access_from' => now()->addDay()->setTime(9, 0)->format('Y-m-d\TH:i'), 'access_until' => now()->addDay()->setTime(10, 0)->format('Y-m-d\TH:i'),
@@ -109,7 +108,7 @@ class TimedAccessTest extends TestCase
     {
         $teacher = User::factory()->teacher()->create();
         $request = app(RequestWorkflow::class)->submit($teacher, [
-            'domains' => ['course.example.org'], 'access_scope' => AccessScope::StaffAndStudents, 'category' => 'Teaching and learning',
+            'domains' => ['course.example.org'], 'access_scope' => Reach::types('staff', 'student'), 'category' => 'Teaching and learning',
             'use_case' => 'Students need this resource for a supervised classroom activity.', 'requested_from' => null, 'requested_until' => now()->addDays(3),
         ]);
         Notification::assertSentTo($teacher, RequestDecisionNotification::class, fn ($notification, $channels, $notifiable) => str_contains($notification->toMail($notifiable)->subject, 'received'));

@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\Audience;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,7 +23,6 @@ class FilterPolicy extends Model
     protected function casts(): array
     {
         return [
-            'audience' => Audience::class,
             'enabled' => 'boolean',
             'current_allowlist' => 'array',
             'current_blocklist' => 'array',
@@ -35,6 +33,17 @@ class FilterPolicy extends Model
             'controller_exclusions' => 'array',
             'controller_managed' => 'array',
         ];
+    }
+
+    /** The network type this belongs to (its shared allow and block lists). */
+    public function networkType(): BelongsTo
+    {
+        return $this->belongsTo(NetworkType::class, 'audience', 'key');
+    }
+
+    public function typeLabel(): string
+    {
+        return NetworkType::labelFor($this->audience);
     }
 
     public function networkProfile(): BelongsTo

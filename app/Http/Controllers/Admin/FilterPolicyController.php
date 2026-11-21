@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\Audience;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Http\Controllers\Controller;
@@ -58,9 +57,9 @@ class FilterPolicyController extends Controller
         $validated = $this->validated($request);
         $policy = FilterPolicy::query()->create($validated + ['slug' => $engine->uniqueSlug($validated['name'])]);
         $engine->ensureAudienceLists($policy->audience);
-        $audit->log('policy.created', $policy, ['audience' => $policy->audience->value]);
+        $audit->log('policy.created', $policy, ['network_type' => $policy->audience]);
 
-        return redirect()->route('admin.policy.policies.show', $policy)->with('success', "{$policy->name} created. Audience lists for {$policy->audience->label()} are ready.");
+        return redirect()->route('admin.policy.policies.show', $policy)->with('success', "{$policy->name} created. Shared lists for {$policy->typeLabel()} are ready.");
     }
 
     public function update(Request $request, FilterPolicy $policy, PolicyEngine $engine, AuditLogger $audit): RedirectResponse
@@ -77,7 +76,7 @@ class FilterPolicyController extends Controller
         $audit->log('policy.deleted', $policy, ['name' => $policy->name]);
         $policy->delete();
 
-        return redirect()->route('admin.policy.index')->with('success', 'Policy deleted. Its own lists were removed; site-wide and audience lists are unchanged.');
+        return redirect()->route('admin.policy.index')->with('success', 'Policy deleted. Its own lists were removed; site-wide and network type lists are unchanged.');
     }
 
     public function snapshot(Request $request, FilterPolicy $policy, PolicyListParser $parser, AuditLogger $audit): RedirectResponse
@@ -323,7 +322,7 @@ class FilterPolicyController extends Controller
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-            'audience' => ['required', Rule::enum(Audience::class)],
+            'audience' => ['required', Rule::exists('network_types', 'key')],
             'description' => ['nullable', 'string', 'max:1000'],
             'network_profile_id' => ['nullable', 'exists:network_profiles,id'],
             'provider_reference' => ['nullable', 'string', 'max:190'],
@@ -333,7 +332,7 @@ class FilterPolicyController extends Controller
 
         return [
             'name' => $validated['name'],
-            'audience' => Audience::from($validated['audience']),
+            'audience' => $validated['audience'],
             'description' => $validated['description'] ?? null,
             'network_profile_id' => $validated['network_profile_id'] ?? null,
             'provider_reference' => $validated['provider_reference'] ?? null,

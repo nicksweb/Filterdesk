@@ -18,7 +18,7 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - Schoolbox iframe embedding with an exact-origin allowlist and secure cross-site sessions
 - Approval, rejection, reassignment, information requests and manual completion
 - Explicit permanent access or temporary access windows with scheduled expiry
-- Site-wide, audience (Staff/Student/Guest) and per-policy allow and block lists
+- Network types you define (Staff, Students, CCTV, Exam rooms…), each with shared allow and block lists, plus site-wide and per-policy lists
 - Live UniFi content filters: read, push with read-back verification and rollback, sync checks, and the controller kept as the source of truth (edits made in UniFi are imported)
 - Guided setup that brings every UniFi filter, list, network and category in with one click, ready to use
 - Content categories, timed allow and block windows, and block requests as well as access requests

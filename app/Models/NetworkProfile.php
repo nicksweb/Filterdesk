@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use App\Enums\Audience;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /** A network path checked by a probe (normally one per access VLAN). */
@@ -13,7 +13,18 @@ class NetworkProfile extends Model
 
     protected function casts(): array
     {
-        return ['enabled' => 'boolean', 'audience' => Audience::class];
+        return ['enabled' => 'boolean'];
+    }
+
+    /** The network type this belongs to (its shared allow and block lists). */
+    public function networkType(): BelongsTo
+    {
+        return $this->belongsTo(NetworkType::class, 'audience', 'key');
+    }
+
+    public function typeLabel(): string
+    {
+        return NetworkType::labelFor($this->audience);
     }
 
     public function filterPolicies(): HasMany

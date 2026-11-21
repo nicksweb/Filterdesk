@@ -2,8 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AccessScope;
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
 use App\Models\FilterPolicy;
@@ -15,6 +13,7 @@ use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\FeedParser;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\RequestWorkflow;
+use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -39,28 +38,28 @@ class BlocklistTest extends TestCase
         $this->admin = User::factory()->admin()->create();
     }
 
-    private function policy(Audience $audience): FilterPolicy
+    private function policy(string $audience): FilterPolicy
     {
         return FilterPolicy::query()->where('audience', $audience)->firstOrFail();
     }
 
     public function test_a_block_for_one_audience_beats_a_site_wide_allow_and_an_older_approval(): void
     {
-        app(RequestWorkflow::class)->approve($this->pendingRequest(['news.example.org'], AccessScope::StaffAndStudents), User::factory()->it()->create());
+        app(RequestWorkflow::class)->approve($this->pendingRequest(['news.example.org'], Reach::types('staff', 'student')), User::factory()->it()->create());
         $this->engine->upsertEntry($this->engine->defaultAllowList(null), 'news.example.org', ['source' => 'manual']);
         $this->travel(1)->minute();
-        $staffBlock = PolicyList::query()->where('scope', ListScope::Audience)->where('audience', Audience::Staff)->where('kind', ListKind::Block)->firstOrFail();
+        $staffBlock = PolicyList::query()->where('scope', ListScope::Audience)->where('audience', 'staff')->where('kind', ListKind::Block)->firstOrFail();
 
         $this->actingAs($this->admin)->post(route('admin.policy.entries.store'), ['policy_list_id' => $staffBlock->id, 'domains' => 'news.example.org'])->assertSessionHas('success');
 
-        $staff = $this->engine->desired($this->policy(Audience::Staff));
+        $staff = $this->engine->desired($this->policy('staff'));
         $this->assertContains('news.example.org', $staff['block']);
         $this->assertNotContains('news.example.org', $staff['allow']);
         $this->assertSame('block', $staff['resolved']['news.example.org']);
-        $this->assertContains('news.example.org', $this->engine->desired($this->policy(Audience::Student))['allow'], 'Students are not affected');
+        $this->assertContains('news.example.org', $this->engine->desired($this->policy('student'))['allow'], 'Students are not affected');
 
         $this->travel(1)->minute();
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Staff), 'news2.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('staff'), 'news2.example.org', ['source' => 'manual']);
         $siteBlock = PolicyList::query()->where('scope', ListScope::Site)->where('kind', ListKind::Block)->firstOrFail();
         $this->actingAs($this->admin)->post(route('admin.policy.entries.store'), ['policy_list_id' => $siteBlock->id, 'domains' => 'news2.example.org'])
             ->assertSessionHas('success', fn (string $message) => str_contains($message, 'stay allowed'));
@@ -82,14 +81,14 @@ class BlocklistTest extends TestCase
     {
         $body = "# Title: test\n! adblock comment\nbadvpn.example\n*.proxy.example\n||doh.example^\n0.0.0.0 hosts.example\n@@||allowed.example^\ncom\n\nfriendly.example # inline\n";
         Http::fake(['raw.githubusercontent.com/*' => Http::sequence()->push($body)->push("badvpn.example\nnew.example\n")]);
-        app(RequestWorkflow::class)->approve($this->pendingRequest(['friendly.example'], AccessScope::StaffAndStudents), User::factory()->it()->create());
+        app(RequestWorkflow::class)->approve($this->pendingRequest(['friendly.example'], Reach::types('staff', 'student')), User::factory()->it()->create());
 
         $this->actingAs($this->admin)->post(route('admin.policy.blocklists.feeds.store'), ['preset' => 'hagezi-bypass', 'scope' => 'site', 'kind' => 'block'])
             ->assertSessionHas('success');
 
         $source = ListSource::query()->firstOrFail();
         $this->assertEqualsCanonicalizing(['badvpn.example', 'proxy.example', 'doh.example', 'hosts.example', 'friendly.example'], $source->policyList->entries()->pluck('domain')->all());
-        $student = $this->engine->desired($this->policy(Audience::Student));
+        $student = $this->engine->desired($this->policy('student'));
         $this->assertContains('badvpn.example', $student['block']);
         $this->assertContains('friendly.example', $student['allow'], 'An approved request overrides a site-wide feed');
 
@@ -99,7 +98,7 @@ class BlocklistTest extends TestCase
         $this->assertEqualsCanonicalizing(['badvpn.example', 'new.example'], $source->policyList->entries()->pluck('domain')->all());
 
         $this->actingAs($this->admin)->delete(route('admin.policy.blocklists.feeds.destroy', $source));
-        $this->assertNotContains('badvpn.example', $this->engine->desired($this->policy(Audience::Student))['block']);
+        $this->assertNotContains('badvpn.example', $this->engine->desired($this->policy('student'))['block']);
     }
 
     public function test_an_ip_feed_keeps_a_controller_ip_group_in_step_and_respects_the_limit(): void

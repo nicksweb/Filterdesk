@@ -15,7 +15,7 @@
     @else
         <section class="panel policy-section setup-quick">
             <div class="panel-heading">
-                <div><h2>Bring everything in</h2><p>Reads every content filter in UniFi and sets the tool up to match it in one step: each filter becomes a policy (the default Students and Staff policies are reused where the audience fits), a filter that looks like a blocklist layer on the same networks becomes that policy's layer, every allow and block entry is imported, networks are mapped and categories are kept. Nothing is changed in UniFi, and the first push changes nothing. Review the choices below first if you prefer.</p></div>
+                <div><h2>Bring everything in</h2><p>Reads every content filter in UniFi and sets the tool up to match it in one step: each filter becomes a policy (the default Students and Staff policies are reused where the network type fits), a filter that looks like a blocklist layer on the same networks becomes that policy's layer, every allow and block entry is imported, networks are mapped and categories are kept. Nothing is changed in UniFi, and the first push changes nothing. Review the choices below first if you prefer.</p></div>
                 <form method="post" action="{{ route('admin.policy.setup.import-all') }}">@csrf
                     <button class="button primary" data-confirm="Bring in all {{ $filters->count() }} content filters with the suggested settings? Nothing is changed in UniFi.">Bring everything in</button>
                 </form>
@@ -23,7 +23,7 @@
         </section>
 
         <section class="panel policy-section">
-            <div class="panel-heading"><div><h2>1. Content filters</h2><p>{{ $filters->count() }} found. For each, link an existing policy or create one. The audience decides which shared lists (Staff, Student, Guest…) it inherits, and with them the level of filtering.</p></div></div>
+            <div class="panel-heading"><div><h2>1. Content filters</h2><p>{{ $filters->count() }} found. For each, link an existing policy or create one. The network type decides which shared lists (Staff, Student, Guest…) it inherits, and with them the level of filtering.</p></div></div>
             <form method="post" action="{{ route('admin.policy.setup.store') }}">@csrf
                 <div class="table-wrap"><table>
                     <thead><tr><th>Controller filter</th><th>Networks</th><th>Set up as</th><th>Import entries</th></tr></thead>
@@ -44,10 +44,10 @@
                                         <option value="skip">Skip</option>
                                     </select>
                                     <select name="filters[{{ $filter['id'] }}][policy_id]" aria-label="Existing policy for {{ $filter['name'] }}">
-                                        @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($suggestion['policy_id'] === $policy->id)>{{ $policy->name }} ({{ $policy->audience->label() }}){{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' · linked to '.$policy->provider_name : '' }}</option>@endforeach
+                                        @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($suggestion['policy_id'] === $policy->id)>{{ $policy->name }} ({{ $policy->typeLabel() }}){{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' · linked to '.$policy->provider_name : '' }}</option>@endforeach
                                     </select>
                                     <select name="filters[{{ $filter['id'] }}][audience]" aria-label="Audience for a new policy">
-                                        @foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}" @selected($suggestion['audience'] === $value)>New: {{ $label }}</option>@endforeach
+                                        @foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}" @selected($suggestion['audience'] === $value)>New: {{ $label }}</option>@endforeach
                                     </select>
                                     <select name="filters[{{ $filter['id'] }}][parent]" aria-label="Parent filter if {{ $filter['name'] }} is a layer">
                                         <option value="">Layer of…</option>
@@ -71,7 +71,7 @@
             <h2>Ready to go</h2>
             <ul class="ready-list">
                 @foreach($ready['policies'] as $policy)
-                    <li><a href="{{ route('admin.policy.policies.show', $policy) }}"><strong>{{ $policy->name }}</strong></a> → {{ $policy->provider_name }}{{ $policy->isLayer() ? ' · layer of '.$policy->layerOf?->name : ' · '.$policy->audience->label().' filtering' }} <x-sync-status :policy="$policy" /></li>
+                    <li><a href="{{ route('admin.policy.policies.show', $policy) }}"><strong>{{ $policy->name }}</strong></a> → {{ $policy->provider_name }}{{ $policy->isLayer() ? ' · layer of '.$policy->layerOf?->name : ' · '.$policy->typeLabel().' filtering' }} <x-sync-status :policy="$policy" /></li>
                 @endforeach
                 <li>{{ $ready['mapped'] }} of {{ $ready['networks'] }} networks mapped to a policy. <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a></li>
                 <li>Probes: @forelse($ready['profiles'] as $profile){{ $profile->name }} {{ $profile->enabled ? '(on)' : '(off)' }}@if(!$loop->last), @endif @empty none yet @endforelse. <a href="{{ route('admin.settings.show', 'network') }}">Network profiles</a></li>
@@ -112,7 +112,7 @@
                     <tbody>
                         @foreach($plans as $plan)
                             <tr>
-                                <td><code>{{ $plan['service'] }}</code><small>{{ $plan['policy']?->name ?? $plan['label'] }} · {{ $plan['audience']->label() }}</small></td>
+                                <td><code>{{ $plan['service'] }}</code><small>{{ $plan['policy']?->name ?? $plan['label'] }} · {{ \App\Models\NetworkType::labelFor($plan['audience']) }}</small></td>
                                 <td>{{ $plan['network']->name }}<small>{{ $plan['network']->vlan ? 'VLAN '.$plan['network']->vlan.', tagged' : 'Untagged (native)' }}{{ $plan['subnet'] ? ' · '.$plan['subnet']['network'] : '' }}</small></td>
                                 <td><code>{{ $plan['interface'] }}</code>@if($plan['interface_saved'])<small>set by hand</small>@endif
                                     <details class="interface-override"><summary>Different interface</summary>

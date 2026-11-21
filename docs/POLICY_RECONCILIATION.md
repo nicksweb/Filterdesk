@@ -12,35 +12,48 @@ side is a copy-and-paste step using the lists described here.
 
 | Concept | What it is | Example |
 | --- | --- | --- |
-| **Filter policy** | One content filter in the controller, tagged with an **audience** (Staff, Student, Guest, Other) and optionally linked to a network probe. | `Students` → UniFi content filter on the Student VLAN |
-| **List** | A named allow *or* block list with a **scope**. | `Site-wide allow`, `Student block`, `Exam-week allow` |
+| **Network type** | A kind of network you manage, defined under **Settings → Network types**: Staff, Students, Guests, CCTV, Exam rooms, whatever fits. Each type has its own shared allow and block lists. The names are labels for a set of rules, not user roles. | `Students`, `CCTV`, `Exam rooms` |
+| **Filter policy** | One content filter in the controller, of one **network type**, and optionally linked to a network probe. | `Students` → UniFi content filter on the Student VLAN |
+| **List** | A named allow *or* block list with a **scope**. | `Site-wide allow`, `Students block`, `Exam-week allow` |
 | **Entry** | One hostname in a list, with its source and an optional start/expiry. | `example.edu.au` · Approved request WEB-2026-00012 · until 30 Nov |
 
 List scopes:
 
-- **Site-wide**: applies to every enabled policy, including guests.
-- **Audience**: applies to every policy for that audience (for example all Student policies).
+- **Site-wide**: applies to every enabled policy.
+- **Network type**: applies to every policy of that type (for example every Students policy).
 - **Single policy**: applies to one policy only.
 
 The **desired allow list** for a policy is every effective entry in every allow
-list that applies to it. The **desired block list** is the same for block lists,
-minus anything that is also allowed. Allow wins, and the overlap is reported
-as a conflict to clean up.
+list that applies to it. The **desired block list** is the same for block lists.
+When a hostname is in both, an entry added on purpose beats a feed or import,
+then the more specific list wins; the overlap is reported on the policy page.
 
-On first upgrade or install, these are created automatically:
+On a new install these are created automatically:
 
+- network types Staff, Students, Guests and Other networks (rename, add or remove them under **Settings → Network types**)
 - `Students` and `Staff` policies from the Student/Staff network profiles
 - `Site-wide allow` / `Site-wide block`
-- `Staff allow` / `Staff block` and `Student allow` / `Student block`
+- an allow and a block list for each type that is used or requestable
 
-Add more policies (such as Guests) under **Policy lists → Add a filter policy**.
-The audience's lists are created automatically.
+Add more policies under **Policy lists → Add a filter policy**, or let Guided
+setup create one per UniFi filter. A new type's lists are created as soon as
+the type is.
+
+### Network type settings
+
+| Setting | Effect |
+| --- | --- |
+| **Requestable** | Shown as a choice when someone requests access or a block. At least one type must be requestable. |
+| **Auto-approve** | With *Auto-approve* on under Approval policy, an access request is approved straight away when every network type it is for has this ticked (by default only Staff). |
+
+A type can be deleted once no policy, list or probe uses it. Its key never
+changes, so renaming is always safe.
 
 ## Where domains come from
 
 | Source | How it gets there | When it leaves |
 | --- | --- | --- |
-| **Approved request** | Approval adds the chosen hostnames to the default allow list of each audience in the approved scope: *Staff only* → Staff allow; *Staff and students* → Staff allow + Student allow; *Site-wide* → Site-wide allow. | Automatically when a temporary window ends or the request is revoked. |
+| **Approved request** | Approval adds the chosen hostnames to the default allow list (or, for a block request, block list) of each network type the request is for: *Staff* → Staff allow; *Staff and Students* → both; *Site-wide* → Site-wide allow. IT can change the types when approving. | Automatically when a temporary window ends or the request is revoked. |
 | **Added by IT** | *Policy lists → Add hostnames*, with no request needed. Adding to **Site-wide allow** reaches every policy, students included. | When removed, or at its expiry if one was set. |
 | **Imported** | Bulk paste into a list (merge or replace). Request entries are never replaced. | When removed. |
 

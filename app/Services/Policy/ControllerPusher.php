@@ -2,7 +2,6 @@
 
 namespace App\Services\Policy;
 
-use App\Enums\AccessScope;
 use App\Models\ControllerPush;
 use App\Models\FilterPolicy;
 use App\Models\User;
@@ -11,6 +10,7 @@ use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ProviderRequestFailed;
 use App\Services\Network\WritesContentFilters;
 use App\Services\Requests\RequestWorkflow;
+use App\Support\Reach;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -142,7 +142,7 @@ class ControllerPusher
      *
      * @return Collection<int, array{policy: FilterPolicy, ok: bool, message: string}>
      */
-    public function pushAll(?User $actor, string $trigger = 'manual', ?AccessScope $scope = null): Collection
+    public function pushAll(?User $actor, string $trigger = 'manual', ?Reach $scope = null): Collection
     {
         $this->sync->forget();
         $policies = $scope

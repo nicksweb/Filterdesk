@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\Audience;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
@@ -78,7 +77,7 @@ class BlocklistController extends Controller
             'type' => ['nullable', 'required_without:preset', 'in:domains,ips'],
             'kind' => ['nullable', Rule::enum(ListKind::class)],
             'scope' => ['nullable', Rule::enum(ListScope::class)],
-            'audience' => ['nullable', 'required_if:scope,audience', Rule::enum(Audience::class)],
+            'audience' => ['nullable', 'required_if:scope,audience', Rule::exists('network_types', 'key')],
             'filter_policy_id' => ['nullable', 'required_if:scope,policy', 'exists:filter_policies,id'],
             'firewall_list_id' => ['nullable', 'exists:firewall_lists,id'],
             'refresh_hours' => ['nullable', 'integer', 'min:1', 'max:168'],
@@ -114,7 +113,7 @@ class BlocklistController extends Controller
                 'name' => $name, 'kind' => $kind, 'scope' => $scope,
                 'audience' => $scope === ListScope::Audience ? $validated['audience'] : null,
                 'filter_policy_id' => $scope === ListScope::Policy ? $validated['filter_policy_id'] : null,
-                'description' => 'Filled automatically from '.($preset ? $preset['name'] : $url).'. Approvals and lists for one audience or policy still override it.',
+                'description' => 'Filled automatically from '.($preset ? $preset['name'] : $url).'. Approvals and lists for one network type or policy still override it.',
                 'is_default' => false, 'sort_order' => 900,
             ]);
 

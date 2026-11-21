@@ -3,7 +3,7 @@
 
     <div class="page-heading">
         <div>
-            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policy lists</a> · {{ $policy->audience->label() }}@if($policy->layerOf) · layer of <a href="{{ route('admin.policy.policies.show', $policy->layerOf) }}">{{ $policy->layerOf->name }}</a>@endif</p>
+            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policy lists</a> · {{ $policy->typeLabel() }}@if($policy->layerOf) · layer of <a href="{{ route('admin.policy.policies.show', $policy->layerOf) }}">{{ $policy->layerOf->name }}</a>@endif</p>
             <h1>{{ $policy->name }}</h1>
             <p>{{ $policy->description ?: 'Content filter policy' }}{{ $policy->provider_reference ? ' · Controller filter: '.$policy->provider_reference : '' }}</p>
         </div>
@@ -118,7 +118,7 @@
                 </article>
             @endforeach
         </div>
-        @if($report['conflicts'])<div class="notice"><strong>In both an allow and a block list.</strong> An entry added by IT or an approved request beats one from a feed or imported from the controller; then the more specific list wins (this policy, then its audience, then site-wide); then the most recent entry. @foreach($report['resolved'] as $domain => $winner){{ $domain }}: {{ $winner === 'block' ? 'blocked' : 'allowed' }}@if(!$loop->last) · @endif @endforeach</div>@endif
+        @if($report['conflicts'])<div class="notice"><strong>In both an allow and a block list.</strong> An entry added by IT or an approved request beats one from a feed or imported from the controller; then the more specific list wins (this policy, then its network type, then site-wide); then the most recent entry. @foreach($report['resolved'] as $domain => $winner){{ $domain }}: {{ $winner === 'block' ? 'blocked' : 'allowed' }}@if(!$loop->last) · @endif @endforeach</div>@endif
         @if($report['shadowed'])<div class="notice"><strong>Blocked parent domains with allowed subdomains:</strong> @foreach($report['shadowed'] as $pair){{ $pair['allow'] }} (under blocked {{ $pair['block'] }})@if(!$loop->last), @endif @endforeach. Check the controller gives allow-list entries priority.</div>@endif
     </section>
 
@@ -230,7 +230,7 @@
                 <h2>Policy settings</h2>
                 <form method="post" action="{{ route('admin.policy.policies.update', $policy) }}">@csrf @method('PUT')
                     <label>Name<input name="name" required value="{{ $policy->name }}"></label>
-                    <label>Audience <span class="optional">decides which audience lists apply</span><select name="audience">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}" @selected($policy->audience->value === $value)>{{ $label }}</option>@endforeach</select></label>
+                    <label>Network type <span class="optional">decides which shared lists apply</span><select name="audience">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}" @selected($policy->audience === $value)>{{ $label }}</option>@endforeach</select></label>
                     <label>Network probe<select name="network_profile_id"><option value="">None</option>@foreach($profiles as $profile)<option value="{{ $profile->id }}" @selected($policy->network_profile_id === $profile->id)>{{ $profile->name }}</option>@endforeach</select></label>
                     <label>Controller content filter <span class="optional">name or ID</span><input name="provider_reference" value="{{ $policy->provider_reference }}"></label>
                     <label>Description<input name="description" value="{{ $policy->description }}"></label>

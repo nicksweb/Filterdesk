@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
 use Illuminate\Database\Eloquent\Builder;
@@ -25,7 +24,6 @@ class PolicyList extends Model
         return [
             'kind' => ListKind::class,
             'scope' => ListScope::class,
-            'audience' => Audience::class,
             'is_default' => 'boolean',
         ];
     }
@@ -83,11 +81,22 @@ class PolicyList extends Model
         };
     }
 
+    /** The network type this belongs to (its shared allow and block lists). */
+    public function networkType(): BelongsTo
+    {
+        return $this->belongsTo(NetworkType::class, 'audience', 'key');
+    }
+
+    public function typeLabel(): string
+    {
+        return NetworkType::labelFor($this->audience);
+    }
+
     public function scopeLabel(): string
     {
         return match ($this->scope) {
             ListScope::Site => 'Site-wide',
-            ListScope::Audience => $this->audience?->label() ?? 'Audience',
+            ListScope::Audience => NetworkType::labelFor($this->audience),
             ListScope::Policy => $this->filterPolicy?->name ?? 'Single policy',
         };
     }

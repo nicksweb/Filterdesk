@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
 use App\Models\AuditEvent;
@@ -58,8 +57,8 @@ class ControllerIntegrationTest extends TestCase
     {
         $this->useUniFi();
         $admin = User::factory()->admin()->create();
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'allowed.example.org', ['source' => 'manual']);
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'allowed.example.org', ['source' => 'manual']);
         $this->engine->upsertEntry($this->engine->defaultAllowList(null), 'wanted.example.org', ['source' => 'manual']);
 
         $this->actingAs($admin)->get(route('admin.policy.networks.index'))
@@ -85,11 +84,11 @@ class ControllerIntegrationTest extends TestCase
     {
         $this->useUniFi();
         $it = User::factory()->it()->create();
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $student->update(['provider_reference' => 'cf-students']);
 
         $this->actingAs($it)->post(route('admin.policy.policies.pull', $student))->assertSessionHas('success');
-        $studentBlock = PolicyList::query()->where('scope', ListScope::Audience)->where('audience', Audience::Student)->where('kind', ListKind::Block)->firstOrFail();
+        $studentBlock = PolicyList::query()->where('scope', ListScope::Audience)->where('audience', 'student')->where('kind', ListKind::Block)->firstOrFail();
 
         $this->actingAs($it)->post(route('admin.policy.policies.adopt', $student), [
             'kind' => 'block', 'domains' => ['games.example.org', 'not-in-controller.example.org'], 'policy_list_id' => $studentBlock->id,
@@ -98,7 +97,7 @@ class ControllerIntegrationTest extends TestCase
         $this->assertSame(['games.example.org'], $studentBlock->entries()->pluck('domain')->all());
         $this->assertSame(['wanted.example.org'], $this->engine->reconcile($student->refresh())['block_review']);
 
-        $staffAllow = $this->engine->defaultAllowList(Audience::Staff);
+        $staffAllow = $this->engine->defaultAllowList('staff');
         $this->actingAs($it)->post(route('admin.policy.policies.adopt', $student), [
             'kind' => 'allow', 'domains' => ['handmade.example.org'], 'policy_list_id' => $staffAllow->id,
         ])->assertSessionHasErrors('policy_list_id');
@@ -107,7 +106,7 @@ class ControllerIntegrationTest extends TestCase
     public function test_only_admins_change_the_network_mapping(): void
     {
         $it = User::factory()->it()->create();
-        $staff = FilterPolicy::query()->where('audience', Audience::Staff)->firstOrFail();
+        $staff = FilterPolicy::query()->where('audience', 'staff')->firstOrFail();
         NetworkAssignment::query()->create(['provider_network_id' => 'sim-guest', 'name' => 'Guest Wi-Fi', 'vlan' => 80]);
 
         $this->actingAs($it)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Guest Wi-Fi');
@@ -121,13 +120,13 @@ class ControllerIntegrationTest extends TestCase
     public function test_adding_an_already_allowed_hostname_says_where_it_is(): void
     {
         $admin = User::factory()->admin()->create();
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'school.example.org', ['source' => 'manual']);
-        FilterPolicy::query()->where('audience', Audience::Student)->update(['current_blocklist' => ['school.example.org'], 'snapshot_at' => now()]);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'school.example.org', ['source' => 'manual']);
+        FilterPolicy::query()->where('audience', 'student')->update(['current_blocklist' => ['school.example.org'], 'snapshot_at' => now()]);
         $siteAllow = $this->engine->defaultAllowList(null);
 
         $this->actingAs($admin)->post(route('admin.policy.entries.store'), ['policy_list_id' => $siteAllow->id, 'domains' => 'school.example.org'])
             ->assertRedirect(route('admin.policy.lists.show', $siteAllow))
-            ->assertSessionHas('success', fn (string $message) => str_contains($message, 'also in Student allow') && str_contains($message, 'blocks school.example.org'));
+            ->assertSessionHas('success', fn (string $message) => str_contains($message, 'also in Students allow') && str_contains($message, 'blocks school.example.org'));
     }
 
     public function test_scanner_lists_page_and_certificate_hosts_and_adds_the_selection(): void

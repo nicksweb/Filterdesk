@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\AccessScope;
 use App\Enums\RequestStatus;
+use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Domains\DomainNormalizer;
@@ -14,6 +14,7 @@ use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\InvalidRequestTransition;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
+use App\Support\Reach;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -89,6 +90,7 @@ class WebsiteRequestController extends Controller
             'categories' => $settings->get('approval.categories', ['Teaching and learning', 'Research', 'Professional development', 'Administration', 'Other']),
             'prefillDomains' => $prefillDomains,
             'defaultTemporaryDays' => (int) $settings->get('approval.default_temporary_days', 30),
+            'networkTypes' => NetworkType::query()->where('requestable', true)->ordered()->get(),
         ]);
     }
 
@@ -101,7 +103,9 @@ class WebsiteRequestController extends Controller
         $validated = $request->validate([
             'request_type' => ['nullable', 'in:allow,block'],
             'domains' => ['required', 'string', 'max:4000'],
-            'access_scope' => ['required', Rule::in(array_map(fn (AccessScope $scope) => $scope->value, AccessScope::requestable($block)))],
+            'network_types' => ['required_without:access_scope', 'array', 'min:1'],
+            'network_types.*' => ['string', Rule::exists('network_types', 'key')->where('requestable', true)],
+            'access_scope' => ['nullable', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100', ...($categories ? [Rule::in($categories)] : [])],
             'use_case' => ['required', 'string', 'min:20', 'max:5000'],
             'standards_confirmed' => ['accepted'],
@@ -109,6 +113,13 @@ class WebsiteRequestController extends Controller
             'requested_from' => ['nullable', 'date'],
             'requested_until' => ['nullable', 'required_if:access_duration,temporary', 'date'],
         ]);
+
+        // network_types[] from the form; access_scope ("staff,student") from older links and API clients.
+        $scope = Reach::tryFrom(isset($validated['network_types']) ? implode(',', $validated['network_types']) : ($validated['access_scope'] ?? null));
+        $requestable = NetworkType::query()->where('requestable', true)->pluck('key')->all();
+        if (! $scope || $scope->siteWide || array_diff($scope->types, $requestable) !== []) {
+            throw ValidationException::withMessages(['network_types' => 'Choose the networks this request is for.']);
+        }
 
         $temporary = $validated['access_duration'] === 'temporary';
         $from = $temporary ? $settings->parseLocal($validated['requested_from'] ?? null) : null;
@@ -123,14 +134,16 @@ class WebsiteRequestController extends Controller
         $websiteRequest = $workflow->submit($request->user(), [
             'request_type' => $block ? 'block' : 'allow',
             'domains' => $normalizer->many($validated['domains']),
-            'access_scope' => AccessScope::from($validated['access_scope']),
+            'access_scope' => $scope,
             'category' => $validated['category'],
             'use_case' => $validated['use_case'],
             'requested_from' => $from,
             'requested_until' => $until,
         ]);
 
-        $automaticallyApproved = ! $block && $websiteRequest->access_scope === AccessScope::Staff
+        // Auto-approval applies when every chosen network type allows it (by default only Staff).
+        $autoTypes = NetworkType::query()->where('auto_approve', true)->pluck('key')->all();
+        $automaticallyApproved = ! $block && array_diff($scope->types, $autoTypes) === []
             && (bool) $settings->get('approval.auto_approve_staff', false);
 
         if ($automaticallyApproved) {

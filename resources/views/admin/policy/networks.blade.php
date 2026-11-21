@@ -41,7 +41,7 @@
                         @if($filter['policy']?->isLayer())
                             <p>Layer of <a href="{{ route('admin.policy.policies.show', $filter['policy']->layerOf) }}"><strong>{{ $filter['policy']->layerOf->name }}</strong></a>: carries its blocklist feeds. <a href="{{ route('admin.policy.policies.show', $filter['policy']) }}">Open the layer</a></p>
                         @elseif($filter['policy'])
-                            <p>Managed by <a href="{{ route('admin.policy.policies.show', $filter['policy']) }}"><strong>{{ $filter['policy']->name }}</strong></a> · {{ $filter['policy']->audience->label() }} filtering</p>
+                            <p>Managed by <a href="{{ route('admin.policy.policies.show', $filter['policy']) }}"><strong>{{ $filter['policy']->name }}</strong></a> · {{ $filter['policy']->typeLabel() }} filtering</p>
                             @if($filter['policy']->sync_checked_at)<p class="hint">{{ $filter['policy']->sync_details['summary'] ?? '' }} Checked {{ $filter['policy']->sync_checked_at->diffForHumans() }}.</p>@endif
                         @endif
                         @if($isAdmin && !$filter['policy']?->isLayer())
@@ -50,11 +50,11 @@
                                 <label>{{ $filter['policy'] ? 'Link to a different policy' : 'Link to policy' }}
                                     <select name="filter_policy_id">
                                         <option value="">Create a new policy…</option>
-                                        @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($filter['policy']?->is($policy))>{{ $policy->name }} ({{ $policy->audience->label() }})</option>@endforeach
+                                        @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($filter['policy']?->is($policy))>{{ $policy->name }} ({{ $policy->typeLabel() }})</option>@endforeach
                                     </select>
                                 </label>
-                                <label>New policy audience <span class="optional">only when creating</span>
-                                    <select name="audience">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select>
+                                <label>New policy's network type <span class="optional">only when creating</span>
+                                    <select name="audience">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select>
                                 </label>
                                 <button class="button small secondary">Save link and fetch lists</button>
                             </form>
@@ -66,7 +66,7 @@
     @endif
 
     <section class="panel table-wrap policy-section">
-        <div class="panel-heading"><div><h2>Networks (VLANs)</h2><p>Choose the filter policy each network should have. Its audience sets the filtering level, and it inherits that audience's lists plus every site-wide list.</p></div></div>
+        <div class="panel-heading"><div><h2>Networks (VLANs)</h2><p>Choose the filter policy each network should have. Its network type sets the filtering level: it inherits that type's lists plus every site-wide list.</p></div></div>
         @if($networks->isEmpty() && $stored->isEmpty())
             <p class="hint">No networks are known yet. Link a network provider that can list networks, then refresh.</p>
         @else
@@ -83,10 +83,10 @@
                                     @if($isAdmin)
                                         <select name="assignments[{{ $network['id'] }}]" aria-label="Policy for {{ $network['name'] }}">
                                             <option value="">Not managed</option>
-                                            @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($network['policy']?->is($policy))>{{ $policy->name }} · {{ $policy->audience->label() }}</option>@endforeach
+                                            @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($network['policy']?->is($policy))>{{ $policy->name }} · {{ $policy->typeLabel() }}</option>@endforeach
                                         </select>
                                     @else
-                                        {{ $network['policy'] ? $network['policy']->name.' · '.$network['policy']->audience->label() : 'Not managed' }}
+                                        {{ $network['policy'] ? $network['policy']->name.' · '.$network['policy']->typeLabel() : 'Not managed' }}
                                     @endif
                                 </td>
                                 <td>

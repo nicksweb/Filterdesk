@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
@@ -30,7 +29,7 @@ class PolicyLayerTest extends TestCase
         Notification::fake();
         Cache::flush();
         $this->engine = $this->installWithPolicies('active');
-        $this->students = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $this->students = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $this->students->update(['provider_reference' => 'sim-filter-students']);
         NetworkAssignment::query()->create(['provider_network_id' => 'sim-student', 'name' => 'Students', 'vlan' => 20, 'filter_policy_id' => $this->students->id]);
 
@@ -38,7 +37,7 @@ class PolicyLayerTest extends TestCase
         $this->engine->upsertEntry($siteBlock, 'tracker.example.net', ['source' => 'feed']);
         $this->engine->upsertEntry($siteBlock, 'approved.example.net', ['source' => 'feed']);
         $this->engine->upsertEntry($siteBlock, 'manual-block.example.org', ['source' => 'manual']);
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'approved.example.net', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'approved.example.net', ['source' => 'manual']);
     }
 
     /** @return array<string, mixed> */
@@ -66,7 +65,7 @@ class PolicyLayerTest extends TestCase
 
         $this->assertSame(['sim-student'], $created['network_ids']);
         $this->assertSame(['ADULT'], $created['categories'], 'The layer copies the parent categories');
-        $this->assertSame(Audience::Student, $layer->audience);
+        $this->assertSame('student', $layer->audience);
         $this->assertSame(['tracker.example.net'], $created['block'], 'Feed blocks move to the layer; an allowed host is left out');
         $this->assertSame([], $created['allow']);
         $this->assertSame(['manual-block.example.org'], $this->filter('sim-filter-students')['block']);
@@ -85,7 +84,7 @@ class PolicyLayerTest extends TestCase
     {
         $layer = $this->createLayer();
         IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['auto_push' => true, 'controller_authoritative' => true]]);
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'tracker.example.net', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'tracker.example.net', ['source' => 'manual']);
 
         $this->artisan('policy:push')->assertSuccessful();
         $this->assertSame([], $this->filter($layer->provider_reference)['block']);

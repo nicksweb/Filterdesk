@@ -2,7 +2,6 @@
 
 namespace Tests\Concerns;
 
-use App\Enums\AccessScope;
 use App\Enums\RequestStatus;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkProfile;
@@ -10,6 +9,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Policy\PolicyEngine;
+use App\Support\Reach;
 
 trait BuildsPolicies
 {
@@ -27,8 +27,9 @@ trait BuildsPolicies
     }
 
     /** @param list<string> $domains */
-    protected function pendingRequest(array $domains = ['example.com'], AccessScope $scope = AccessScope::StaffAndStudents, array $attributes = []): WebsiteRequest
+    protected function pendingRequest(array $domains = ['example.com'], ?Reach $scope = null, array $attributes = []): WebsiteRequest
     {
+        $scope ??= Reach::types('staff', 'student');
         static $sequence = 0;
         $sequence++;
 

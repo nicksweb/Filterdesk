@@ -2,8 +2,9 @@
 
 namespace App\Models;
 
-use App\Enums\AccessScope;
+use App\Casts\AsReach;
 use App\Enums\RequestStatus;
+use App\Support\Reach;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -25,9 +26,9 @@ class WebsiteRequest extends Model
             'provider_state' => 'array',
             'approved_domains' => 'array',
             'related_domains' => 'array',
-            'applied_scope' => AccessScope::class,
+            'applied_scope' => AsReach::class,
             'assigned_at' => 'datetime',
-            'access_scope' => AccessScope::class,
+            'access_scope' => AsReach::class,
             'status' => RequestStatus::class,
             'standards_confirmed' => 'boolean',
             'requested_from' => 'datetime',
@@ -71,7 +72,7 @@ class WebsiteRequest extends Model
         return $this->approved_domains ?: $this->domains;
     }
 
-    public function effectiveScope(): AccessScope
+    public function effectiveScope(): Reach
     {
         return $this->applied_scope ?? $this->access_scope;
     }

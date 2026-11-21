@@ -15,7 +15,7 @@
             <section class="panel">
                 <h2>Request details</h2>
                 <dl class="details">
-                    <div><dt>{{ $websiteRequest->isBlock() ? 'Block for' : 'Requested access' }}</dt><dd>{{ $websiteRequest->access_scope->label() }}</dd></div>
+                    <div><dt>{{ $websiteRequest->isBlock() ? 'Block for' : 'Requested access' }}</dt><dd>{{ $websiteRequest->access_scope?->label() }}</dd></div>
                     <div><dt>Category</dt><dd>{{ $websiteRequest->category }}</dd></div>
                     <div><dt>Assigned to</dt><dd>{{ $websiteRequest->assignedTo?->name ?? 'Unassigned' }}</dd></div>
                     <div><dt>Requested period</dt><dd>@if($websiteRequest->requested_until){{ $websiteRequest->requested_from?->local()->format('j M Y g:i a') ?? 'As soon as approved' }} – {{ $websiteRequest->requested_until->local()->format('j M Y g:i a') }}@else Permanent @endif</dd></div>
@@ -36,7 +36,7 @@
 
             @if($isIt && $status->isOpen())
                 <section class="panel">
-                    <div class="panel-heading"><div><h2>{{ $websiteRequest->isBlock() ? 'Approve block' : 'Approve' }}</h2><p>{{ $websiteRequest->isBlock() ? 'Choose the hostnames to block. Third-party hosts are not selected because other sites share them. A block for an audience overrides an older allow at the same level and any site-wide allow.' : 'Choose the hostnames to allow. DNS filtering only sees hostnames, so include the bare domain and every subdomain the site needs.' }}</p></div></div>
+                    <div class="panel-heading"><div><h2>{{ $websiteRequest->isBlock() ? 'Approve block' : 'Approve' }}</h2><p>{{ $websiteRequest->isBlock() ? 'Choose the hostnames to block. Third-party hosts are not selected because other sites share them. A block for a network type overrides an older allow at the same level and any site-wide allow.' : 'Choose the hostnames to allow. DNS filtering only sees hostnames, so include the bare domain and every subdomain the site needs.' }}</p></div></div>
                     <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}" class="approve-form">
                         @csrf
                         <input type="hidden" name="action" value="approve">
@@ -62,13 +62,14 @@
                             <p class="hint">Pre-filled with what was requested; change it to approve a different period. Timed access is put in place {{ $margins['lead'] }} min before the start and taken out {{ $margins['lag'] }} min after the end.</p>
                         </fieldset>
                         <div class="fields two">
-                            <label>Apply to
-                                <select name="scope">
-                                    @foreach(\App\Enums\AccessScope::cases() as $scope)
-                                        <option value="{{ $scope->value }}" @selected(old('scope', $websiteRequest->access_scope->value) === $scope->value)>{{ $scope->label() }}{{ $scope === $websiteRequest->access_scope ? ' (requested)' : '' }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
+                            @php($requestedScope = $websiteRequest->access_scope)
+                            @php($chosenScope = old('scope', $requestedScope?->siteWide ? ['site'] : ($requestedScope?->types ?? [])))
+                            <fieldset class="scope-choice"><legend>Apply to</legend>
+                                @foreach(\App\Models\NetworkType::query()->ordered()->get() as $type)
+                                    <label class="choice compact"><input type="checkbox" name="scope[]" value="{{ $type->key }}" @checked(in_array($type->key, (array) $chosenScope, true))><span>{{ $type->name }}{{ $requestedScope?->includes($type->key) && ! $requestedScope->siteWide ? ' (requested)' : '' }}</span></label>
+                                @endforeach
+                                <label class="choice compact"><input type="checkbox" name="scope[]" value="site" @checked(in_array('site', (array) $chosenScope, true))><span>Site-wide (every network){{ $requestedScope?->siteWide ? ' (requested)' : '' }}</span></label>
+                            </fieldset>
                             <label>Note to requester <span class="optional">optional</span><input name="message" value="{{ old('action') === 'approve' ? old('message') : '' }}"></label>
                         </div>
                         <ul class="rule-notes">@foreach($rules->notes as $note)<li>{{ $note }}</li>@endforeach</ul>
@@ -171,7 +172,7 @@
                         @else
                             <p class="section-copy">Add these hostnames to the content-filter {{ $websiteRequest->isBlock() ? 'block' : 'allow' }} list of each policy below, then mark the request applied.</p>
                         @endif
-                        <ul class="policy-targets">@foreach($policies as $target)<li><a href="{{ route('admin.policy.policies.show', $target) }}">{{ $target->name }}</a> <small>{{ $target->audience->label() }}{{ $target->provider_reference ? ' · '.$target->provider_reference : '' }}</small></li>@endforeach</ul>
+                        <ul class="policy-targets">@foreach($policies as $target)<li><a href="{{ route('admin.policy.policies.show', $target) }}">{{ $target->name }}</a> <small>{{ $target->typeLabel() }}{{ $target->provider_reference ? ' · '.$target->provider_reference : '' }}</small></li>@endforeach</ul>
                         <textarea class="mono" rows="4" readonly id="apply-domains">{{ implode("\n", $websiteRequest->effectiveDomains()) }}</textarea>
                         <button type="button" class="button small secondary" data-copy="#apply-domains">Copy hostnames</button>
                         <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}">@csrf

@@ -2,7 +2,6 @@
 
 namespace App\Services\Policy;
 
-use App\Enums\Audience;
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
@@ -184,7 +183,7 @@ class ProbePlanner
             'key' => $key,
             'label' => $pinnedProfile?->name ?? ($policy ? $policy->name.' network' : $network->name.($network->vlan ? " (VLAN {$network->vlan})" : '')),
             'pinned' => $pinnedProfile !== null,
-            'audience' => $owner?->audience ?? Audience::Guest,
+            'audience' => $owner?->audience ?? 'other',
             'service' => $service,
             'built_in' => $builtIn !== null,
             'profile' => $pinnedProfile ?? NetworkProfile::query()->where('key', $key)->first(),

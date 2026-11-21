@@ -153,18 +153,18 @@
 
     @elseif($section === 'profiles')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'profiles') }}">@csrf @method('PUT')
-            <p class="section-copy">Each profile is a network path checked by its own probe container. The audience links the profile to filter policies and lists. <em>Probe address</em> is what the container reports about itself: the address and MAC on its VLAN, which you can name or reserve in UniFi. <a href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Refresh</a></p>
+            <p class="section-copy">Each profile is a network path checked by its own probe container. The network type links the profile to filter policies and lists. <em>Probe address</em> is what the container reports about itself: the address and MAC on its VLAN, which you can name or reserve in UniFi. <a href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Refresh</a></p>
             @php($sharedGateways = collect($identities)->filter(fn ($identity, $id) => ($identity['ok'] ?? false) && $profiles->firstWhere('id', $id)?->enabled)->groupBy(fn ($identity) => $identity['gateway'] ?? '?')->filter(fn ($group) => $group->count() > 1))
             @if($sharedGateways->isNotEmpty())
                 <div class="alert error"><strong>These probes are not on separate networks.</strong> {{ $sharedGateways->map(fn ($group, $gateway) => $group->count().' probes share gateway '.$gateway)->join('; ') }}, so their checks all see the same filtering. Put each probe on its VLAN under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Probe containers</a>.</div>
             @endif
             <div class="table-wrap"><table>
-                <thead><tr><th>Name</th><th>Audience</th><th>Probe URL</th><th>UniFi network ID</th><th>Probe address</th><th>Order</th><th>On</th></tr></thead>
+                <thead><tr><th>Name</th><th>Network type</th><th>Probe URL</th><th>UniFi network ID</th><th>Probe address</th><th>Order</th><th>On</th></tr></thead>
                 <tbody>
                     @foreach($profiles as $profile)
                         <tr>
                             <td><input name="profiles[{{ $profile->id }}][name]" value="{{ $profile->name }}" required><small><code>{{ $profile->key }}</code></small></td>
-                            <td><select name="profiles[{{ $profile->id }}][audience]">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}" @selected($profile->audience?->value === $value)>{{ $label }}</option>@endforeach</select></td>
+                            <td><select name="profiles[{{ $profile->id }}][audience]">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}" @selected($profile->audience === $value)>{{ $label }}</option>@endforeach</select></td>
                             <td><input name="profiles[{{ $profile->id }}][probe_url]" value="{{ $profile->probe_url }}" required></td>
                             <td><input name="profiles[{{ $profile->id }}][unifi_network_id]" value="{{ $profile->unifi_network_id }}"></td>
                             <td class="probe-identity">
@@ -192,16 +192,46 @@
             <div class="fields three">
                 <label>Name<input name="new[name]" placeholder="Guest Wi-Fi"></label>
                 <label>Key<input name="new[key]" placeholder="guest"></label>
-                <label>Audience<select name="new[audience]">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
+                <label>Network type<select name="new[audience]">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
             </div>
             <label>Probe URL<input name="new[probe_url]" placeholder="http://probe-guest:3000"></label>
             <p class="hint">A new probe needs its own container on that network's VLAN. Plan it under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Extra probes</a>, which generates the service and creates the profile.</p>
             <div class="form-actions"><button class="button primary">Save profiles</button></div>
         </form>
 
+    @elseif($section === 'types')
+        <form class="panel" method="post" action="{{ route('admin.settings.update', 'types') }}">@csrf @method('PUT')
+            <p class="section-copy">A network type is a kind of network the tool manages, such as Staff, Students, CCTV or Exam rooms. Each type has its own shared allow and block lists; every filter policy of that type inherits them, along with the site-wide lists and the policy's own. Requests choose which types they are for. Names can change freely; the key stays the same.</p>
+            @error('types')<div class="alert error">{{ $message }}</div>@enderror
+            <div class="table-wrap"><table>
+                <thead><tr><th>Name</th><th>Description</th><th>Requestable</th><th>Auto-approve</th><th>Policies</th><th>Order</th><th>Delete</th></tr></thead>
+                <tbody>
+                    @foreach($networkTypes as $type)
+                        <tr>
+                            <td><input name="types[{{ $type->id }}][name]" value="{{ old("types.{$type->id}.name", $type->name) }}" required maxlength="80"><small><code>{{ $type->key }}</code></small></td>
+                            <td><input name="types[{{ $type->id }}][description]" value="{{ old("types.{$type->id}.description", $type->description) }}" maxlength="255"></td>
+                            <td><input type="hidden" name="types[{{ $type->id }}][requestable]" value="0"><input type="checkbox" name="types[{{ $type->id }}][requestable]" value="1" @checked($type->requestable) aria-label="{{ $type->name }} can be chosen on requests"></td>
+                            <td><input type="hidden" name="types[{{ $type->id }}][auto_approve]" value="0"><input type="checkbox" name="types[{{ $type->id }}][auto_approve]" value="1" @checked($type->auto_approve) aria-label="Auto-approve requests only for {{ $type->name }}"></td>
+                            <td>{{ $type->filter_policies_count }}</td>
+                            <td><input type="number" class="narrow" name="types[{{ $type->id }}][sort_order]" value="{{ $type->sort_order }}"></td>
+                            <td>@if($type->inUse())<span class="hint">In use</span>@else<input type="hidden" name="types[{{ $type->id }}][delete]" value="0"><input type="checkbox" name="types[{{ $type->id }}][delete]" value="1" aria-label="Delete {{ $type->name }}">@endif @error("types.{$type->id}.delete")<small class="field-error">{{ $message }}</small>@enderror</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table></div>
+            <p class="hint"><strong>Requestable</strong>: shown as a choice when someone requests access or a block. <strong>Auto-approve</strong>: with <em>Auto-approve</em> on under Approval policy, an access request is approved straight away when every network it is for has this ticked.</p>
+            <h3>Add a network type</h3>
+            <div class="fields two">
+                <label>Name<input name="new[name]" maxlength="80" placeholder="Exam rooms"></label>
+                <label>Description <span class="optional">optional</span><input name="new[description]" maxlength="255" placeholder="Locked down during exams"></label>
+            </div>
+            <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policy lists) or a probe (Network profiles).</p>
+            <div class="form-actions"><button class="button primary">Save network types</button></div>
+        </form>
+
     @elseif($section === 'approval')
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'approval') }}">@csrf @method('PUT')
-            <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked($settings->get('approval.auto_approve_staff', false))><span><strong>Auto-approve staff-only requests</strong><small>The domains go straight into the Staff allow list. IT still applies them in the controller unless the provider can do it automatically.</small></span></label>
+            <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked($settings->get('approval.auto_approve_staff', false))><span><strong>Auto-approve requests for trusted networks</strong><small>Access requests whose networks are all marked <em>Auto-approve</em> under Network types (by default Staff) are approved straight away. IT still applies them in the controller unless the provider can do it automatically.</small></span></label>
             <label class="choice"><input type="hidden" name="students_can_request" value="0"><input type="checkbox" name="students_can_request" value="1" @checked($settings->get('approval.students_can_request', false))><span><strong>Students may submit requests</strong><small>Students can always run website checks.</small></span></label>
             <label>Default temporary access (days)<input name="default_temporary_days" type="number" min="1" max="365" value="{{ $settings->get('approval.default_temporary_days', 30) }}"></label>
             <div class="fields two">

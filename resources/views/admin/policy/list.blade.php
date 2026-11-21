@@ -42,7 +42,7 @@
             @if($list->feed)
             <section class="panel policy-section">
                 <h2>Filled from a blocklist</h2>
-                <p class="hint">{{ $list->feed->name }} replaces this list's entries every {{ $list->feed->refresh_hours }} hour(s). To exempt a site, add it to an allow list for an audience or policy, which overrides a site-wide list. Manage the feed under <a href="{{ route('admin.policy.blocklists.index') }}">Blocklists &amp; firewall</a>.</p>
+                <p class="hint">{{ $list->feed->name }} replaces this list's entries every {{ $list->feed->refresh_hours }} hour(s). To exempt a site, add it to an allow list for a network type or policy, which overrides a site-wide list. Manage the feed under <a href="{{ route('admin.policy.blocklists.index') }}">Blocklists &amp; firewall</a>.</p>
             </section>
             @else
             <section class="panel policy-section">
@@ -80,10 +80,10 @@
                             <label>Type<select name="kind">@foreach(\App\Enums\ListKind::cases() as $kind)<option value="{{ $kind->value }}" @selected($list->kind === $kind)>{{ $kind->label() }}</option>@endforeach</select></label>
                             <label>Applies to<select name="scope" data-scope-select>@foreach(\App\Enums\ListScope::cases() as $scope)<option value="{{ $scope->value }}" @selected($list->scope === $scope)>{{ $scope->label() }}</option>@endforeach</select></label>
                         </div>
-                        <label data-scope-field="audience">Audience<select name="audience">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}" @selected($list->audience?->value === $value)>{{ $label }}</option>@endforeach</select></label>
+                        <label data-scope-field="audience">Network type<select name="audience">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}" @selected($list->audience === $value)>{{ $label }}</option>@endforeach</select></label>
                         <label data-scope-field="policy">Policy<select name="filter_policy_id">@foreach($allPolicies as $policy)<option value="{{ $policy->id }}" @selected($list->filter_policy_id === $policy->id)>{{ $policy->name }}</option>@endforeach</select></label>
                         <label>Description<input name="description" value="{{ $list->description }}"></label>
-                        <label class="choice compact"><input type="hidden" name="is_default" value="0"><input type="checkbox" name="is_default" value="1" @checked($list->is_default)><span><strong>Default list</strong><small>Approved requests for this audience are added to the default allow list.</small></span></label>
+                        <label class="choice compact"><input type="hidden" name="is_default" value="0"><input type="checkbox" name="is_default" value="1" @checked($list->is_default)><span><strong>Default list</strong><small>Approved requests for this network type are added to the default allow list.</small></span></label>
                         <div class="form-actions"><button class="button primary">Save</button></div>
                     </form>
                     <form method="post" action="{{ route('admin.policy.lists.destroy', $list) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Delete {{ $list->name }} and all of its entries?">Delete list</button></form>

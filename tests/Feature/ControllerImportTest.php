@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\Audience;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
@@ -48,8 +47,8 @@ class ControllerImportTest extends TestCase
 
         $this->actingAs($admin)->post(route('admin.policy.setup.import-all'))->assertRedirect()->assertSessionHas('success');
 
-        $students = FilterPolicy::query()->where('audience', Audience::Student)->sole();
-        $staff = FilterPolicy::query()->main()->where('audience', Audience::Staff)->sole();
+        $students = FilterPolicy::query()->where('audience', 'student')->sole();
+        $staff = FilterPolicy::query()->main()->where('audience', 'staff')->sole();
         $this->assertSame('sim-filter-students', $students->provider_reference, 'The default Students policy is reused, not duplicated');
         $this->assertSame('sim-filter-staff', $staff->provider_reference);
         $this->assertSame(3, FilterPolicy::query()->count());
@@ -96,7 +95,7 @@ class ControllerImportTest extends TestCase
         $guest = NetworkProfile::query()->where('key', 'net_guest_wi_fi_80')->sole();
         $this->assertFalse($guest->enabled);
         $this->assertSame('http://probe-net-guest-wi-fi-80:3000', $guest->probe_url);
-        $this->assertSame(Audience::Guest, $guest->audience);
+        $this->assertSame('other', $guest->audience, 'An unmapped network has no type of its own');
     }
 
     public function test_saved_trunk_tags_each_probe_and_an_override_or_extra_network_is_kept(): void

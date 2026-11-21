@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\Audience;
 use App\Enums\ListScope;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
@@ -37,7 +36,7 @@ class ControllerSetupTest extends TestCase
     public function test_guided_setup_creates_policies_from_controller_filters_with_their_own_lists_and_networks(): void
     {
         $admin = User::factory()->admin()->create();
-        $staff = FilterPolicy::query()->where('audience', Audience::Staff)->firstOrFail();
+        $staff = FilterPolicy::query()->where('audience', 'staff')->firstOrFail();
 
         $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('Students')->assertSee('VLAN 20', false);
 
@@ -47,7 +46,7 @@ class ControllerSetupTest extends TestCase
         ]])->assertRedirect()->assertSessionHas('success');
 
         $created = FilterPolicy::query()->where('provider_reference', 'sim-filter-students')->firstOrFail();
-        $this->assertSame(Audience::Student, $created->audience);
+        $this->assertSame('student', $created->audience);
         $this->assertSame($created->id, NetworkAssignment::query()->where('provider_network_id', 'sim-student')->value('filter_policy_id'));
         $this->assertSame('sim-filter-staff', $staff->refresh()->provider_reference);
 
@@ -61,8 +60,8 @@ class ControllerSetupTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin)->post(route('admin.policy.setup.store'), ['filters' => [
-            'sim-filter-students' => ['action' => 'link', 'policy_id' => FilterPolicy::query()->where('audience', Audience::Student)->value('id')],
-            'sim-filter-staff' => ['action' => 'link', 'policy_id' => FilterPolicy::query()->where('audience', Audience::Staff)->value('id')],
+            'sim-filter-students' => ['action' => 'link', 'policy_id' => FilterPolicy::query()->where('audience', 'student')->value('id')],
+            'sim-filter-staff' => ['action' => 'link', 'policy_id' => FilterPolicy::query()->where('audience', 'staff')->value('id')],
         ]]);
 
         $this->actingAs($admin)->get(route('admin.policy.setup.show', ['parent' => 'eno1']))->assertOk()
@@ -91,7 +90,7 @@ class ControllerSetupTest extends TestCase
         $filters[1]['network_ids'][] = 'sim-student';
         Cache::forever('mock.content_filters', $filters);
 
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $student->update(['provider_reference' => 'sim-filter-students']);
         app(ControllerSync::class)->state(true);
         NetworkAssignment::query()->where('provider_network_id', 'sim-student')->update(['filter_policy_id' => $student->id]);
@@ -108,7 +107,7 @@ class ControllerSetupTest extends TestCase
     {
         IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['controller_authoritative' => false]]);
         $admin = User::factory()->admin()->create();
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $student->update(['provider_reference' => 'sim-filter-students']);
 
         $this->actingAs($admin)->get(route('admin.policy.policies.show', $student))->assertOk()->assertSee('Content categories')->assertSee('Social networks');

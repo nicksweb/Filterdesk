@@ -2,7 +2,6 @@
 
 namespace App\Services\Requests;
 
-use App\Enums\AccessScope;
 use App\Enums\EntrySource;
 use App\Enums\RequestStatus;
 use App\Models\RequestEvent;
@@ -15,6 +14,7 @@ use App\Services\Network\UnsupportedProviderOperation;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Website\WebsiteChecker;
+use App\Support\Reach;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -34,7 +34,7 @@ class RequestWorkflow
     ) {}
 
     /**
-     * @param  array{domains: list<string>, access_scope: AccessScope, category: string, use_case: string, requested_from: mixed, requested_until: mixed}  $attributes
+     * @param  array{domains: list<string>, access_scope: Reach, category: string, use_case: string, requested_from: mixed, requested_until: mixed}  $attributes
      */
     public function submit(User $requester, array $attributes): WebsiteRequest
     {
@@ -52,7 +52,7 @@ class RequestWorkflow
             return $websiteRequest;
         });
 
-        $this->audit->log('website_request.created', $websiteRequest, ['scope' => $websiteRequest->access_scope->value, 'domains' => $websiteRequest->domains]);
+        $this->audit->log('website_request.created', $websiteRequest, ['scope' => $websiteRequest->access_scope->value(), 'domains' => $websiteRequest->domains]);
         $this->notifier->submitted($websiteRequest);
         $this->notifier->received($websiteRequest);
 
@@ -65,7 +65,7 @@ class RequestWorkflow
      * @param  list<string>|null  $domains  Final hostname set; defaults to the requested domains.
      * @param  array{from: ?CarbonInterface, until: ?CarbonInterface}|null  $window  Access window chosen by IT; defaults to the requested one. A null "until" is permanent.
      */
-    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?AccessScope $scope = null, ?array $window = null): WebsiteRequest
+    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?Reach $scope = null, ?array $window = null): WebsiteRequest
     {
         $this->guard($websiteRequest, RequestStatus::open(), 'Only pending requests can be approved.');
         $domains = array_values(array_unique($domains ?: $websiteRequest->domains));
@@ -112,12 +112,12 @@ class RequestWorkflow
                 $message = 'Approved, but the network provider action failed. IT intervention is required.';
             }
 
-            $changed = $domains !== $websiteRequest->domains || $scope !== $websiteRequest->access_scope || $websiteRequest->windowChanged();
+            $changed = $domains !== $websiteRequest->domains || ! $scope->equals($websiteRequest->access_scope) || $websiteRequest->windowChanged();
             $windowNote = $websiteRequest->windowChanged() ? "\n\nAccess window set by IT: {$websiteRequest->windowLabel()}." : '';
             $this->event($websiteRequest, $actor, 'approved', trim($message.$windowNote.($note ? "\n\n{$note}" : '')), [
-                'domains' => $domains, 'scope' => $scope->value, 'adjusted' => $changed, 'window' => $websiteRequest->windowLabel(),
+                'domains' => $domains, 'scope' => $scope->value(), 'adjusted' => $changed, 'window' => $websiteRequest->windowLabel(),
             ]);
-            $this->audit->log('website_request.approved', $websiteRequest, ['result' => $websiteRequest->status->value, 'domains' => $domains, 'scope' => $scope->value]);
+            $this->audit->log('website_request.approved', $websiteRequest, ['result' => $websiteRequest->status->value, 'domains' => $domains, 'scope' => $scope->value()]);
 
             return $websiteRequest;
         });
@@ -169,7 +169,7 @@ class RequestWorkflow
         return $settled;
     }
 
-    private function pushAfter(WebsiteRequest $websiteRequest, ?User $actor, AccessScope $scope, string $trigger): void
+    private function pushAfter(WebsiteRequest $websiteRequest, ?User $actor, Reach $scope, string $trigger): void
     {
         try {
             $results = $this->pusher()->pushAll($actor, $trigger, $scope);

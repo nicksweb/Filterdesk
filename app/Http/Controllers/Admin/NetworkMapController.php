@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\Audience;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
@@ -77,7 +76,7 @@ class NetworkMapController extends Controller
         $validated = $request->validate([
             'filter_id' => ['required', 'string', 'max:190'],
             'filter_policy_id' => ['nullable', 'required_without:audience', 'integer', 'exists:filter_policies,id'],
-            'audience' => ['nullable', 'required_without:filter_policy_id', Rule::enum(Audience::class)],
+            'audience' => ['nullable', 'required_without:filter_policy_id', Rule::exists('network_types', 'key')],
         ]);
 
         $filter = collect($sync->state()['filters'])->firstWhere('id', $validated['filter_id']);
@@ -88,7 +87,7 @@ class NetworkMapController extends Controller
         if (filled($validated['filter_policy_id'] ?? null)) {
             $policy = FilterPolicy::query()->findOrFail($validated['filter_policy_id']);
         } else {
-            $audience = Audience::from($validated['audience']);
+            $audience = $validated['audience'];
             $policy = FilterPolicy::query()->create([
                 'name' => $filter['name'], 'slug' => $engine->uniqueSlug($filter['name']), 'audience' => $audience,
                 'description' => "Linked to the controller content filter {$filter['name']}.",

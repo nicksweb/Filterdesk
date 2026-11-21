@@ -32,7 +32,7 @@ When a hostname is in both an allow list and a block list that apply to a filter
 
 **Policy lists → Blocklists & firewall** (admins) subscribes to third-party lists, with presets for [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists) (DNS bypass, encrypted DNS, threat intelligence, social, gambling and more) or any https URL in hosts, adblock, wildcard or plain format.
 
-- **Domain lists** fill their own list (site-wide, an audience or one policy, allow or block), refreshed on a schedule, and reach content filters through the normal push. Content filters are not built for very large lists: start with the bypass list (about 17,000 domains) or smaller, and check the push reports no shortfall. Lists of 100,000+ domains belong on a DNS resolver.
+- **Domain lists** fill their own list (site-wide, a network type or one policy, allow or block), refreshed on a schedule, and reach content filters through the normal push. Content filters are not built for very large lists: start with the bypass list (about 17,000 domains) or smaller, and check the push reports no shortfall. Lists of 100,000+ domains belong on a DNS resolver.
 - **IP lists** (and your own addresses) keep a UniFi IP group (traffic matching list) up to date through the official API. Create the group from the app or link an existing one, then add a firewall rule in UniFi that blocks it, for example *Block · Internal → External · destination: the group*. The app shows which firewall rules use each group. It manages the group's contents, never the rules.
 
 `blocklists:refresh` runs hourly and downloads feeds that are due; with automatic pushing on, firewall IP groups are updated straight after.
@@ -41,7 +41,7 @@ When a hostname is in both an allow list and a block list that apply to a filter
 
 After the connection test succeeds (and on the dashboard until it is done), the app sends admins to **Policy lists → Guided setup**. **Bring everything in** reads every content filter and sets the tool up to match it in one step:
 
-- each filter becomes a policy with an audience guessed from its name and networks; the default *Students* and *Staff* policies are linked rather than duplicated;
+- each filter becomes a policy with a network type guessed from its name and networks; the default *Students* and *Staff* policies are linked rather than duplicated;
 - a filter that covers the same networks as exactly one other filter and is named like a blocklist (or has no allows and more blocks than the other) becomes that policy's [layer](#layers);
 - every allow and block entry is imported into lists owned by that policy (a layer takes blocks only), as imported entries, so a later allow by IT or an approval still wins over them;
 - networks are mapped to their policy, categories are kept as they are, and a disabled probe profile is prepared per policy.

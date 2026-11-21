@@ -2,10 +2,10 @@
 
 namespace App\Services\Policy;
 
-use App\Enums\Audience;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Models\FilterPolicy;
+use App\Models\NetworkType;
 use App\Models\PolicyEntry;
 use App\Models\User;
 use App\Services\AuditLogger;
@@ -55,22 +55,22 @@ class ControllerImporter
             $parent = $layers[$filter['id']] ?? null;
 
             if ($linked) {
-                $suggestions[$filter['id']] = ['action' => 'link', 'policy_id' => $linked->id, 'audience' => $linked->audience->value, 'import' => false, 'parent' => $linked->layerOf?->provider_reference];
+                $suggestions[$filter['id']] = ['action' => 'link', 'policy_id' => $linked->id, 'audience' => $linked->audience, 'import' => false, 'parent' => $linked->layerOf?->provider_reference];
 
                 continue;
             }
             if ($parent) {
-                $suggestions[$filter['id']] = ['action' => 'layer', 'policy_id' => null, 'audience' => $audience->value, 'import' => true, 'parent' => $parent];
+                $suggestions[$filter['id']] = ['action' => 'layer', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => $parent];
 
                 continue;
             }
 
-            // Reuse an unlinked policy with the same audience, such as the default Students and Staff.
+            // Reuse an unlinked policy with the same network type, such as the default Students and Staff.
             $spare = $policies->first(fn (FilterPolicy $policy) => ! $policy->isLayer() && blank($policy->provider_reference)
                 && $policy->audience === $audience && ! in_array($policy->id, array_column($suggestions, 'policy_id'), true));
             $suggestions[$filter['id']] = $spare
-                ? ['action' => 'link', 'policy_id' => $spare->id, 'audience' => $audience->value, 'import' => true, 'parent' => null]
-                : ['action' => 'create', 'policy_id' => null, 'audience' => $audience->value, 'import' => true, 'parent' => null];
+                ? ['action' => 'link', 'policy_id' => $spare->id, 'audience' => $audience, 'import' => true, 'parent' => null]
+                : ['action' => 'create', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => null];
         }
 
         return $suggestions;
@@ -113,7 +113,7 @@ class ControllerImporter
             } elseif ($action === 'link' && filled($choice['policy_id'] ?? null)) {
                 $policy = FilterPolicy::query()->findOrFail($choice['policy_id']);
             } else {
-                $audience = Audience::tryFrom((string) ($choice['audience'] ?? '')) ?? Audience::Other;
+                $audience = NetworkType::byKey((string) ($choice['audience'] ?? ''))?->key ?? 'other';
                 $policy = FilterPolicy::query()->create([
                     'name' => $filter['name'], 'slug' => $this->engine->uniqueSlug($filter['name']), 'audience' => $audience,
                     'description' => "Content filter {$filter['name']} in the controller.",
@@ -184,16 +184,26 @@ class ControllerImporter
         return $count;
     }
 
-    /** Guess an audience from the filter and network names. */
-    public function suggestAudience(string $name, Collection $networks): Audience
+    /**
+     * Guess a network type from the filter and network names: a type whose
+     * key or name appears in them, otherwise common words, otherwise "other".
+     */
+    public function suggestAudience(string $name, Collection $networks): string
     {
         $text = Str::lower($name.' '.$networks->pluck('name')->join(' '));
+        foreach (NetworkType::query()->ordered()->get() as $type) {
+            if ($type->key !== 'other' && (Str::contains($text, Str::lower($type->key)) || Str::contains($text, Str::lower(Str::singular($type->name))))) {
+                return $type->key;
+            }
+        }
 
-        return match (true) {
-            Str::contains($text, ['student', 'pupil', 'learner', 'junior', 'senior', 'boarding', 'byod']) => Audience::Student,
-            Str::contains($text, ['guest', 'visitor', 'public', 'untrusted']) => Audience::Guest,
-            Str::contains($text, ['staff', 'teacher', 'admin', 'corporate', 'employee', 'faculty']) => Audience::Staff,
-            default => Audience::Other,
+        $guess = match (true) {
+            Str::contains($text, ['student', 'pupil', 'learner', 'junior', 'senior', 'boarding', 'byod']) => 'student',
+            Str::contains($text, ['guest', 'visitor', 'public', 'untrusted']) => 'guest',
+            Str::contains($text, ['staff', 'teacher', 'admin', 'corporate', 'employee', 'faculty']) => 'staff',
+            default => 'other',
         };
+
+        return NetworkType::byKey($guess) ? $guess : 'other';
     }
 }

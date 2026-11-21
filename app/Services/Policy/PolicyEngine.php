@@ -2,20 +2,20 @@
 
 namespace App\Services\Policy;
 
-use App\Enums\AccessScope;
-use App\Enums\Audience;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
 use App\Enums\RequestStatus;
 use App\Models\FilterPolicy;
 use App\Models\NetworkProfile;
+use App\Models\NetworkType;
 use App\Models\PolicyEntry;
 use App\Models\PolicyList;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Network\DomainRules;
 use App\Services\Network\NetworkProviderManager;
+use App\Support\Reach;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -27,10 +27,10 @@ use Illuminate\Support\Str;
  * snapshot last copied from the network provider.
  *
  * Desired allow list for a policy = every effective entry in every allow list
- * that applies to it (site-wide, its audience, and its own lists). Desired
+ * that applies to it (site-wide, its network type, and its own lists). Desired
  * block list = the same for block lists, minus anything allowed. Approved
  * requests are materialised as entries in the default allow list of each
- * audience they cover, so manual additions and approvals are handled the same way.
+ * network type they cover, so manual additions and approvals are handled the same way.
  */
 class PolicyEngine
 {
@@ -53,12 +53,12 @@ class PolicyEngine
         DB::transaction(function (): void {
             if (FilterPolicy::query()->doesntExist()) {
                 foreach (NetworkProfile::query()->orderBy('sort_order')->get() as $profile) {
-                    if (! in_array($profile->audience, [Audience::Staff, Audience::Student, Audience::Guest], true)) {
+                    if (blank($profile->audience) || $profile->audience === 'other' || FilterPolicy::query()->where('audience', $profile->audience)->exists()) {
                         continue;
                     }
                     FilterPolicy::query()->create([
-                        'name' => $profile->audience === Audience::Student ? 'Students' : ($profile->audience === Audience::Staff ? 'Staff' : 'Guests'),
-                        'slug' => $this->uniqueSlug($profile->audience->value),
+                        'name' => NetworkType::labelFor($profile->audience),
+                        'slug' => $this->uniqueSlug($profile->audience),
                         'audience' => $profile->audience,
                         'network_profile_id' => $profile->id,
                         'sort_order' => $profile->sort_order,
@@ -67,32 +67,28 @@ class PolicyEngine
                 }
             }
 
-            $this->ensureList(ListKind::Allow, ListScope::Site, null, 'Site-wide allow', 'Allowed on every network, including students and guests.');
+            $this->ensureList(ListKind::Allow, ListScope::Site, null, 'Site-wide allow', 'Allowed on every network.');
             $this->ensureList(ListKind::Block, ListScope::Site, null, 'Site-wide block', 'Blocked on every network unless allowed by a more specific list.');
 
-            $audiences = FilterPolicy::query()->pluck('audience')->push(Audience::Staff, Audience::Student)->unique(fn ($audience) => $audience->value);
-            foreach ($audiences as $audience) {
-                $this->ensureAudienceLists($audience);
+            $types = FilterPolicy::query()->pluck('audience')->merge(NetworkType::query()->where('requestable', true)->pluck('key'))->filter()->unique();
+            foreach ($types as $type) {
+                $this->ensureAudienceLists($type);
             }
         });
     }
 
-    public function ensureAudienceLists(Audience $audience): void
+    /** Create the shared allow and block lists for a network type (and the type itself if new). */
+    public function ensureAudienceLists(string $type): void
     {
-        $name = match ($audience) {
-            Audience::Staff => 'Staff',
-            Audience::Student => 'Student',
-            Audience::Guest => 'Guest',
-            Audience::Other => 'Other networks',
-        };
-        $this->ensureList(ListKind::Allow, ListScope::Audience, $audience, "{$name} allow", "Allowed on every {$audience->label()} policy. Approved requests are added here.", true);
-        $this->ensureList(ListKind::Block, ListScope::Audience, $audience, "{$name} block", "Blocked on every {$audience->label()} policy.");
+        $name = NetworkType::ensure($type)->name;
+        $this->ensureList(ListKind::Allow, ListScope::Audience, $type, "{$name} allow", "Allowed on every {$name} policy. Approved requests are added here.", true);
+        $this->ensureList(ListKind::Block, ListScope::Audience, $type, "{$name} block", "Blocked on every {$name} policy.");
     }
 
     /**
-     * The allow list that receives approvals for an audience (or site-wide).
+     * The allow list that receives approvals for a network type (or site-wide).
      */
-    public function defaultAllowList(?Audience $audience): PolicyList
+    public function defaultAllowList(?string $audience): PolicyList
     {
         if ($audience === null) {
             return $this->ensureList(ListKind::Allow, ListScope::Site, null, 'Site-wide allow', 'Allowed on every network.');
@@ -110,8 +106,8 @@ class PolicyEngine
         return $this->defaultAllowList($audience);
     }
 
-    /** The block list that receives block requests for an audience (or site-wide). */
-    public function defaultBlockList(?Audience $audience): PolicyList
+    /** The block list that receives block requests for a network type (or site-wide). */
+    public function defaultBlockList(?string $audience): PolicyList
     {
         if ($audience === null) {
             return $this->ensureList(ListKind::Block, ListScope::Site, null, 'Site-wide block', 'Blocked on every network unless allowed by a more specific list.');
@@ -128,15 +124,15 @@ class PolicyEngine
     }
 
     /** @return list<PolicyList> */
-    public function targetListsFor(AccessScope $scope, ListKind $kind = ListKind::Allow): array
+    public function targetListsFor(Reach $scope, ListKind $kind = ListKind::Allow): array
     {
-        $resolve = fn (?Audience $audience) => $kind === ListKind::Block ? $this->defaultBlockList($audience) : $this->defaultAllowList($audience);
+        $resolve = fn (?string $type) => $kind === ListKind::Block ? $this->defaultBlockList($type) : $this->defaultAllowList($type);
 
-        if ($scope === AccessScope::SiteWide) {
+        if ($scope->siteWide) {
             return [$resolve(null)];
         }
 
-        return array_map($resolve, $scope->audiences());
+        return array_map($resolve, $scope->types);
     }
 
     public function kindFor(WebsiteRequest $request): ListKind
@@ -145,10 +141,10 @@ class PolicyEngine
     }
 
     /** @return Collection<int, FilterPolicy> */
-    public function policiesFor(AccessScope $scope): Collection
+    public function policiesFor(Reach $scope): Collection
     {
         return FilterPolicy::query()->main()->where('enabled', true)
-            ->when($scope !== AccessScope::SiteWide, fn ($query) => $query->whereIn('audience', $scope->audiences()))
+            ->when(! $scope->siteWide, fn ($query) => $query->whereIn('audience', $scope->types))
             ->ordered()->get();
     }
 
@@ -157,7 +153,7 @@ class PolicyEngine
      *
      * @param  list<string>  $domains
      */
-    public function grant(WebsiteRequest $request, array $domains, AccessScope $scope, ?User $actor): void
+    public function grant(WebsiteRequest $request, array $domains, Reach $scope, ?User $actor): void
     {
         DB::transaction(function () use ($request, $domains, $scope, $actor): void {
             foreach ($this->targetListsFor($scope, $this->kindFor($request)) as $list) {
@@ -459,7 +455,7 @@ class PolicyEngine
      *
      * @return list<string>
      */
-    public function alreadyAllowed(AccessScope $scope): array
+    public function alreadyAllowed(Reach $scope): array
     {
         $policies = $this->policiesFor($scope);
         if ($policies->isEmpty()) {
@@ -511,7 +507,7 @@ class PolicyEngine
         return $slug;
     }
 
-    private function ensureList(ListKind $kind, ListScope $scope, ?Audience $audience, string $name, string $description, bool $default = false): PolicyList
+    private function ensureList(ListKind $kind, ListScope $scope, ?string $audience, string $name, string $description, bool $default = false): PolicyList
     {
         $list = PolicyList::query()->where('kind', $kind)->where('scope', $scope)
             ->when($audience, fn ($query) => $query->where('audience', $audience), fn ($query) => $query->whereNull('audience'))

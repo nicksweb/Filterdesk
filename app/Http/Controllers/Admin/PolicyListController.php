@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\Audience;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
@@ -107,7 +106,7 @@ class PolicyListController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'kind' => ['required', Rule::enum(ListKind::class)],
             'scope' => ['required', Rule::enum(ListScope::class)],
-            'audience' => ['nullable', 'required_if:scope,audience', Rule::enum(Audience::class)],
+            'audience' => ['nullable', 'required_if:scope,audience', Rule::exists('network_types', 'key')],
             'filter_policy_id' => ['nullable', 'required_if:scope,policy', 'exists:filter_policies,id'],
             'description' => ['nullable', 'string', 'max:1000'],
             'is_default' => ['nullable', 'boolean'],

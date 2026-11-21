@@ -5,7 +5,7 @@
         <div>
             <p class="eyebrow">Web filtering</p>
             <h1>Policy lists</h1>
-            <p>Manage allow and block lists site-wide, per audience and per policy, then reconcile each controller policy.</p>
+            <p>Manage allow and block lists site-wide, per network type and per policy, then reconcile each controller policy.</p>
         </div>
     </div>
 
@@ -17,11 +17,11 @@
     </div>
 
     <section class="policy-section">
-        <div class="section-heading"><h2>Filter policies</h2><p>One per content filter in the controller. Desired state = site-wide lists + audience lists + the policy's own lists + approved requests.</p></div>
+        <div class="section-heading"><h2>Filter policies</h2><p>One per content filter in the controller. Desired state = site-wide lists + network type lists + the policy's own lists + approved requests.</p></div>
         <div class="policy-cards">
             @foreach($policies as ['policy' => $policy, 'report' => $report])
                 <a class="panel policy-card" href="{{ route('admin.policy.policies.show', $policy) }}">
-                    <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->isLayer() ? 'Layer of '.$policy->layerOf?->name : $policy->audience->label() }}{{ $policy->provider_name ? ' · '.$policy->provider_name : '' }}{{ $policy->networkProfile ? ' · '.$policy->networkProfile->name : '' }}</small></span>
+                    <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->isLayer() ? 'Layer of '.$policy->layerOf?->name : $policy->typeLabel() }}{{ $policy->provider_name ? ' · '.$policy->provider_name : '' }}{{ $policy->networkProfile ? ' · '.$policy->networkProfile->name : '' }}</small></span>
                         @if(!$policy->enabled)<x-status status="disabled" />@elseif(filled($policy->provider_reference))<x-sync-status :policy="$policy" />@elseif(!$report['has_snapshot'])<span class="status status-pending">No snapshot</span>@elseif($report['in_sync'])<span class="status status-ok">In sync</span>@else<span class="status status-action_required">Changes due</span>@endif
                     </div>
                     <dl class="mini-stats">
@@ -40,10 +40,10 @@
                 <form method="post" action="{{ route('admin.policy.policies.store') }}">@csrf
                     <div class="fields three">
                         <label>Name<input name="name" required placeholder="Guests"></label>
-                        <label>Audience<select name="audience">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
+                        <label>Network type<select name="audience">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
                         <label>Controller content filter <span class="optional">name or ID</span><input name="provider_reference" placeholder="Guest Wi-Fi filter"></label>
                     </div>
-                    <p class="hint">The audience decides which lists the policy inherits: Staff, Student or Guest access lists, plus every site-wide list.</p>
+                    <p class="hint">The network type decides which shared lists the policy inherits, plus every site-wide list. Manage types under Settings → Network types.</p>
                     <div class="form-actions"><button class="button primary">Create policy</button></div>
                 </form>
             </details>
@@ -105,7 +105,7 @@
     </div>
 
     <section class="panel table-wrap policy-section">
-        <div class="panel-heading"><div><h2>Lists</h2><p>Site-wide lists apply to every policy; audience lists apply to every policy for that audience; policy lists apply to one policy.</p></div></div>
+        <div class="panel-heading"><div><h2>Lists</h2><p>Site-wide lists apply to every policy; network type lists apply to every policy of that type; policy lists apply to one policy.</p></div></div>
         <table>
             <thead><tr><th>List</th><th>Applies to</th><th>Type</th><th>Entries</th><th></th></tr></thead>
             <tbody>
@@ -127,10 +127,10 @@
                     <div class="fields three">
                         <label>Name<input name="name" required placeholder="Exam-week allow"></label>
                         <label>Type<select name="kind"><option value="allow">Allow list</option><option value="block">Block list</option></select></label>
-                        <label>Applies to<select name="scope" data-scope-select><option value="site">Site-wide (every policy)</option><option value="audience">An audience</option><option value="policy">One policy</option></select></label>
+                        <label>Applies to<select name="scope" data-scope-select><option value="site">Site-wide (every policy)</option><option value="audience">A network type</option><option value="policy">One policy</option></select></label>
                     </div>
                     <div class="fields two">
-                        <label data-scope-field="audience">Audience<select name="audience">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
+                        <label data-scope-field="audience">Network type<select name="audience">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
                         <label data-scope-field="policy">Policy<select name="filter_policy_id">@foreach($policies as ['policy' => $policy])<option value="{{ $policy->id }}">{{ $policy->name }}</option>@endforeach</select></label>
                     </div>
                     <label>Description <span class="optional">optional</span><input name="description"></label>

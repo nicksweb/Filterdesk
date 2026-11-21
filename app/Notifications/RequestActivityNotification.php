@@ -32,7 +32,7 @@ class RequestActivityNotification extends Notification implements ShouldQueue
             ->subject("{$request->reference}: {$this->headline}")
             ->greeting($this->headline)
             ->line('Domains: '.implode(', ', $request->domains))
-            ->line("Requested by {$request->requester->name} · {$request->access_scope->label()} · {$request->category}");
+            ->line("Requested by {$request->requester->name} · {$request->access_scope?->label()} · {$request->category}");
 
         foreach ($this->lines as $line) {
             $message->line($line);

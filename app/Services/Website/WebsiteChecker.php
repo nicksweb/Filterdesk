@@ -60,7 +60,7 @@ class WebsiteChecker
         foreach ($targets as $targetIndex => $target) {
             $results = [];
             foreach ($profiles as $profile) {
-                $results[$profile->key] = ['profile' => $profile->name, 'audience' => $profile->audience]
+                $results[$profile->key] = ['profile' => $profile->name, 'audience' => $profile->audience, 'type' => $profile->typeLabel()]
                     + $this->resultFor($responses[$profile->key] ?? null, $targetIndex);
             }
 

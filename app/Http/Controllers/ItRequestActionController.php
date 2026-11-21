@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\AccessScope;
+use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Policy\PolicyListParser;
 use App\Services\Requests\InvalidRequestTransition;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
+use App\Support\Reach;
 use Carbon\CarbonInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,8 @@ class ItRequestActionController extends Controller
             'domains' => ['nullable', 'array', 'max:60'],
             'domains.*' => ['string', 'max:253'],
             'extra_domains' => ['nullable', 'string', 'max:4000'],
-            'scope' => ['nullable', Rule::enum(AccessScope::class)],
+            'scope' => ['nullable'],
+            'scope.*' => ['string', 'max:40'],
             'access_from' => ['nullable', 'date'],
             'access_until' => ['nullable', 'date'],
         ], [
@@ -46,7 +48,7 @@ class ItRequestActionController extends Controller
                     $actor,
                     $validated['message'] ?? null,
                     $this->approvedDomains($validated, $parser),
-                    isset($validated['scope']) ? AccessScope::from($validated['scope']) : null,
+                    $this->scope($validated['scope'] ?? null),
                     $this->window($request, $settings),
                 ),
                 'window' => $workflow->changeWindow($websiteRequest, $actor, ...$this->window($request, $settings) ?? ['from' => null, 'until' => null], note: $validated['message'] ?? null),
@@ -115,5 +117,19 @@ class ItRequestActionController extends Controller
         }
 
         return $domains;
+    }
+
+    /** "site", a list of network type keys, or (older forms) a single stored value. */
+    private function scope(mixed $input): ?Reach
+    {
+        if ($input === null || $input === '' || $input === []) {
+            return null;
+        }
+        $scope = is_array($input) ? rescue(fn () => Reach::fromInput($input), null, false) : Reach::tryFrom((string) $input);
+        if (! $scope || (! $scope->siteWide && array_diff($scope->types, NetworkType::keys()) !== [])) {
+            throw ValidationException::withMessages(['scope' => 'Choose site-wide or at least one network type.']);
+        }
+
+        return $scope;
     }
 }

@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\Audience;
+use App\Enums\ListScope;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
+use App\Models\NetworkType;
+use App\Models\PolicyList;
 use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
 use App\Services\Auth\UserProvisioningService;
@@ -23,6 +25,7 @@ use App\Services\Website\ProbeIdentity;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -39,6 +42,7 @@ class SettingsController extends Controller
         'authentication' => 'Authentication',
         'email' => 'Email and notifications',
         'network' => 'Network provider',
+        'types' => 'Network types',
         'profiles' => 'Network profiles',
         'approval' => 'Approval policy',
     ];
@@ -63,6 +67,7 @@ class SettingsController extends Controller
             'network' => $network,
             'networkHasKey' => filled($network?->credentials['api_key'] ?? null),
             'discovery' => session('discovery'),
+            'networkTypes' => $section === 'types' ? NetworkType::query()->ordered()->withCount('filterPolicies')->get() : collect(),
             'profiles' => $profiles = NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
             'identities' => $section === 'profiles' ? $profiles->mapWithKeys(fn (NetworkProfile $profile) => [$profile->id => app(ProbeIdentity::class)->for($profile, $request->boolean('refresh'))]) : collect(),
             'expectedGateways' => $section === 'profiles' ? NetworkAssignment::query()->whereIn('provider_network_id', $profiles->pluck('unifi_network_id')->filter())->get()
@@ -81,6 +86,7 @@ class SettingsController extends Controller
             'email' => $this->updateEmail($request, $settings),
             'network' => $this->updateNetwork($request),
             'profiles' => $this->updateProfiles($request, $policy),
+            'types' => $this->updateTypes($request, $policy),
             'approval' => $this->updateApproval($request, $settings),
         };
 
@@ -312,14 +318,14 @@ class SettingsController extends Controller
         $validated = $request->validate([
             'profiles' => ['array'],
             'profiles.*.name' => ['required', 'string', 'max:80'],
-            'profiles.*.audience' => ['required', Rule::enum(Audience::class)],
+            'profiles.*.audience' => ['required', Rule::exists('network_types', 'key')],
             'profiles.*.probe_url' => ['required', 'url', 'max:255'],
             'profiles.*.unifi_network_id' => ['nullable', 'string', 'max:120'],
             'profiles.*.enabled' => ['nullable', 'boolean'],
             'profiles.*.sort_order' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'new.name' => ['nullable', 'string', 'max:80'],
             'new.key' => ['nullable', 'required_with:new.name', 'alpha_dash', 'max:40', 'unique:network_profiles,key'],
-            'new.audience' => ['nullable', 'required_with:new.name', Rule::enum(Audience::class)],
+            'new.audience' => ['nullable', 'required_with:new.name', Rule::exists('network_types', 'key')],
             'new.probe_url' => ['nullable', 'required_with:new.name', 'url', 'max:255'],
         ]);
 
@@ -342,8 +348,65 @@ class SettingsController extends Controller
                 'probe_url' => $validated['new']['probe_url'],
                 'sort_order' => NetworkProfile::query()->max('sort_order') + 1,
             ]);
-            $policy->ensureAudienceLists(Audience::from($validated['new']['audience']));
+            $policy->ensureAudienceLists($validated['new']['audience']);
         }
+    }
+
+    /**
+     * Network types: rename, describe, reorder, choose which can be requested
+     * and auto-approved, add new ones, and delete unused ones. Keys never change.
+     */
+    private function updateTypes(Request $request, PolicyEngine $policy): void
+    {
+        $validated = $request->validate([
+            'types' => ['array'],
+            'types.*.name' => ['required', 'string', 'max:80'],
+            'types.*.description' => ['nullable', 'string', 'max:255'],
+            'types.*.requestable' => ['nullable', 'boolean'],
+            'types.*.auto_approve' => ['nullable', 'boolean'],
+            'types.*.sort_order' => ['nullable', 'integer', 'min:0', 'max:1000'],
+            'types.*.delete' => ['nullable', 'boolean'],
+            'new.name' => ['nullable', 'string', 'max:80'],
+            'new.description' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        foreach ($validated['types'] ?? [] as $id => $values) {
+            $type = NetworkType::query()->find($id);
+            if (! $type) {
+                continue;
+            }
+            if (! empty($values['delete'])) {
+                if ($type->inUse()) {
+                    throw ValidationException::withMessages(["types.{$id}.delete" => "{$type->name} is still used by a policy, list or probe. Move those to another type first."]);
+                }
+                PolicyList::query()->where('scope', ListScope::Audience)->where('audience', $type->key)->whereDoesntHave('entries')->delete();
+                $type->delete();
+
+                continue;
+            }
+            $type->update([
+                'name' => $values['name'], 'description' => $values['description'] ?? null,
+                'requestable' => (bool) ($values['requestable'] ?? false), 'auto_approve' => (bool) ($values['auto_approve'] ?? false),
+                'sort_order' => (int) ($values['sort_order'] ?? 0),
+            ]);
+        }
+        if (NetworkType::query()->where('requestable', true)->doesntExist()) {
+            throw ValidationException::withMessages(['types' => 'At least one network type must be requestable, or nobody can submit a request.']);
+        }
+
+        if (filled($validated['new']['name'] ?? null)) {
+            $key = Str::slug($validated['new']['name'], '_') ?: 'type';
+            $base = $key;
+            for ($suffix = 2; NetworkType::query()->where('key', $key)->exists(); $suffix++) {
+                $key = "{$base}_{$suffix}";
+            }
+            NetworkType::query()->create([
+                'key' => $key, 'name' => $validated['new']['name'], 'description' => $validated['new']['description'] ?? null,
+                'requestable' => true, 'auto_approve' => false, 'sort_order' => (int) NetworkType::query()->max('sort_order') + 1,
+            ]);
+            $policy->ensureAudienceLists($key);
+        }
+        NetworkType::flushCache();
     }
 
     private function updateApproval(Request $request, SettingsRepository $settings): void

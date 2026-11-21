@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\Audience;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
 use App\Models\NetworkProfile;
@@ -39,7 +38,7 @@ class ControllerSetupController extends Controller
             'state' => $state,
             'filters' => collect($state['filters'])->map(fn (array $filter) => $filter + [
                 'linked' => $policies->firstWhere('provider_reference', $filter['id']),
-                'suggestion' => $suggestions[$filter['id']] ?? ['action' => 'create', 'policy_id' => null, 'audience' => Audience::Other->value, 'import' => true, 'parent' => null],
+                'suggestion' => $suggestions[$filter['id']] ?? ['action' => 'create', 'policy_id' => null, 'audience' => 'other', 'import' => true, 'parent' => null],
                 'parent_name' => $filterNames[$suggestions[$filter['id']]['parent'] ?? ''] ?? null,
                 'networks' => $networks->whereIn('id', $filter['network_ids'])->values(),
                 'shared' => $networks->whereIn('id', $filter['network_ids'])->filter(fn ($network) => in_array($network['status'], ['multiple_filters', 'unmapped'], true) && count($network['attached']) > 1)->values(),
@@ -67,7 +66,7 @@ class ControllerSetupController extends Controller
             'filters' => ['required', 'array'],
             'filters.*.action' => ['required', 'in:skip,link,create,layer'],
             'filters.*.policy_id' => ['nullable', 'integer', 'exists:filter_policies,id'],
-            'filters.*.audience' => ['nullable', Rule::enum(Audience::class)],
+            'filters.*.audience' => ['nullable', Rule::exists('network_types', 'key')],
             'filters.*.import' => ['nullable', 'boolean'],
             'filters.*.parent' => ['nullable', 'string', 'max:120'],
         ]);
@@ -135,7 +134,7 @@ class ControllerSetupController extends Controller
         foreach ($planner->plan($parent, $extra) as $plan) {
             $profile = $plan['profile'] ?? NetworkProfile::query()->firstOrCreate(['key' => $plan['key']], [
                 'name' => $plan['label'],
-                'audience' => $plan['audience']->value,
+                'audience' => $plan['audience'],
                 'probe_url' => $plan['probe_url'],
                 'enabled' => false,
                 'sort_order' => (int) NetworkProfile::query()->max('sort_order') + 1,

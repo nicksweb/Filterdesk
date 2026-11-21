@@ -10,7 +10,7 @@
     </div>
 
     <section class="panel policy-section">
-        <div class="panel-heading"><div><h2>Add a list</h2><p>Content filters push at most {{ number_format($maxFilterEntries) }} entries per list; IP lists go to a firewall group instead. To keep a policy's own filter quick to edit in UniFi, give it a layer (on the policy page) and its block feeds go to that second filter. Lists refresh automatically. Approvals and lists for one audience or policy still override a site-wide feed, so an approved request is never blocked by a feed.</p></div></div>
+        <div class="panel-heading"><div><h2>Add a list</h2><p>Content filters push at most {{ number_format($maxFilterEntries) }} entries per list; IP lists go to a firewall group instead. To keep a policy's own filter quick to edit in UniFi, give it a layer (on the policy page) and its block feeds go to that second filter. Lists refresh automatically. Approvals and lists for one network type or policy still override a site-wide feed, so an approved request is never blocked by a feed.</p></div></div>
         <form method="post" action="{{ route('admin.policy.blocklists.feeds.store') }}">@csrf
             <label>Preset
                 <select name="preset">
@@ -43,8 +43,8 @@
             </div>
             <div class="fields three">
                 <label>Domain list type<select name="kind"><option value="block">Block list</option><option value="allow">Allow list</option></select></label>
-                <label>Applies to<select name="scope" data-scope-select><option value="site">Site-wide (every policy)</option><option value="audience">An audience</option><option value="policy">One policy</option></select></label>
-                <label data-scope-field="audience">Audience<select name="audience">@foreach(\App\Enums\Audience::options() as $value => $label)<option value="{{ $value }}" @selected($value === 'student')>{{ $label }}</option>@endforeach</select></label>
+                <label>Applies to<select name="scope" data-scope-select><option value="site">Site-wide (every policy)</option><option value="audience">A network type</option><option value="policy">One policy</option></select></label>
+                <label data-scope-field="audience">Network type<select name="audience">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}" @selected($value === 'student')>{{ $label }}</option>@endforeach</select></label>
                 <label data-scope-field="policy">Policy<select name="filter_policy_id">@foreach($policies as $policy)<option value="{{ $policy->id }}">{{ $policy->name }}</option>@endforeach</select></label>
             </div>
             <div class="fields three">

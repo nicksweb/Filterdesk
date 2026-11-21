@@ -2,14 +2,13 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AccessScope;
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Models\FilterPolicy;
 use App\Models\PolicyList;
 use App\Models\User;
 use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\PolicyEngine;
+use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
@@ -31,7 +30,7 @@ class AllowAfterBlockTest extends TestCase
         Notification::fake();
         Cache::flush();
         $this->engine = $this->installWithPolicies('active');
-        $this->staff = FilterPolicy::query()->where('audience', Audience::Staff)->firstOrFail();
+        $this->staff = FilterPolicy::query()->where('audience', 'staff')->firstOrFail();
         $this->staff->update(['provider_reference' => 'sim-filter-staff']);
     }
 
@@ -52,7 +51,7 @@ class AllowAfterBlockTest extends TestCase
         $this->push();
         $this->assertContains('blocked.example.com', $this->filter()['block']);
 
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Staff), 'blocked.example.com', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('staff'), 'blocked.example.com', ['source' => 'manual']);
         $this->push();
         $this->assertNotContains('blocked.example.com', $this->filter()['block']);
         $this->assertContains('blocked.example.com', $this->filter()['allow']);
@@ -75,8 +74,8 @@ class AllowAfterBlockTest extends TestCase
         $this->engine->upsertEntry($this->engine->ownList($this->staff, ListKind::Block), 'blocked.example.com', ['source' => 'import']);
         $this->push();
 
-        $request = $this->pendingRequest(['blocked.example.com'], AccessScope::Staff);
-        $this->engine->grant($request, ['blocked.example.com'], AccessScope::Staff, null);
+        $request = $this->pendingRequest(['blocked.example.com'], Reach::types('staff'));
+        $this->engine->grant($request, ['blocked.example.com'], Reach::types('staff'), null);
         $this->push();
         $this->assertNotContains('blocked.example.com', $this->filter()['block']);
         $this->assertContains('blocked.example.com', $this->filter()['allow']);
@@ -88,7 +87,7 @@ class AllowAfterBlockTest extends TestCase
         $this->engine->upsertEntry($this->engine->defaultBlockList(null), 'feed-blocked.example.com', ['source' => 'feed']);
 
         $this->actingAs(User::factory()->admin()->create())->post(route('admin.policy.entries.store'), [
-            'policy_list_id' => $this->engine->defaultAllowList(Audience::Staff)->id, 'domains' => "blocked.example.com\nfeed-blocked.example.com", 'include_www' => '0',
+            'policy_list_id' => $this->engine->defaultAllowList('staff')->id, 'domains' => "blocked.example.com\nfeed-blocked.example.com", 'include_www' => '0',
         ])->assertSessionHas('success', fn (string $message) => str_contains($message, 'blocked.example.com stay blocked')
             && str_contains($message, 'feed-blocked.example.com were blocked by another list and are now allowed'));
 
@@ -103,7 +102,7 @@ class AllowAfterBlockTest extends TestCase
         $this->engine->upsertEntry($feedList, 'blocked.example.com', ['source' => 'feed']);
         $this->push();
 
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Staff), 'blocked.example.com', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('staff'), 'blocked.example.com', ['source' => 'manual']);
         $this->push();
         $this->assertNotContains('blocked.example.com', $this->filter()['block']);
         $this->assertContains('blocked.example.com', $this->filter()['allow']);

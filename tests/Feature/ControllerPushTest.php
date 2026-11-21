@@ -2,8 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AccessScope;
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Enums\RequestStatus;
 use App\Models\ControllerPush;
@@ -16,6 +14,7 @@ use App\Notifications\FilterSyncAlertNotification;
 use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\RequestWorkflow;
+use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
@@ -42,8 +41,8 @@ class ControllerPushTest extends TestCase
         Notification::fake();
         Cache::flush();
         $this->engine = $this->installWithPolicies('active');
-        $this->students = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
-        $this->staff = FilterPolicy::query()->where('audience', Audience::Staff)->firstOrFail();
+        $this->students = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
+        $this->staff = FilterPolicy::query()->where('audience', 'staff')->firstOrFail();
         $this->students->update(['provider_reference' => 'sim-filter-students']);
         $this->staff->update(['provider_reference' => 'sim-filter-staff']);
     }
@@ -58,7 +57,7 @@ class ControllerPushTest extends TestCase
     {
         $it = User::factory()->it()->create();
         $this->engine->upsertEntry($this->engine->defaultAllowList(null), 'everyone.example.org', ['source' => 'manual']);
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Staff), 'staffonly.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('staff'), 'staffonly.example.org', ['source' => 'manual']);
 
         $this->actingAs($it)->post(route('admin.policy.networks.push'))->assertSessionHas('success');
 
@@ -72,7 +71,7 @@ class ControllerPushTest extends TestCase
     public function test_pushing_again_without_changes_does_not_write(): void
     {
         $it = User::factory()->it()->create();
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'class.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'class.example.org', ['source' => 'manual']);
 
         $this->actingAs($it)->post(route('admin.policy.policies.push', $this->students))->assertSessionHas('success');
         $this->actingAs($it)->post(route('admin.policy.policies.push', $this->students))->assertSessionHas('success', fn ($message) => str_contains($message, 'already matches'));
@@ -100,7 +99,7 @@ class ControllerPushTest extends TestCase
         $it = User::factory()->it()->create();
         $workflow = app(RequestWorkflow::class);
 
-        $request = $workflow->approve($this->pendingRequest(['live.example.org'], AccessScope::Staff), $it);
+        $request = $workflow->approve($this->pendingRequest(['live.example.org'], Reach::types('staff')), $it);
 
         $this->assertSame(RequestStatus::Active, $request->status);
         $this->assertContains('live.example.org', $this->filter('sim-filter-staff')['allow']);
@@ -113,7 +112,7 @@ class ControllerPushTest extends TestCase
     public function test_rollback_restores_the_previous_lists_unless_the_filter_changed_since(): void
     {
         $admin = User::factory()->admin()->create();
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'oops.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'oops.example.org', ['source' => 'manual']);
         $this->actingAs($admin)->post(route('admin.policy.policies.push', $this->students));
         $push = ControllerPush::query()->firstOrFail();
 
@@ -153,7 +152,7 @@ class ControllerPushTest extends TestCase
     {
         IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['controller_authoritative' => false]]);
         $it = User::factory()->it()->create();
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'managed.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'managed.example.org', ['source' => 'manual']);
         $this->artisan('policy:check-sync')->assertSuccessful();
         $this->assertSame('changes_due', $this->students->refresh()->sync_status);
 
@@ -198,7 +197,7 @@ class ControllerPushTest extends TestCase
     {
         IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['auto_push' => true]]);
         $it = User::factory()->it()->create();
-        $request = app(RequestWorkflow::class)->approve($this->pendingRequest(['approved.example.org'], AccessScope::StaffAndStudents), $it);
+        $request = app(RequestWorkflow::class)->approve($this->pendingRequest(['approved.example.org'], Reach::types('staff', 'student')), $it);
         $this->assertSame(RequestStatus::Active, $request->status);
         $this->assertSame(['example.edu'], PolicyList::query()->where('filter_policy_id', $this->students->id)->first()?->entries()->pluck('domain')->all(), 'Hand-made controller entries are pulled in before the first push');
 
@@ -227,7 +226,7 @@ class ControllerPushTest extends TestCase
 
     public function test_blocking_in_unifi_something_allowed_here_keeps_the_block(): void
     {
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'video.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'video.example.org', ['source' => 'manual']);
         $this->actingAs(User::factory()->it()->create())->post(route('admin.policy.policies.push', $this->students));
 
         (new MockNetworkProvider)->writeContentFilterLists('sim-filter-students', ['example.edu', 'video.example.org'], ['video.example.org']);
@@ -240,7 +239,7 @@ class ControllerPushTest extends TestCase
 
     public function test_an_entry_removed_in_unifi_and_added_back_there_is_no_longer_excluded(): void
     {
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'flaky.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'flaky.example.org', ['source' => 'manual']);
         $this->actingAs(User::factory()->it()->create())->post(route('admin.policy.policies.push', $this->students));
 
         (new MockNetworkProvider)->writeContentFilterLists('sim-filter-students', ['example.edu'], []);

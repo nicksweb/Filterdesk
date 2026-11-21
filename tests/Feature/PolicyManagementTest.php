@@ -2,8 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AccessScope;
-use App\Enums\Audience;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
 use App\Enums\RequestStatus;
@@ -16,6 +14,7 @@ use App\Models\User;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
+use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Tests\Concerns\BuildsPolicies;
@@ -38,7 +37,7 @@ class PolicyManagementTest extends TestCase
     {
         $this->assertEqualsCanonicalizing(['student', 'staff'], FilterPolicy::query()->pluck('slug')->all());
         $this->assertTrue(PolicyList::query()->where('scope', ListScope::Site)->where('kind', ListKind::Allow)->exists());
-        $this->assertTrue(PolicyList::query()->where('scope', ListScope::Audience)->where('audience', Audience::Student)->where('kind', ListKind::Allow)->where('is_default', true)->exists());
+        $this->assertTrue(PolicyList::query()->where('scope', ListScope::Audience)->where('audience', 'student')->where('kind', ListKind::Allow)->where('is_default', true)->exists());
 
         $this->engine->ensureDefaults();
         $this->assertSame(6, PolicyList::query()->count(), 'ensureDefaults must be idempotent');
@@ -64,11 +63,11 @@ class PolicyManagementTest extends TestCase
     {
         $it = User::factory()->it()->create();
         $workflow = app(RequestWorkflow::class);
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
-        $staff = FilterPolicy::query()->where('audience', Audience::Staff)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
+        $staff = FilterPolicy::query()->where('audience', 'staff')->firstOrFail();
 
-        $workflow->approve($this->pendingRequest(['staffonly.example.org'], AccessScope::Staff), $it);
-        $workflow->approve($this->pendingRequest(['everyone.example.org'], AccessScope::StaffAndStudents), $it);
+        $workflow->approve($this->pendingRequest(['staffonly.example.org'], Reach::types('staff')), $it);
+        $workflow->approve($this->pendingRequest(['everyone.example.org'], Reach::types('staff', 'student')), $it);
 
         $this->assertSame(['everyone.example.org', 'staffonly.example.org'], $this->engine->desired($staff)['allow']);
         $this->assertSame(['everyone.example.org'], $this->engine->desired($student)['allow']);
@@ -79,9 +78,9 @@ class PolicyManagementTest extends TestCase
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin)->post(route('admin.policy.policies.store'), ['name' => 'Guests', 'audience' => 'guest'])->assertRedirect();
         $guest = FilterPolicy::query()->where('slug', 'guests')->firstOrFail();
-        $this->assertTrue(PolicyList::query()->where('audience', Audience::Guest)->where('kind', ListKind::Allow)->exists());
+        $this->assertTrue(PolicyList::query()->where('audience', 'guest')->where('kind', ListKind::Allow)->exists());
 
-        app(RequestWorkflow::class)->approve($this->pendingRequest(['open.example.org']), $admin, scope: AccessScope::SiteWide);
+        app(RequestWorkflow::class)->approve($this->pendingRequest(['open.example.org']), $admin, scope: Reach::siteWide());
         app(RequestWorkflow::class)->approve($this->pendingRequest(['class.example.org']), $admin);
 
         $this->assertSame(['open.example.org'], $this->engine->desired($guest)['allow']);
@@ -90,11 +89,11 @@ class PolicyManagementTest extends TestCase
     public function test_temporary_access_leaves_desired_state_and_is_flagged_for_removal(): void
     {
         $it = User::factory()->it()->create();
-        $request = $this->pendingRequest(['exam.example.org'], AccessScope::StaffAndStudents, [
+        $request = $this->pendingRequest(['exam.example.org'], Reach::types('staff', 'student'), [
             'requested_until' => now()->addHour(),
         ]);
         app(RequestWorkflow::class)->approve($request, $it);
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $this->assertSame(['exam.example.org'], $this->engine->desired($student)['allow']);
 
         $student->update(['current_allowlist' => ['exam.example.org'], 'current_blocklist' => [], 'snapshot_at' => now()]);
@@ -110,8 +109,8 @@ class PolicyManagementTest extends TestCase
     public function test_snapshot_normalises_unifi_syntax_and_separates_unmanaged_entries(): void
     {
         $admin = User::factory()->admin()->create();
-        $staff = FilterPolicy::query()->where('audience', Audience::Staff)->firstOrFail();
-        $staffAllow = $this->engine->defaultAllowList(Audience::Staff);
+        $staff = FilterPolicy::query()->where('audience', 'staff')->firstOrFail();
+        $staffAllow = $this->engine->defaultAllowList('staff');
         $this->engine->upsertEntry($staffAllow, 'wanted.example.org', ['source' => 'manual']);
 
         $this->actingAs($admin)->post(route('admin.policy.policies.snapshot', $staff), [
@@ -132,11 +131,11 @@ class PolicyManagementTest extends TestCase
 
     public function test_block_entries_are_overridden_by_allow_entries_and_reported_as_conflicts(): void
     {
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $siteBlock = PolicyList::query()->where('scope', ListScope::Site)->where('kind', ListKind::Block)->firstOrFail();
         $this->engine->upsertEntry($siteBlock, 'games.example.org', ['source' => 'manual']);
         $this->engine->upsertEntry($siteBlock, 'video.example.org', ['source' => 'manual']);
-        $this->engine->upsertEntry($this->engine->defaultAllowList(Audience::Student), 'video.example.org', ['source' => 'manual']);
+        $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'video.example.org', ['source' => 'manual']);
 
         $desired = $this->engine->desired($student);
         $this->assertSame(['games.example.org'], $desired['block']);
@@ -153,7 +152,7 @@ class PolicyManagementTest extends TestCase
 
         $workflow->revoke($first, $it, 'No longer required.');
 
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $this->assertSame(['shared.example.org'], $this->engine->desired($student)['allow']);
         $this->assertSame($second->id, PolicyEntry::query()->where('domain', 'shared.example.org')->value('website_request_id'));
         $this->assertSame(RequestStatus::Revoked, $first->refresh()->status);
@@ -161,8 +160,8 @@ class PolicyManagementTest extends TestCase
 
     public function test_subdomain_matching_collapses_covered_entries_only_when_configured(): void
     {
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
-        $list = $this->engine->defaultAllowList(Audience::Student);
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
+        $list = $this->engine->defaultAllowList('student');
         foreach (['example.com', 'www.example.com', 'cdn.example.com', 'other.org'] as $domain) {
             $this->engine->upsertEntry($list, $domain, ['source' => 'manual']);
         }
@@ -180,7 +179,7 @@ class PolicyManagementTest extends TestCase
     {
         $it = User::factory()->it()->create();
         $teacher = User::factory()->teacher()->create();
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
 
         $this->actingAs($it)->get(route('admin.policy.index'))->assertOk()->assertSee('Students');
         $this->actingAs($it)->get(route('admin.policy.policies.show', $student))->assertOk()->assertSee('Desired allow list');
@@ -191,13 +190,13 @@ class PolicyManagementTest extends TestCase
     public function test_lookup_finds_parent_domain_entries_and_export_is_plain_text(): void
     {
         $admin = User::factory()->admin()->create();
-        $list = $this->engine->defaultAllowList(Audience::Staff);
+        $list = $this->engine->defaultAllowList('staff');
         $this->engine->upsertEntry($list, 'example.edu.au', ['source' => 'manual']);
 
         $this->actingAs($admin)->get(route('admin.policy.index', ['lookup' => 'https://learn.example.edu.au/x']))
             ->assertOk()->assertSee('Staff allow');
 
-        $staff = FilterPolicy::query()->where('audience', Audience::Staff)->firstOrFail();
+        $staff = FilterPolicy::query()->where('audience', 'staff')->firstOrFail();
         $this->actingAs($admin)->get(route('admin.policy.policies.export', [$staff, 'allow']))
             ->assertOk()->assertHeader('Content-Type', 'text/plain; charset=utf-8')->assertSeeText('example.edu.au');
     }
@@ -205,12 +204,12 @@ class PolicyManagementTest extends TestCase
     public function test_legacy_master_lists_and_existing_approvals_are_backfilled(): void
     {
         Setting::query()->create(['key' => 'policy', 'value' => ['master_allowlist' => ['legacy.example.org'], 'master_blocklist' => ['bad.example.org']]]);
-        $request = $this->pendingRequest(['old-approval.example.org'], AccessScope::StaffAndStudents, ['status' => RequestStatus::ActionRequired]);
+        $request = $this->pendingRequest(['old-approval.example.org'], Reach::types('staff', 'student'), ['status' => RequestStatus::ActionRequired]);
 
         $this->artisan('itrequests:upgrade', ['--skip-migrations' => true])->assertSuccessful();
         $this->artisan('itrequests:upgrade', ['--skip-migrations' => true])->assertSuccessful();
 
-        $student = FilterPolicy::query()->where('audience', Audience::Student)->firstOrFail();
+        $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $desired = $this->engine->desired($student);
         $this->assertSame(['legacy.example.org', 'old-approval.example.org'], $desired['allow']);
         $this->assertSame(['bad.example.org'], $desired['block']);
@@ -220,7 +219,7 @@ class PolicyManagementTest extends TestCase
 
     public function test_list_pages_use_the_compact_pager(): void
     {
-        $list = $this->engine->defaultAllowList(Audience::Student);
+        $list = $this->engine->defaultAllowList('student');
         foreach (range(1, 105) as $index) {
             $this->engine->upsertEntry($list, "page{$index}.example.org", ['source' => 'manual']);
         }

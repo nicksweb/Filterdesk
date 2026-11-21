@@ -205,7 +205,7 @@ Open `https://<hostname>`. The wizard has eight steps and locks itself once fini
 | 4. UniFi | Connection type, then the console URL (local key) or console ID (Site Manager key), the API key and site, **Read-only** mode, entry matching *Explicit* | Start read-only. You can test and change all of this later under Settings → Network provider. |
 | 5. Network access profiles | Keep `http://probe-student:3000` and `http://probe-staff:3000` | Network IDs are filled in later by Guided setup. |
 | 6. Email | SMTP host, port, username, password, from address, IT notification address | The IT address receives new requests, alerts and the daily digest. Settings → Email has a test button. |
-| 7. Approval policy | Auto-approve staff-only requests, whether students may request, default access length, request categories | Defaults are sensible for a trial. |
+| 7. Approval policy | Auto-approval for trusted networks, whether students may request, default access length, request categories | Defaults are sensible for a trial. |
 | 8. Review | Check, then **Complete** | |
 
 Sign in as the administrator.
@@ -216,12 +216,14 @@ Sign in as the administrator.
 
 On **Policy lists → Guided setup** (the dashboard links to it), choose **Bring everything in**. It:
 
-- creates a policy for each UniFi content filter, reusing the default *Students* and *Staff* policies where the audience fits;
+- creates a policy for each UniFi content filter, reusing the default *Students* and *Staff* policies where the network type fits;
 - recognises a second filter on the same networks that is named or shaped like a blocklist as a *layer*;
 - imports every allow and block entry, maps networks to policies and keeps categories as they are;
 - prepares a disabled probe profile per policy.
 
 Nothing changes in UniFi. If a guess is wrong, use the per-filter table below the button instead, or fix the mapping afterwards under *Networks & filters*.
+
+Rename or add network types under **Settings → Network types** if Staff and Students don't describe your networks (for example CCTV or Exam rooms), and set each policy's type.
 
 **Check:** each policy page says *In sync*, and its change set (to add, to remove) is empty. *Networks & filters* shows each network with the policy you expect.
 
