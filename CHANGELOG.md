@@ -39,6 +39,7 @@ All notable changes to this project are documented here. Versions follow [Semant
 
 ### Fixed
 - Push safety: pushes are refused when a filter list would exceed a configurable size (default 100,000, UniFi's practical ceiling), and automatic pushes with more than a configurable number of changes (default 1,000) wait until someone pushes them. The policy page warns above 5,000 entries that the UniFi web interface will be slow to open the filter.
+- **Smart approval**: with website categories on, approving access removes a block IT added instead of adding an allow entry when the site's category is not blocked, adds nothing when nothing blocks it, and only adds allow entries to override a blocked category, a feed or an import. The approval panel shows the plan per hostname.
 - **Email templates**: every email's subject, greeting, body and button are editable under Settings → Email templates, with placeholders, a preview and reset to default.
 - Request form: the reason field's title and hint are configurable; it can be optional for staff and required for students, and students get their own category list (Settings → Approval policy).
 - Email: *None* encryption now means plain SMTP that is never upgraded to TLS (internal relays on port 25), and certificate verification can be turned off for an internal server reached by IP. The installer asks for the encryption too.

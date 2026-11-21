@@ -43,6 +43,17 @@
                     <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}" class="approve-form">
                         @csrf
                         <input type="hidden" name="action" value="approve">
+                        @if(!empty($accessPlan))
+                            <div class="access-plan">
+                                <label class="choice compact"><input type="hidden" name="smart" value="0"><input type="checkbox" name="smart" value="1" checked><span><strong>Only add allow entries where needed</strong><small>Uses each site's category and the lists that block it. Untick to add an allow entry for every hostname, as before. Changing the networks or the access window below can change this plan; it is worked out again when you approve.</small></span></label>
+                                <ul>
+                                    @foreach($accessPlan as $domain => $step)
+                                        <li class="plan-{{ $step['action'] }}"><strong>{{ $domain }}</strong> <span class="status status-{{ ['allow' => 'pending', 'unblock' => 'ok', 'none' => 'ok'][$step['action']] }}">{{ ['allow' => 'Add allow entry', 'unblock' => 'Remove block', 'none' => 'Nothing needed'][$step['action']] }}</span><small>{{ $step['reason'] }}</small></li>
+                                    @endforeach
+                                </ul>
+                                <small class="hint">Removed blocks are not put back if this access is later revoked. Categories come from Cloudflare, and UniFi's category database can differ; if a site still does not open, add an allow entry from the policy page.</small>
+                            </div>
+                        @endif
                         <div class="recommendations">
                             @foreach($recommendations as $item)
                                 <label class="choice recommendation {{ $item['kind'] }}">

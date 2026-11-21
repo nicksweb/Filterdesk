@@ -50,6 +50,7 @@ class ItRequestActionController extends Controller
                     $this->approvedDomains($validated, $parser),
                     $this->scope($validated['scope'] ?? null),
                     $this->window($request, $settings),
+                    smart: $request->boolean('smart'),
                 ),
                 'window' => $workflow->changeWindow($websiteRequest, $actor, ...$this->window($request, $settings) ?? ['from' => null, 'until' => null], note: $validated['message'] ?? null),
                 'reject' => $workflow->reject($websiteRequest, $actor, $validated['message']),

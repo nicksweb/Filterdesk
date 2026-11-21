@@ -13,7 +13,7 @@ use Illuminate\Support\Carbon;
 class WebsiteRequest extends Model
 {
     protected $fillable = [
-        'reference', 'request_type', 'domain_categories', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
+        'reference', 'request_type', 'domain_categories', 'access_plan', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
         'category', 'use_case', 'standards_confirmed', 'status', 'requested_from',
         'requested_until', 'approved_at', 'access_from', 'expires_at', 'expiry_reminded_at', 'resolved_at', 'resolution',
         'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at',
@@ -30,6 +30,7 @@ class WebsiteRequest extends Model
             'assigned_at' => 'datetime',
             'access_scope' => AsReach::class,
             'domain_categories' => 'array',
+            'access_plan' => 'array',
             'status' => RequestStatus::class,
             'standards_confirmed' => 'boolean',
             'requested_from' => 'datetime',
@@ -71,6 +72,19 @@ class WebsiteRequest extends Model
     public function effectiveDomains(): array
     {
         return $this->approved_domains ?: $this->domains;
+    }
+
+    /**
+     * Hostnames that got an allow (or, for blocks, block) entry. With a smart
+     * approval, hostnames that only needed a block removed, or nothing, are left out.
+     *
+     * @return list<string>
+     */
+    public function listedDomains(): array
+    {
+        $plan = $this->access_plan ?? [];
+
+        return array_values(array_filter($this->effectiveDomains(), fn (string $domain) => ($plan[$domain]['action'] ?? 'allow') === 'allow'));
     }
 
     public function effectiveScope(): Reach

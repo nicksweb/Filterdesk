@@ -9,6 +9,7 @@ use App\Models\WebsiteRequest;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Network\DomainRules;
+use App\Services\Policy\AccessPlanner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
 use App\Services\Policy\PolicyEngine;
@@ -182,6 +183,9 @@ class WebsiteRequestController extends Controller
                     : [],
                 'existing' => collect($websiteRequest->domains)->mapWithKeys(fn (string $domain) => [$domain => $policy->locate($domain)])->filter->isNotEmpty(),
                 'policies' => $policy->policiesFor($websiteRequest->effectiveScope()),
+                'accessPlan' => ! $websiteRequest->isBlock() && in_array($websiteRequest->status, RequestStatus::open(), true) && app(AccessPlanner::class)->available()
+                    ? rescue(fn () => app(AccessPlanner::class)->plan($websiteRequest->domains, $websiteRequest->access_scope, timed: $websiteRequest->requested_until !== null), null, false)
+                    : null,
                 'entries' => $websiteRequest->policyEntries()->with('policyList')->get(),
             ];
         }

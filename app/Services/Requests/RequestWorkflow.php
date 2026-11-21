@@ -4,6 +4,7 @@ namespace App\Services\Requests;
 
 use App\Enums\EntrySource;
 use App\Enums\RequestStatus;
+use App\Models\PolicyEntry;
 use App\Models\RequestEvent;
 use App\Models\User;
 use App\Models\WebsiteCheck;
@@ -12,6 +13,7 @@ use App\Services\AuditLogger;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\UnsupportedProviderOperation;
+use App\Services\Policy\AccessPlanner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Website\WebsiteChecker;
@@ -72,14 +74,17 @@ class RequestWorkflow
      * @param  list<string>|null  $domains  Final hostname set; defaults to the requested domains.
      * @param  array{from: ?CarbonInterface, until: ?CarbonInterface}|null  $window  Access window chosen by IT; defaults to the requested one. A null "until" is permanent.
      */
-    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?Reach $scope = null, ?array $window = null): WebsiteRequest
+    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?Reach $scope = null, ?array $window = null, bool $smart = false): WebsiteRequest
     {
         $this->guard($websiteRequest, RequestStatus::open(), 'Only pending requests can be approved.');
         $domains = array_values(array_unique($domains ?: $websiteRequest->domains));
         $scope ??= $websiteRequest->access_scope;
         $window ??= ['from' => $websiteRequest->requested_from, 'until' => $websiteRequest->requested_until];
 
-        $websiteRequest = DB::transaction(function () use ($websiteRequest, $actor, $note, $domains, $scope, $window): WebsiteRequest {
+        // Smart approval (access requests only): add allow entries only where something needs overriding.
+        $plan = $smart && ! $websiteRequest->isBlock() ? app(AccessPlanner::class)->plan($domains, $scope, timed: $window['until'] !== null) : null;
+
+        $websiteRequest = DB::transaction(function () use ($websiteRequest, $actor, $note, $domains, $scope, $window, $plan): WebsiteRequest {
             $websiteRequest->forceFill([
                 'status' => RequestStatus::Approved,
                 'approved_at' => now(),
@@ -89,9 +94,11 @@ class RequestWorkflow
                 'access_from' => $window['from'],
                 'expires_at' => $window['until'],
                 'resolution' => $note,
+                'access_plan' => $plan,
             ])->save();
 
-            $this->policy->grant($websiteRequest, $domains, $scope, $actor);
+            $this->policy->grant($websiteRequest, $websiteRequest->listedDomains(), $scope, $actor);
+            $planNote = $plan ? $this->applyPlan($websiteRequest, $plan, $actor) : '';
 
             try {
                 $integration = $this->providers->integration();
@@ -121,7 +128,7 @@ class RequestWorkflow
 
             $changed = $domains !== $websiteRequest->domains || ! $scope->equals($websiteRequest->access_scope) || $websiteRequest->windowChanged();
             $windowNote = $websiteRequest->windowChanged() ? "\n\nAccess window set by IT: {$websiteRequest->windowLabel()}." : '';
-            $this->event($websiteRequest, $actor, 'approved', trim($message.$windowNote.($note ? "\n\n{$note}" : '')), [
+            $this->event($websiteRequest, $actor, 'approved', trim($message.$windowNote.$planNote.($note ? "\n\n{$note}" : '')), [
                 'domains' => $domains, 'scope' => $scope->value(), 'adjusted' => $changed, 'window' => $websiteRequest->windowLabel(),
             ]);
             $this->audit->log('website_request.approved', $websiteRequest, ['result' => $websiteRequest->status->value, 'domains' => $domains, 'scope' => $scope->value()]);
@@ -146,6 +153,33 @@ class RequestWorkflow
      * Mark requests awaiting action as applied once every policy they target
      * is linked to a controller filter that now allows all their hostnames.
      */
+    /**
+     * Carry out the "remove the block" part of a smart approval and describe
+     * the plan for the request history.
+     *
+     * @param  array<string, array{action: string, reason: string, entries: list<int>, lists: list<string>}>  $plan
+     */
+    private function applyPlan(WebsiteRequest $websiteRequest, array $plan, User $actor): string
+    {
+        $lines = [];
+        foreach ($plan as $domain => $step) {
+            if ($step['action'] === 'unblock' && $step['entries'] !== []) {
+                $removed = PolicyEntry::query()->whereKey($step['entries'])->where('domain', '!=', '')->get();
+                foreach ($removed as $entry) {
+                    $this->audit->log('policy.entry_removed', $entry->policyList, ['domain' => $entry->domain, 'reason' => "Approved {$websiteRequest->reference}"]);
+                }
+                PolicyEntry::query()->whereKey($removed->pluck('id'))->delete();
+            }
+            $lines[] = match ($step['action']) {
+                'unblock' => "{$domain}: removed from ".implode(', ', $step['lists']).'. '.$step['reason'],
+                'none' => "{$domain}: nothing added. {$step['reason']}",
+                default => "{$domain}: allow entry added. {$step['reason']}",
+            };
+        }
+
+        return "\n\nWhat was changed:\n".implode("\n", $lines);
+    }
+
     public function settlePushed(?User $actor): int
     {
         $settled = 0;
@@ -160,9 +194,15 @@ class RequestWorkflow
                 continue;
             }
 
-            $applied = $policies->every(fn ($policy) => collect($websiteRequest->effectiveDomains())->every(
-                fn (string $domain) => collect(($websiteRequest->isBlock() ? $policy->current_blocklist : $policy->current_allowlist) ?? [])->contains(fn (string $entry) => $rules->covers($entry, $domain))
-            ));
+            // Listed hostnames must be in the filter's list; hostnames a smart approval unblocked (or left alone) must not be blocked.
+            $listed = $websiteRequest->listedDomains();
+            $applied = $policies->every(fn ($policy) => collect($websiteRequest->effectiveDomains())->every(function (string $domain) use ($policy, $listed, $rules, $websiteRequest): bool {
+                if (in_array($domain, $listed, true)) {
+                    return collect(($websiteRequest->isBlock() ? $policy->current_blocklist : $policy->current_allowlist) ?? [])->contains(fn (string $entry) => $rules->covers($entry, $domain));
+                }
+
+                return ! collect($policy->current_blocklist ?? [])->contains(fn (string $entry) => $rules->covers($entry, $domain));
+            }));
             if (! $applied) {
                 continue;
             }

@@ -57,6 +57,21 @@ changes, so renaming is always safe.
 | **Added by IT** | *Policy lists → Add hostnames*, with no request needed. Adding to **Site-wide allow** reaches every policy, students included. | When removed, or at its expiry if one was set. |
 | **Imported** | Bulk paste into a list (merge or replace). Request entries are never replaced. | When removed. |
 
+### Smart approval
+
+With website categories turned on (Settings → Website categories), approving a permanent access request first works out why each hostname is blocked, and the approval panel shows the plan:
+
+| Why it is blocked | What approval does |
+| --- | --- |
+| Its UniFi category is blocked by a filter the request covers | Adds an allow entry (needed to override the category) |
+| A blocklist feed, or an entry imported from the controller | Adds an allow entry (the feed would put it back) |
+| A block in a list that also covers networks outside the request | Adds an allow entry, so the other networks keep their block |
+| Only blocks IT added, in lists the request covers | **Removes those blocks** instead; no allow entry |
+| Nothing | Adds nothing |
+| Category unknown, or timed access | Adds an allow entry, as before |
+
+Untick *Only add allow entries where needed* to add an allow entry for every hostname. Removed blocks are not restored if the access is later revoked. Categories come from Cloudflare and UniFi's own category database can differ, so check the site afterwards; if it is still blocked, add an allow entry from the policy page.
+
 Use **Where is a hostname?** to see every list containing a hostname or any
 of its parent domains.
 
