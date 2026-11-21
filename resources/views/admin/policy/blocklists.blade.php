@@ -102,9 +102,27 @@
             <article class="probe-plan">
                 <h3>{{ $list->name }} <small>{{ strtoupper($list->family) }} · {{ number_format($desired['total']) }} address(es) from {{ count($list->manual_entries ?? []) }} manual + {{ $list->sources_count }} feed(s){{ $list->provider_reference ? ' · controller group '.($list->provider_name ?: $list->provider_reference) : ' · not linked' }}</small></h3>
                 @if($list->last_pushed_at)<p class="hint"><span class="status status-{{ $list->last_push_status === 'failed' ? 'failed' : ($list->last_push_status === 'truncated' ? 'action_required' : 'ok') }}">{{ ucfirst($list->last_push_status) }}</span> {{ $list->last_pushed_at->diffForHumans() }} · {{ $list->last_push_message }}</p>@endif
-                @if($list->provider_reference && is_array($list->referenced_by))
-                    @if($list->referenced_by === [])<p class="network-status warn">No firewall rule uses this group yet, so nothing is blocked. Add a Block rule in the controller with this group as the destination.</p>
-                    @else<p class="hint">Used by: @foreach($list->referenced_by as $rule){{ $rule['name'] }} ({{ $rule['action'] }}{{ $rule['enabled'] ? '' : ', disabled' }})@if(!$loop->last), @endif @endforeach</p>@endif
+                @if($list->groups)
+                    <p class="hint">In UniFi: @foreach($list->groups as $group)<code>{{ $group['name'] }}</code> ({{ number_format($group['count'] ?? 0) }})@if(!$loop->last), @endif @endforeach. UniFi takes up to {{ number_format($groupLimit) }} addresses per group, so longer lists are split across groups automatically.</p>
+                @endif
+                @if($list->rules)
+                    <p class="hint">Blocking rules managed here: @foreach($list->rules as $rule){{ $rule['name'] }}@if(!$loop->last), @endif @endforeach</p>
+                @elseif($list->provider_reference && is_array($list->referenced_by) && $list->referenced_by === [])
+                    <p class="network-status warn">No firewall rule uses these groups yet, so nothing is blocked. Create the blocking rules below, or add your own in UniFi.</p>
+                @elseif($list->referenced_by)
+                    <p class="hint">Used by your rules: @foreach($list->referenced_by as $rule){{ $rule['name'] }} ({{ $rule['action'] }}{{ $rule['enabled'] ? '' : ', disabled' }})@if(!$loop->last), @endif @endforeach</p>
+                @endif
+                @if($canWrite && $list->provider_reference && $zones)
+                    <form method="post" action="{{ route('admin.policy.blocklists.firewall.rules', $list) }}" class="firewall-rules">@csrf
+                        <p><strong>Block traffic to these addresses from</strong> <span class="hint">One rule per group and zone is created in UniFi and kept in step when the list grows or shrinks. Untick everything to remove them.</span></p>
+                        <div class="category-grid">
+                            @foreach(collect($zones)->reject(fn ($zone) => in_array(strtolower($zone['name']), ['external', 'gateway'], true)) as $zone)
+                                <label class="choice compact"><input type="checkbox" name="zones[]" value="{{ $zone['id'] }}" @checked(in_array($zone['id'], $list->rule_zones ?? (strtolower($zone['name']) === 'internal' ? [$zone['id']] : []), true))><span>{{ $zone['name'] }}</span></label>
+                            @endforeach
+                        </div>
+                        <label class="choice compact"><input type="hidden" name="block_incoming" value="0"><input type="checkbox" name="block_incoming" value="1" @checked($list->block_incoming)><span><strong>Also block incoming connections from these addresses</strong><small>Usually already blocked by UniFi's default rules; tick for port forwards or a DMZ.</small></span></label>
+                        <div class="button-row"><button class="button {{ $list->rules ? 'secondary' : 'primary' }}" data-confirm="{{ $list->rules ? 'Update the blocking rules in UniFi?' : 'Create blocking firewall rules in UniFi for '.$list->name.'? Traffic to these addresses will be blocked straight away.' }}">{{ $list->rules ? 'Update blocking rules' : 'Create blocking rules in UniFi' }}</button></div>
+                    </form>
                 @endif
                 <form method="post" action="{{ route('admin.policy.blocklists.firewall.update', $list) }}">@csrf @method('PUT')
                     <div class="fields three">
@@ -123,10 +141,10 @@
                     <div class="button-row"><button class="button secondary">Save</button></div>
                 </form>
                 <div class="button-row">
-                    @if($canWrite && $list->provider_reference)<form method="post" action="{{ route('admin.policy.blocklists.firewall.push', $list) }}">@csrf<button class="button primary" data-confirm="Replace the addresses in {{ $list->provider_name }} with this list's {{ number_format(min($desired['total'], $list->max_entries)) }} address(es)?">Push to controller</button></form>@endif
-                    @if($canWrite && !$list->provider_reference)<form method="post" action="{{ route('admin.policy.blocklists.firewall.create-group', $list) }}">@csrf<button class="button primary" data-confirm="Create an IP group called {{ $list->name }} in the controller?">Create IP group in controller</button></form>@endif
+                    @if($canWrite && $list->provider_reference)<form method="post" action="{{ route('admin.policy.blocklists.firewall.push', $list) }}">@csrf<button class="button primary" data-confirm="Replace the addresses in UniFi with this list's {{ number_format(min($desired['total'], $list->max_entries)) }} address(es)?">Push to controller</button></form>@endif
+                    @if($canWrite && !$list->provider_reference)<form method="post" action="{{ route('admin.policy.blocklists.firewall.create-group', $list) }}">@csrf<button class="button primary" data-confirm="Create the IP group(s) for {{ $list->name }} in UniFi ({{ number_format(min($desired['total'], $list->max_entries)) }} addresses, up to {{ number_format($groupLimit) }} per group)?">Create IP group(s) in UniFi</button></form>@endif
                     @if(!$canWrite)<span class="hint">Set the network provider to Active to push.</span>@endif
-                    <form method="post" action="{{ route('admin.policy.blocklists.firewall.destroy', $list) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Delete {{ $list->name }} and its feeds? The controller group is left in place.">Delete</button></form>
+                    <form method="post" action="{{ route('admin.policy.blocklists.firewall.destroy', $list) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Delete {{ $list->name }} and its feeds? The blocking rules this app created are deleted in UniFi; the IP groups are left in place.">Delete</button></form>
                 </div>
             </article>
         @endforeach

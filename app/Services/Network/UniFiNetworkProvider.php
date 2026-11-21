@@ -371,6 +371,48 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         return $id;
     }
 
+    public function deleteIpGroup(string $id): void
+    {
+        $response = $this->client()->timeout(30)->delete($this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists/'.rawurlencode($id)));
+        if ($response->status() !== 404) {
+            $this->ensureSuccessful($response, 'deleting the IP group', writing: true);
+        }
+    }
+
+    public function firewallZones(): array
+    {
+        return collect($this->paginated('/firewall/zones'))
+            ->filter(fn ($zone) => is_array($zone) && isset($zone['id']))
+            ->map(fn (array $zone) => ['id' => (string) $zone['id'], 'name' => (string) ($zone['name'] ?? $zone['id'])])->values()->all();
+    }
+
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string
+    {
+        $filter = ['type' => 'IP_ADDRESS', 'ipAddressFilter' => ['type' => 'TRAFFIC_MATCHING_LIST', 'matchOpposite' => false, 'trafficMatchingListId' => $groupId]];
+        $response = $this->client()->timeout(30)->post($this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies'), [
+            'enabled' => true, 'name' => $name, 'action' => ['type' => 'BLOCK'],
+            'source' => ['zoneId' => $sourceZoneId] + ($groupIsSource ? ['trafficFilter' => $filter] : []),
+            'destination' => ['zoneId' => $destinationZoneId] + ($groupIsSource ? [] : ['trafficFilter' => $filter]),
+            'ipProtocolScope' => ['ipVersion' => $family === 'ipv6' ? 'IPV6' : 'IPV4'],
+            'loggingEnabled' => false,
+        ]);
+        $this->ensureSuccessful($response, 'a firewall rule', writing: true);
+        $id = (string) ($response->json('id') ?? '');
+        if ($id === '') {
+            throw new ProviderRequestFailed('UniFi created the firewall rule but did not return its ID. Check Firewall rules in UniFi.');
+        }
+
+        return $id;
+    }
+
+    public function deleteFirewallRule(string $id): void
+    {
+        $response = $this->client()->timeout(30)->delete($this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies/'.rawurlencode($id)));
+        if ($response->status() !== 404) {
+            $this->ensureSuccessful($response, 'deleting the firewall rule', writing: true);
+        }
+    }
+
     public function firewallRulesUsing(string $id): array
     {
         return collect($this->paginated('/firewall/policies'))

@@ -90,6 +90,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/blocklists/firewall', [BlocklistController::class, 'storeFirewallList'])->name('blocklists.firewall.store');
                     Route::put('/blocklists/firewall/{list}', [BlocklistController::class, 'updateFirewallList'])->name('blocklists.firewall.update');
                     Route::post('/blocklists/firewall/{list}/create-group', [BlocklistController::class, 'createGroup'])->middleware('throttle:6,1')->name('blocklists.firewall.create-group');
+                    Route::post('/blocklists/firewall/{list}/rules', [BlocklistController::class, 'rules'])->middleware('throttle:6,1')->name('blocklists.firewall.rules');
                     Route::post('/blocklists/firewall/{list}/push', [BlocklistController::class, 'pushFirewallList'])->middleware('throttle:10,1')->name('blocklists.firewall.push');
                     Route::delete('/blocklists/firewall/{list}', [BlocklistController::class, 'destroyFirewallList'])->name('blocklists.firewall.destroy');
                     Route::get('/setup', [ControllerSetupController::class, 'show'])->name('setup.show');

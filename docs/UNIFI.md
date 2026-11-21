@@ -37,6 +37,14 @@ When a hostname is in both an allow list and a block list that apply to a filter
 
 `blocklists:refresh` runs hourly and downloads feeds that are due; with automatic pushing on, firewall IP groups are updated straight after.
 
+### Firewall IP lists in UniFi
+
+IP blocklists go into UniFi IP groups (traffic matching lists). UniFi rejects a group above about **20,000** addresses (a 30,000-address push returns HTTP 400), so a longer list is split automatically into groups named "List (1 of 3)", "List (2 of 3)" and so on; when it shrinks, surplus groups and their rules are removed. The per-group limit can be changed with `max_ip_group_entries` in the network provider configuration if a UniFi release allows more.
+
+**Create blocking rules in UniFi** (on the Blocklists page) creates one Block rule per group for each zone you tick (Internal by default; Hotspot and Vpn are offered), from that zone to External with the group as destination, plus optional rules blocking incoming connections from the group. The app keeps those rules in step with the groups and deletes them when you untick the zones or delete the list. Rules you made yourself are listed but never changed.
+
+Feeds refresh on their schedule (hourly check); with *Push automatically* on, each linked list is pushed after a refresh, but a list whose addresses, groups and rules are unchanged is skipped, so UniFi only receives real changes.
+
 ## Guided setup
 
 After the connection test succeeds (and on the dashboard until it is done), the app sends admins to **Policy lists → Guided setup**. **Bring everything in** reads every content filter and sets the tool up to match it in one step:

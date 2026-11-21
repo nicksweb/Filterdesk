@@ -31,8 +31,8 @@ class RefreshBlocklists extends Command
             });
 
         if ($pusher->automatic()) {
-            $lists = FirewallList::query()->where('enabled', true)->whereNotNull('provider_reference')
-                ->whereIn('id', $refreshed->pluck('firewall_list_id')->filter())->get();
+            // Unchanged lists are skipped by the push itself, so only real changes reach the controller.
+            $lists = FirewallList::query()->where('enabled', true)->whereNotNull('provider_reference')->get();
             foreach ($lists as $list) {
                 $this->line($firewall->push($list, null)['message']);
             }

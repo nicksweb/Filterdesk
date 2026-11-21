@@ -34,10 +34,12 @@ class BlocklistController extends Controller
     public function index(FirewallListPusher $firewall): View
     {
         $groups = [];
+        $zones = [];
         $groupsError = null;
         if ($manager = $firewall->manager()) {
             try {
                 $groups = $manager->ipGroups();
+                $zones = $manager->firewallZones();
             } catch (ProviderRequestFailed $exception) {
                 $groupsError = $exception->getMessage();
             } catch (Throwable $exception) {
@@ -55,6 +57,8 @@ class BlocklistController extends Controller
             'presets' => collect(config('blocklists.presets')),
             'policies' => FilterPolicy::query()->ordered()->get(),
             'groups' => $groups,
+            'zones' => $zones,
+            'groupLimit' => $firewall->groupLimit(),
             'groupsError' => $groupsError,
             'canWrite' => $firewall->canWrite(),
             'maxFilterEntries' => app(ControllerPusher::class)->maxEntries(),
@@ -205,26 +209,45 @@ class BlocklistController extends Controller
             'provider_reference' => $validated['provider_reference'] ?: null,
             'provider_name' => $group['name'] ?? ($validated['provider_reference'] ? $list->provider_name : null),
         ]);
+        // Choosing a different first group re-links the list; the app's other groups stay as they are.
+        $first = $list->groups[0]['id'] ?? null;
+        if (($validated['provider_reference'] ?? null) !== $first) {
+            $list->forceFill([
+                'groups' => filled($validated['provider_reference'] ?? null) ? [['id' => $validated['provider_reference'], 'name' => $list->provider_name, 'count' => (int) ($group['count'] ?? 0)]] : null,
+                'pushed_hash' => null,
+            ])->save();
+        }
         $audit->log('firewall.list_updated', $list, ['manual' => count($entries)]);
 
         return back()->with('success', "{$list->name} saved. Push it to update the controller.");
     }
 
-    public function createGroup(FirewallList $list, FirewallListPusher $pusher, AuditLogger $audit): RedirectResponse
+    public function createGroup(FirewallList $list, FirewallListPusher $pusher): RedirectResponse
     {
         if (! $pusher->canWrite()) {
             return back()->with('error', 'Set the network provider to Active to create IP groups in the controller.');
         }
-        try {
-            $entries = $list->desiredEntries()['entries'];
-            $id = $pusher->manager()->createIpGroup($list->name, $list->family, $entries);
-        } catch (ProviderRequestFailed $exception) {
-            return back()->with('error', $exception->getMessage());
-        }
-        $list->update(['provider_reference' => $id, 'provider_name' => $list->name, 'live_count' => count($entries), 'last_pushed_at' => now(), 'last_push_status' => 'ok']);
-        $audit->log('firewall.group_created', $list, ['id' => $id]);
+        $result = $pusher->push($list, request()->user(), force: true);
 
-        return back()->with('success', "Created the IP group {$list->name} in the controller with ".number_format(count($entries)).' address(es). Now add a firewall rule that blocks it.');
+        return back()->with($result['ok'] ? 'success' : 'error', $result['message'].($result['ok'] && ($list->refresh()->rules ?? []) === [] ? ' Next, create the blocking rules below.' : ''));
+    }
+
+    /** Choose the zones whose traffic to these addresses is blocked; the app creates and keeps the rules. */
+    public function rules(Request $request, FirewallList $list, FirewallListPusher $pusher, AuditLogger $audit): RedirectResponse
+    {
+        $validated = $request->validate([
+            'zones' => ['nullable', 'array', 'max:10'], 'zones.*' => ['string', 'max:64'],
+            'block_incoming' => ['nullable', 'boolean'],
+        ]);
+        if (! $pusher->canWrite()) {
+            return back()->with('error', 'Set the network provider to Active to create firewall rules.');
+        }
+        $zones = array_values(array_intersect($validated['zones'] ?? [], collect(rescue(fn () => $pusher->manager()->firewallZones(), [], false))->pluck('id')->all()));
+        $list->forceFill(['rule_zones' => $zones ?: null, 'block_incoming' => $zones !== [] && $request->boolean('block_incoming')])->save();
+        $audit->log('firewall.rules_chosen', $list, ['zones' => $zones, 'incoming' => $list->block_incoming]);
+        $result = $pusher->push($list, $request->user(), force: true);
+
+        return back()->with($result['ok'] ? 'success' : 'error', ($zones ? '' : 'Blocking rules removed. ').$result['message']);
     }
 
     public function pushFirewallList(Request $request, FirewallList $list, FirewallListPusher $pusher): RedirectResponse
@@ -234,12 +257,16 @@ class BlocklistController extends Controller
         return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
     }
 
-    public function destroyFirewallList(FirewallList $list, AuditLogger $audit): RedirectResponse
+    public function destroyFirewallList(FirewallList $list, FirewallListPusher $pusher, AuditLogger $audit): RedirectResponse
     {
+        // Rules this app created would otherwise keep blocking a list nobody manages.
+        if ($pusher->canWrite()) {
+            $pusher->removeRules($list);
+        }
         $audit->log('firewall.list_deleted', $list, ['name' => $list->name]);
         $list->sources()->delete();
         $list->delete();
 
-        return back()->with('success', 'Removed. The controller IP group was left as it is; delete it in the controller if it is no longer used.');
+        return back()->with('success', 'Removed, along with the blocking rules this app created. The IP groups were left in UniFi; delete them there if they are no longer used.');
     }
 }

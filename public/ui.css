@@ -200,3 +200,4 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .access-plan ul{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px}
 .access-plan li small{display:block;color:var(--muted)}
 .access-plan li .status{margin-left:6px}
+.firewall-rules{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}.firewall-rules p{margin:0 0 6px}

@@ -40,4 +40,27 @@ interface ManagesIpGroups
      * @throws ProviderRequestFailed
      */
     public function firewallRulesUsing(string $id): array;
+
+    /** @throws ProviderRequestFailed */
+    public function deleteIpGroup(string $id): void;
+
+    /**
+     * Firewall zones, for choosing where blocking rules apply.
+     *
+     * @return list<array{id: string, name: string}>
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function firewallZones(): array;
+
+    /**
+     * Create an enabled rule that blocks traffic from one zone to another
+     * where the destination (or, for incoming rules, the source) is in the group.
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string;
+
+    /** @throws ProviderRequestFailed */
+    public function deleteFirewallRule(string $id): void;
 }

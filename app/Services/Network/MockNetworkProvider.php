@@ -126,7 +126,39 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function firewallRulesUsing(string $id): array
     {
-        return $id === 'sim-group-1' ? [['name' => 'Block listed IPs', 'action' => 'BLOCK', 'enabled' => true]] : [];
+        $rules = collect(Cache::get('mock.firewall_rules', []))->filter(fn (array $rule) => $rule['group'] === $id)
+            ->map(fn (array $rule) => ['name' => $rule['name'], 'action' => 'BLOCK', 'enabled' => true])->values()->all();
+
+        return $id === 'sim-group-1' ? [['name' => 'Block listed IPs', 'action' => 'BLOCK', 'enabled' => true], ...$rules] : $rules;
+    }
+
+    public function deleteIpGroup(string $id): void
+    {
+        $groups = $this->rawIpGroups();
+        unset($groups[$id]);
+        Cache::forever(self::GROUPS_KEY, $groups);
+    }
+
+    public function firewallZones(): array
+    {
+        return [['id' => 'zone-internal', 'name' => 'Internal'], ['id' => 'zone-external', 'name' => 'External'], ['id' => 'zone-hotspot', 'name' => 'Hotspot'], ['id' => 'zone-vpn', 'name' => 'Vpn']];
+    }
+
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string
+    {
+        $rules = Cache::get('mock.firewall_rules', []);
+        $id = 'sim-rule-'.(count($rules) + 1);
+        $rules[$id] = ['id' => $id, 'name' => $name, 'group' => $groupId, 'source' => $sourceZoneId, 'destination' => $destinationZoneId, 'incoming' => $groupIsSource];
+        Cache::forever('mock.firewall_rules', $rules);
+
+        return $id;
+    }
+
+    public function deleteFirewallRule(string $id): void
+    {
+        $rules = Cache::get('mock.firewall_rules', []);
+        unset($rules[$id]);
+        Cache::forever('mock.firewall_rules', $rules);
     }
 
     public function verifyContentFilterWrite(string $filterId): array
