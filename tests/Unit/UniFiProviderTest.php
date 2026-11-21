@@ -5,7 +5,9 @@ namespace Tests\Unit;
 use App\Models\IntegrationConfig;
 use App\Services\Network\ProviderRequestFailed;
 use App\Services\Network\UniFiNetworkProvider;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 class UniFiProviderTest extends TestCase
@@ -119,5 +121,20 @@ class UniFiProviderTest extends TestCase
         $result = $this->provider(['connection' => 'cloud', 'console_id' => 'C:1'], 'active')->verifyContentFilterWrite('cf1');
         $this->assertFalse($result['ok']);
         $this->assertStringContainsString('HTTP 405', $result['message']);
+    }
+
+    public function test_connection_errors_after_a_filter_save_are_retried_while_dns_reloads(): void
+    {
+        Sleep::fake();
+        Cache::put('unifi.dns_reload_until', time() + 45, 60);
+        Http::fake(['unifi.example.test/*' => Http::sequence()
+            ->pushFailedConnection()->pushFailedConnection()
+            ->push([['_id' => 'f1', 'name' => 'Students', 'allow_list' => [], 'block_list' => ['a.example'], 'network_ids' => []]])]);
+
+        $filters = $this->provider(['connection' => 'local', 'controller_url' => 'https://unifi.example.test'])->contentFilters();
+
+        $this->assertSame(['a.example'], $filters[0]['block']);
+        Http::assertSentCount(3);
+        Sleep::assertSleptTimes(2);
     }
 }

@@ -292,4 +292,16 @@ class ControllerPushTest extends TestCase
         $this->assertNotContains('temporary-block.example.org', $this->filter('sim-filter-students')['block']);
         $this->assertSame(0, PolicyEntry::query()->where('domain', 'temporary-block.example.org')->count(), 'Not imported back as a hand-made entry');
     }
+
+    public function test_an_unused_policy_with_no_filter_or_networks_does_not_hold_up_a_site_wide_request(): void
+    {
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['auto_push' => true, 'controller_authoritative' => true]]);
+        FilterPolicy::query()->create(['name' => 'Leftover', 'slug' => 'leftover', 'audience' => 'staff']);
+        $admin = User::factory()->admin()->create();
+        $request = $this->pendingRequest(['open.example.org']);
+
+        app(RequestWorkflow::class)->approve($request, $admin, scope: Reach::siteWide());
+
+        $this->assertSame(RequestStatus::Active, $request->refresh()->status);
+    }
 }

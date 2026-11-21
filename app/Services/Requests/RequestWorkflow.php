@@ -153,7 +153,9 @@ class RequestWorkflow
         $waiting = WebsiteRequest::query()->whereIn('status', [RequestStatus::Approved, RequestStatus::ActionRequired, RequestStatus::Failed])->get();
 
         foreach ($waiting as $websiteRequest) {
-            $policies = $this->policy->policiesFor($websiteRequest->effectiveScope());
+            // A policy with no controller filter and no networks filters nothing, so it cannot hold a request up.
+            $policies = $this->policy->policiesFor($websiteRequest->effectiveScope())
+                ->reject(fn ($policy) => blank($policy->provider_reference) && $policy->networkAssignments()->doesntExist())->values();
             if ($policies->isEmpty() || $policies->contains(fn ($policy) => blank($policy->provider_reference) || $policy->snapshot_at === null)) {
                 continue;
             }
@@ -188,7 +190,7 @@ class RequestWorkflow
 
         $failed = $results->reject(fn (array $result) => $result['ok']);
         if ($failed->isNotEmpty()) {
-            $this->event($websiteRequest, $actor, 'push_failed', 'Automatic push did not complete: '.$failed->pluck('message')->join(' ').' IT will apply the change.', internal: true);
+            $this->event($websiteRequest, $actor, 'push_failed', 'Automatic push did not complete: '.$failed->pluck('message')->join(' ').' It is retried automatically within 5 minutes, or IT can push from the policy page.', internal: true);
         }
     }
 

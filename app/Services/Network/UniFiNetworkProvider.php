@@ -4,8 +4,10 @@ namespace App\Services\Network;
 
 use App\Models\IntegrationConfig;
 use App\Models\WebsiteRequest;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -33,6 +35,17 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 {
     /** Network purposes a content filter can apply to. */
     private const FILTERABLE_PURPOSES = ['corporate', 'guest', 'vlan-only', 'remote-user-vpn'];
+
+    /** Waits between attempts after a connection error: about 30 s in all, the length of a DNS reload. */
+    public const RETRY_DELAYS_MS = [2000, 5000, 10000, 13000];
+
+    /** Until when (unix time) the gateway may still be reloading DNS after a content-filter save. */
+    private const DNS_RELOAD_KEY = 'unifi.dns_reload_until';
+
+    private function noteFilterSaved(): void
+    {
+        Cache::put(self::DNS_RELOAD_KEY, time() + 45, 60);
+    }
 
     private ?string $siteReference = null;
 
@@ -215,6 +228,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
         $response = $this->client()->timeout(25)->put($this->contentFilterPath('/'.rawurlencode($filterId)), $record);
         $this->ensureSuccessful($response, 'content filter changes', writing: true);
+        $this->noteFilterSaved();
 
         $saved = $this->rawContentFilter($filterId);
         $normalise = fn (array $values): array => collect($values)->map(fn ($value) => strtolower((string) $value))->unique()->sort()->values()->all();
@@ -235,6 +249,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
             'allow_list' => [], 'block_list' => [], 'categories' => array_values($categories), 'safe_search' => [], 'schedule' => ['mode' => 'ALWAYS'],
         ]);
         $this->ensureSuccessful($response, 'the new content filter', writing: true);
+        $this->noteFilterSaved();
 
         $id = (string) ($response->json('_id') ?? '');
         $created = collect($this->contentFilters())->firstWhere('id', $id);
@@ -260,6 +275,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
         $response = $this->client()->timeout(25)->put($this->contentFilterPath('/'.rawurlencode($filterId)), $record);
         $this->ensureSuccessful($response, 'content categories', writing: true);
+        $this->noteFilterSaved();
 
         $saved = collect($this->rawContentFilter($filterId)['categories'] ?? [])->sort()->values()->all();
         if ($saved !== collect($categories)->unique()->sort()->values()->all()) {
@@ -273,6 +289,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
             $record = $this->rawContentFilter($filterId);
             $response = $this->client()->timeout(25)->put($this->contentFilterPath('/'.rawurlencode($filterId)), $record);
             $this->ensureSuccessful($response, 'content filter changes', writing: true);
+            $this->noteFilterSaved();
             $saved = $this->rawContentFilter($filterId);
         } catch (ProviderRequestFailed $exception) {
             return ['ok' => false, 'message' => $exception->getMessage()];
@@ -547,10 +564,14 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     private function keyed(PendingRequest $request): PendingRequest
     {
+        // Saving a content filter reloads the gateway's DNS for up to ~30 s. When the app
+        // resolves names through that gateway, the next call can fail to resolve or
+        // connect, so connection errors (never HTTP error responses) are retried.
         return $request->acceptJson()
             ->withHeader('X-API-Key', (string) (($this->integration->credentials ?? [])['api_key'] ?? ''))
             ->connectTimeout(3)
-            ->timeout(8);
+            ->timeout(8)
+            ->retry(Cache::get(self::DNS_RELOAD_KEY, 0) > time() ? self::RETRY_DELAYS_MS : [1000], when: fn (Throwable $exception) => $exception instanceof ConnectionException, throw: false);
     }
 
     /** Paths under the Network application itself (/proxy/network). */
