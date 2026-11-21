@@ -184,3 +184,9 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .check-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .check-actions:empty{display:none}
 .probe-checklist .check-reviewed .check-mark{background:#e0e7ff;color:#3730a3}
+.site-categories{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.site-categories .category-label{font-size:.8rem;color:var(--muted)}
+.category-chip{display:inline-block;padding:2px 9px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:.78rem;font-weight:600}
+.category-chip.risk{background:#fee2e2;color:#b42318}
+.category-unifi{flex-basis:100%;color:var(--muted)}
+.details .wide{grid-column:1/-1}

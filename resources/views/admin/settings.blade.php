@@ -256,6 +256,26 @@
             <div class="form-actions"><button class="button primary">Save network types</button></div>
         </form>
 
+    @elseif($section === 'categories')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'categories') }}">@csrf @method('PUT')
+            <p class="section-copy">Shows what kind of site a domain is (for example <em>Gambling</em> or <em>Social Networks</em>) on website checks and requests, and which UniFi content category it probably falls in, with whether a linked filter already blocks that category. It helps decide between a category block and a list of hostnames. It is a guide: UniFi's own category database can differ.</p>
+            <div class="notice"><strong>Privacy:</strong> when this is on, every domain someone checks or requests is sent to Cloudflare to be categorised (no user details are sent). Answers are cached for a week. Leave it off if your privacy policy does not allow that.</div>
+            <label class="choice"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked(old('enabled', $categoryLookup?->enabled))><span><strong>Look up website categories</strong><small>Off by default.</small></span></label>
+            <label>Source
+                <select name="source">
+                    <option value="radar" @selected(($categoryLookup?->configuration['source'] ?? 'radar') === 'radar')>Cloudflare Radar: categories (API token)</option>
+                    <option value="intel" @selected(($categoryLookup?->configuration['source'] ?? '') === 'intel')>Cloudflare Intel: categories and security risks (API token and account ID)</option>
+                </select>
+            </label>
+            <label>Cloudflare API token <span class="optional">{{ filled($categoryLookup?->credentials['token'] ?? null) ? 'saved; leave blank to keep it' : 'required' }}</span><input type="password" name="token" autocomplete="off" maxlength="200"><small>Create one at dash.cloudflare.com → My Profile → API Tokens, with read access to Radar (or Intel). A free account works for Radar.</small></label>
+            <label>Account ID <span class="optional">Intel only</span><input name="account_id" value="{{ old('account_id', $categoryLookup?->configuration['account_id'] ?? '') }}" maxlength="32" class="mono"></label>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.test-categories') }}">@csrf
+            <label>Try a domain<input name="domain" placeholder="example.com" required maxlength="253"></label>
+            <div class="form-actions"><button class="button secondary">Look it up</button></div>
+        </form>
+
     @elseif($section === 'approval')
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'approval') }}">@csrf @method('PUT')
             <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked($settings->get('approval.auto_approve_staff', false))><span><strong>Auto-approve requests for trusted networks</strong><small>Access requests whose networks are all marked <em>Auto-approve</em> under Network types (by default Staff) are approved straight away. IT still applies them in the controller unless the provider can do it automatically.</small></span></label>

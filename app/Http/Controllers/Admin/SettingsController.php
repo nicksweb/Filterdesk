@@ -13,6 +13,7 @@ use App\Models\PolicyList;
 use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
 use App\Services\Auth\UserProvisioningService;
+use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ReadsContentFilters;
 use App\Services\Network\UniFiNetworkProvider;
@@ -43,6 +44,7 @@ class SettingsController extends Controller
         'email' => 'Email and notifications',
         'network' => 'Network provider',
         'types' => 'Network types',
+        'categories' => 'Website categories',
         'profiles' => 'Network profiles',
         'approval' => 'Approval policy',
     ];
@@ -67,6 +69,7 @@ class SettingsController extends Controller
             'network' => $network,
             'networkHasKey' => filled($network?->credentials['api_key'] ?? null),
             'discovery' => session('discovery'),
+            'categoryLookup' => $section === 'categories' ? IntegrationConfig::query()->where('provider', DomainCategorizer::PROVIDER)->first() : null,
             'networkTypes' => $section === 'types' ? NetworkType::query()->ordered()->withCount('filterPolicies')->get() : collect(),
             'profiles' => $profiles = NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
             'diagnostics' => $diagnostics = $section === 'profiles' ? collect(app(ProbeDiagnostics::class)->forAll($profiles, $request->boolean('refresh'))) : collect(),
@@ -88,6 +91,7 @@ class SettingsController extends Controller
             'network' => $this->updateNetwork($request),
             'profiles' => $this->updateProfiles($request, $policy),
             'types' => $this->updateTypes($request, $policy),
+            'categories' => $this->updateCategories($request),
             'approval' => $this->updateApproval($request, $settings),
         };
 
@@ -408,6 +412,41 @@ class SettingsController extends Controller
             $policy->ensureAudienceLists($key);
         }
         NetworkType::flushCache();
+    }
+
+    /** Website category lookup: off, Cloudflare Radar (token) or Cloudflare Intel (token and account id). Token is write-only. */
+    private function updateCategories(Request $request): void
+    {
+        $validated = $request->validate([
+            'enabled' => ['nullable', 'boolean'],
+            'source' => ['required', 'in:radar,intel'],
+            'token' => ['nullable', 'string', 'max:200'],
+            'account_id' => ['nullable', 'required_if:source,intel', 'string', 'max:32', 'regex:/^[a-f0-9]{32}$/i'],
+        ], ['account_id.regex' => 'The account ID is the 32-character hex id in the Cloudflare dashboard URL.']);
+
+        $config = IntegrationConfig::query()->firstOrNew(['provider' => DomainCategorizer::PROVIDER], ['name' => 'Website categories', 'mode' => 'read_only']);
+        $config->fill(['enabled' => $request->boolean('enabled'), 'configuration' => ['source' => $validated['source'], 'account_id' => $validated['account_id'] ?? null]]);
+        if (filled($validated['token'] ?? null)) {
+            $config->credentials = ['token' => $validated['token']];
+        }
+        if ($config->enabled && blank($config->credentials['token'] ?? null)) {
+            throw ValidationException::withMessages(['token' => 'Enter a Cloudflare API token to turn category lookups on.']);
+        }
+        $config->save();
+    }
+
+    /** Look up one domain from the settings page, bypassing the cache. */
+    public function testCategories(Request $request, DomainCategorizer $categorizer): RedirectResponse
+    {
+        $validated = $request->validate(['domain' => ['required', 'string', 'max:253', 'regex:/^[a-z0-9.-]+\.[a-z]{2,}$/i']]);
+        if (! $categorizer->enabled()) {
+            return back()->with('error', 'Turn category lookups on and save a token first.');
+        }
+        $result = $categorizer->lookup(strtolower($validated['domain']), refresh: true);
+
+        return back()->with($result['ok'] ? 'success' : 'error', $result['ok']
+            ? "{$validated['domain']}: ".($result['categories'] ? implode(', ', $result['categories']) : ($result['message'] ?? 'no categories')).($result['unifi'] ? ' · UniFi: '.collect($result['unifi'])->pluck('label')->join(', ') : '')
+            : $result['message']);
     }
 
     private function updateApproval(Request $request, SettingsRepository $settings): void

@@ -17,6 +17,9 @@
                 <dl class="details">
                     <div><dt>{{ $websiteRequest->isBlock() ? 'Block for' : 'Requested access' }}</dt><dd>{{ $websiteRequest->access_scope?->label() }}</dd></div>
                     <div><dt>Category</dt><dd>{{ $websiteRequest->category }}</dd></div>
+                    @if($websiteRequest->domain_categories)
+                        <div class="wide"><dt>What the sites are</dt><dd>@foreach($websiteRequest->domain_categories as $domain => $lookup)<x-site-categories :lookup="$lookup" :domain="$domain" :show-policies="$isIt" />@endforeach<small class="hint">From the website category service when the request was submitted; a guide, not UniFi's own categorisation.</small></dd></div>
+                    @endif
                     <div><dt>Assigned to</dt><dd>{{ $websiteRequest->assignedTo?->name ?? 'Unassigned' }}</dd></div>
                     <div><dt>Requested period</dt><dd>@if($websiteRequest->requested_until){{ $websiteRequest->requested_from?->local()->format('j M Y g:i a') ?? 'As soon as approved' }} – {{ $websiteRequest->requested_until->local()->format('j M Y g:i a') }}@else Permanent @endif</dd></div>
                     @if($websiteRequest->approved_at)<div><dt>Access window</dt><dd>{{ $websiteRequest->windowLabel() }}@if($websiteRequest->windowChanged())<small>Set by IT</small>@endif</dd></div>@endif

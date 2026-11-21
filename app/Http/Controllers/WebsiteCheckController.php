@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\WebsiteCheck;
+use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Website\WebsiteChecker;
 use Illuminate\Http\Request;
@@ -55,6 +56,9 @@ class WebsiteCheckController extends Controller
             }
         });
 
-        return view('checks.create', ['checks' => $result['checks'], 'duration' => $result['duration_ms']]);
+        return view('checks.create', [
+            'checks' => $result['checks'], 'duration' => $result['duration_ms'],
+            'categories' => rescue(fn () => app(DomainCategorizer::class)->many(collect($result['checks'])->pluck('hostname')->all()), [], false),
+        ]);
     }
 }

@@ -271,8 +271,9 @@ Still in read-only mode:
 1. Settings → Network provider: set **Active**, save, and use **Verify write access** on a policy page (it saves the filter back unchanged).
 2. On a policy, **Push** one change and confirm it in UniFi. If anything looks wrong, use **Roll back** in the push history.
 3. Turn on **Push automatically** if you want approvals, expiries and timed windows applied without a person. Large automatic changes still wait for someone (Settings → *Largest automatic push*).
-4. Optional: add blocklists under Policy lists → Blocklists & firewall. Give a policy a layer first if you add large domain feeds.
-5. Harden the install: [SECURITY_HARDENING.md](SECURITY_HARDENING.md).
+4. Optional: turn on **Settings → Website categories** (a free Cloudflare API token with Radar read access). Website checks and requests then show what kind of site each domain is, the UniFi category it probably falls in and which filters already block that category, which helps choose between a category block and a list of hostnames. It sends looked-up domains to Cloudflare; see [hardening](SECURITY_HARDENING.md#data).
+5. Optional: add blocklists under Policy lists → Blocklists & firewall. Give a policy a layer first if you add large domain feeds.
+6. Harden the install: [SECURITY_HARDENING.md](SECURITY_HARDENING.md).
 
 ## 12. Ongoing operation
 

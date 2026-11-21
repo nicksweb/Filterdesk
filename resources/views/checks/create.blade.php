@@ -44,6 +44,7 @@
                         <span class="site-domain"><strong>{{ $check['hostname'] }}</strong><small>{{ $check['url'] }}</small></span>
                         @if($isBlocked)<span class="selection-hint blocked">Blocked · added to shortlist</span>@else<span>{{ $check['duration_ms'] }} ms</span>@endif
                     </div>
+                    <x-site-categories :lookup="$categories[$check['hostname']] ?? null" :show-policies="auth()->user()->isIt()" />
 
                     <div class="result-grid">
                         @foreach($check['results'] as $key => $result)

@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\WebsiteCheck;
 use App\Models\WebsiteRequest;
 use App\Services\AuditLogger;
+use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\UnsupportedProviderOperation;
 use App\Services\Policy\ControllerPusher;
@@ -51,6 +52,12 @@ class RequestWorkflow
 
             return $websiteRequest;
         });
+
+        // A guide for IT, if website categories are enabled; never blocks submission.
+        $categories = rescue(fn () => app(DomainCategorizer::class)->many($websiteRequest->domains), [], false);
+        if ($categories !== []) {
+            $websiteRequest->forceFill(['domain_categories' => $categories])->save();
+        }
 
         $this->audit->log('website_request.created', $websiteRequest, ['scope' => $websiteRequest->access_scope->value(), 'domains' => $websiteRequest->domains]);
         $this->notifier->submitted($websiteRequest);

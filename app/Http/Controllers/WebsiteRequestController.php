@@ -6,6 +6,7 @@ use App\Enums\RequestStatus;
 use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
+use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Network\DomainRules;
 use App\Services\Policy\ControllerPusher;
@@ -91,6 +92,7 @@ class WebsiteRequestController extends Controller
             'prefillDomains' => $prefillDomains,
             'defaultTemporaryDays' => (int) $settings->get('approval.default_temporary_days', 30),
             'networkTypes' => NetworkType::query()->where('requestable', true)->ordered()->get(),
+            'siteCategories' => $prefillDomains !== '' ? rescue(fn () => app(DomainCategorizer::class)->many(explode("\n", $prefillDomains)), [], false) : [],
         ]);
     }
 

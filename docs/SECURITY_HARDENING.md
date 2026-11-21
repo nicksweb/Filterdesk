@@ -83,6 +83,7 @@ The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a rest
 ### Data
 
 - [ ] Requests contain staff names, emails and the reasons given. Set a retention rule that matches your school's privacy policy, and limit who has *IT* and *admin* roles.
+- [ ] **Website categories** (Settings → Website categories) send every checked or requested domain, without user details, to Cloudflare. It is off by default; turn it on only if your privacy policy allows it. Give the token read access only (Radar or Intel), nothing else.
 - [ ] Screenshots of checked sites are stored in the app's storage volume. Include them in backups and in your retention rule.
 - [ ] Before a Schoolbox embed, set the exact Schoolbox origin. Without it, the app cannot be framed at all, which is the safe default.
 

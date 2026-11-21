@@ -13,7 +13,7 @@ use Illuminate\Support\Carbon;
 class WebsiteRequest extends Model
 {
     protected $fillable = [
-        'reference', 'request_type', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
+        'reference', 'request_type', 'domain_categories', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
         'category', 'use_case', 'standards_confirmed', 'status', 'requested_from',
         'requested_until', 'approved_at', 'access_from', 'expires_at', 'expiry_reminded_at', 'resolved_at', 'resolution',
         'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at',
@@ -29,6 +29,7 @@ class WebsiteRequest extends Model
             'applied_scope' => AsReach::class,
             'assigned_at' => 'datetime',
             'access_scope' => AsReach::class,
+            'domain_categories' => 'array',
             'status' => RequestStatus::class,
             'standards_confirmed' => 'boolean',
             'requested_from' => 'datetime',
