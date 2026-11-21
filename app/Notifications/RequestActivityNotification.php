@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\WebsiteRequest;
+use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -28,16 +29,9 @@ class RequestActivityNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->websiteRequest->loadMissing('requester');
-        $message = (new MailMessage)
-            ->subject("{$request->reference}: {$this->headline}")
-            ->greeting($this->headline)
-            ->line('Domains: '.implode(', ', $request->domains))
-            ->line("Requested by {$request->requester->name} · {$request->access_scope?->label()} · {$request->category}");
 
-        foreach ($this->lines as $line) {
-            $message->line($line);
-        }
-
-        return $message->action('Open request', route('requests.show', $request));
+        return app(EmailTemplates::class)->mail('it_activity', RequestTemplateValues::for($request, $notifiable) + [
+            'headline' => $this->headline, 'details' => array_values($this->lines), 'websites' => implode(', ', $request->domains),
+        ], route('requests.show', $request));
     }
 }

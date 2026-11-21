@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\WebsiteRequest;
+use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -23,34 +24,21 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->websiteRequest;
-        $headline = match ($this->stage ?? $request->status->value) {
-            'received', 'pending' => 'received',
-            'ending' => 'access ends soon',
+        $template = match ($this->stage ?? $request->status->value) {
+            'received', 'pending' => 'request_received',
+            'ending' => 'request_ending',
             'approved', 'action_required', 'failed', 'active' => match (true) {
-                (bool) $request->accessFrom()?->isFuture() => 'approved and scheduled',
-                $request->status->value === 'active' => 'access is live',
-                default => 'approved',
+                (bool) $request->accessFrom()?->isFuture() => 'request_scheduled',
+                $request->status->value === 'active' => 'request_live',
+                default => 'request_approved',
             },
-            'needs_information' => 'more information needed',
-            'rejected' => 'declined',
-            'revoked' => 'access removed',
-            'expired' => 'access has ended',
-            default => strtolower($request->status->label()),
+            'needs_information' => 'request_information',
+            'rejected' => 'request_declined',
+            'revoked' => 'request_revoked',
+            'expired' => 'request_expired',
+            default => 'request_approved',
         };
 
-        $mail = (new MailMessage)
-            ->subject("Website request {$request->reference}: {$headline}")
-            ->greeting("Hello {$notifiable->name},")
-            ->line($this->message)
-            ->line('Websites: '.implode(', ', $request->effectiveDomains()));
-
-        if (in_array($request->status->value, ['pending', 'needs_information', 'approved', 'action_required', 'failed', 'active'], true)) {
-            $mail->line('When: '.$request->windowLabel().' ('.config('app.display_timezone').' time).');
-        }
-        if ($request->status->value === 'needs_information') {
-            $mail->line('Reply from the request page so IT can continue.');
-        }
-
-        return $mail->action('View request', route('requests.show', $request));
+        return app(EmailTemplates::class)->mail($template, RequestTemplateValues::for($request, $notifiable) + ['message' => $this->message], route('requests.show', $request));
     }
 }

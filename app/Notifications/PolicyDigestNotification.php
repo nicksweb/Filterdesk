@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -22,23 +23,19 @@ class PolicyDigestNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $message = (new MailMessage)
-            ->subject('Daily web filter reconciliation')
-            ->greeting('Web filter changes to review today');
-
+        $details = [];
         if ($this->actionRequired > 0) {
-            $message->line("{$this->actionRequired} approved request(s) are waiting to be applied in the network controller.");
+            $details[] = "{$this->actionRequired} approved request(s) are waiting to be applied in the network controller.";
         }
         if ($this->expiringSoon > 0) {
-            $message->line("{$this->expiringSoon} temporary entr(y/ies) expire in the next 24 hours.");
+            $details[] = "{$this->expiringSoon} temporary entr(y/ies) expire in the next 24 hours.";
         }
-
         foreach ($this->policies as $policy) {
-            $message->line($policy['snapshot']
+            $details[] = $policy['snapshot']
                 ? "{$policy['policy']}: allow +{$policy['allow_add']} / −{$policy['allow_remove']}, block +{$policy['block_add']} / −{$policy['block_remove']}."
-                : "{$policy['policy']}: no controller snapshot yet. Paste the current lists to compare.");
+                : "{$policy['policy']}: no controller snapshot yet. Paste the current lists to compare.";
         }
 
-        return $message->action('Open policy lists', route('admin.policy.index'));
+        return app(EmailTemplates::class)->mail('policy_digest', ['details' => $details], route('admin.policy.index'));
     }
 }

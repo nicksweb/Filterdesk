@@ -27,7 +27,7 @@ class RequestNotifier
         }
 
         $this->toIt(new RequestActivityNotification($request, $request->isBlock() ? 'New website block request' : 'New website access request', [
-            'Use case: '.str($request->use_case)->limit(400),
+            app(RequestFormSettings::class)->label($request->isBlock()).': '.(filled($request->use_case) ? str($request->use_case)->limit(400) : 'not given'),
         ]), includeOptedInStaff: true);
     }
 

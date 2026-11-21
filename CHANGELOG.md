@@ -39,6 +39,8 @@ All notable changes to this project are documented here. Versions follow [Semant
 
 ### Fixed
 - Push safety: pushes are refused when a filter list would exceed a configurable size (default 100,000, UniFi's practical ceiling), and automatic pushes with more than a configurable number of changes (default 1,000) wait until someone pushes them. The policy page warns above 5,000 entries that the UniFi web interface will be slow to open the filter.
+- **Email templates**: every email's subject, greeting, body and button are editable under Settings → Email templates, with placeholders, a preview and reset to default.
+- Request form: the reason field's title and hint are configurable; it can be optional for staff and required for students, and students get their own category list (Settings → Approval policy).
 - Email: *None* encryption now means plain SMTP that is never upgraded to TLS (internal relays on port 25), and certificate verification can be turned off for an internal server reached by IP. The installer asks for the encryption too.
 - **Website categories** (optional, off by default): Cloudflare Radar or Intel categorises checked and requested domains; checks, the request form and request pages show the categories, the matching UniFi content category and which linked filters block it. Categories are saved on each request when it is submitted.
 - Probe addresses: set a probe's IP by hand (subnet, gateway and DNS still come from UniFi), reserve it for the probe's MAC in UniFi in one click, or move it to a free address outside the DHCP pool; DHCP relay networks are recognised. Checklist warnings can be marked reviewed, and collapsed checklists stay collapsed.

@@ -257,6 +257,32 @@
             <div class="form-actions"><button class="button primary">Save network types</button></div>
         </form>
 
+    @elseif($section === 'templates')
+        @php($templates = app(\App\Services\Notifications\EmailTemplates::class))
+        <form class="panel" method="post" action="{{ route('admin.settings.update', 'templates') }}">@csrf @method('PUT')
+            <p class="section-copy">Change the wording of every email the app sends. Use the placeholders listed with each template; they are filled in when the email is sent. Separate paragraphs with a blank line. Leave a field blank to use the default. Text is sent as plain text, so HTML is shown as typed.</p>
+            @foreach(collect(\App\Services\Notifications\EmailTemplates::DEFINITIONS)->groupBy('group', preserveKeys: true) as $group => $definitions)
+                <h3>{{ $group }}</h3>
+                @foreach($definitions as $key => $definition)
+                    @php($current = $templates->template($key))
+                    <details class="panel template-editor">
+                        <summary><strong>{{ $definition['label'] }}</strong> @if($templates->customised($key))<span class="status status-ok">Customised</span>@else<span class="hint">Default</span>@endif</summary>
+                        <div class="fields two">
+                            <label>Subject<input name="templates[{{ $key }}][subject]" maxlength="200" value="{{ $current['subject'] }}"></label>
+                            <label>Greeting <span class="optional">blank for none</span><input name="templates[{{ $key }}][greeting]" maxlength="200" value="{{ $current['greeting'] }}"></label>
+                        </div>
+                        <label>Body<textarea name="templates[{{ $key }}][body]" rows="6" maxlength="5000" class="mono">{{ $current['body'] }}</textarea></label>
+                        <label>Button<input name="templates[{{ $key }}][action]" maxlength="60" value="{{ $current['action'] }}"></label>
+                        <p class="hint">Placeholders: @foreach(['name' => "Recipient's name", 'app_name' => 'App name', 'school' => 'School name'] + $definition['placeholders'] as $placeholder => $meaning)<code>{{ '{'.$placeholder.'}' }}</code> {{ strtolower($meaning) }}@if(!$loop->last) · @endif @endforeach</p>
+                        @php($preview = $templates->mail($key, $templates->sample($key), url('/')))
+                        <div class="template-preview"><small class="hint">Preview with sample values</small><strong>{{ $preview->subject }}</strong>@if($preview->greeting)<p>{{ $preview->greeting }}</p>@endif @foreach($preview->introLines as $line)<p>{{ $line }}</p>@endforeach @if($preview->actionText)<span class="button small secondary">{{ $preview->actionText }}</span>@endif</div>
+                        @if($templates->customised($key))<label class="choice compact"><input type="checkbox" name="templates[{{ $key }}][reset]" value="1"><span>Reset to the default wording</span></label>@endif
+                    </details>
+                @endforeach
+            @endforeach
+            <div class="form-actions"><button class="button primary">Save email templates</button></div>
+        </form>
+
     @elseif($section === 'categories')
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'categories') }}">@csrf @method('PUT')
             <p class="section-copy">Shows what kind of site a domain is (for example <em>Gambling</em> or <em>Social Networks</em>) on website checks and requests, and which UniFi content category it probably falls in, with whether a linked filter already blocks that category. It helps decide between a category block and a list of hostnames. It is a guide: UniFi's own category database can differ.</p>
@@ -289,7 +315,25 @@
                 <label>Open timed access early (minutes)<input name="window_lead_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lead_minutes', 5) }}"><small>Allow or block entries go live this long before their start, so the controller has them in place on time.</small></label>
                 <label>Close timed access late (minutes)<input name="window_lag_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lag_minutes', 5) }}"><small>Entries are removed this long after their end. With automatic pushing, changes reach the controller within about a minute.</small></label>
             </div>
-            <label>Categories <span class="optional">comma or line separated</span><textarea name="categories" rows="4">{{ implode("\n", $settings->get('approval.categories', [])) }}</textarea></label>
+            @php($form = app(\App\Services\Requests\RequestFormSettings::class)->all())
+            <h3>Request form</h3>
+            <div class="fields two">
+                <label>Request categories for staff <span class="optional">comma or line separated</span><textarea name="categories" rows="5">{{ implode("\n", $settings->get('approval.categories', [])) }}</textarea></label>
+                <label>Request categories for students <span class="optional">comma or line separated</span><textarea name="form[student_categories]" rows="5" required>{{ implode("\n", $form['student_categories']) }}</textarea></label>
+            </div>
+            <p class="hint">The "Category" dropdown on the request form. Students see their own list, worded for them.</p>
+            <div class="fields two">
+                <label>Reason field title (access requests)<input name="form[access_label]" maxlength="120" required value="{{ $form['access_label'] }}"></label>
+                <label>Reason field title (block requests)<input name="form[block_label]" maxlength="120" required value="{{ $form['block_label'] }}"></label>
+                <label>Hint inside the field (access)<input name="form[access_hint]" maxlength="300" value="{{ $form['access_hint'] }}"></label>
+                <label>Hint inside the field (block)<input name="form[block_hint]" maxlength="300" value="{{ $form['block_hint'] }}"></label>
+            </div>
+            <p class="hint">Rename the field to ask for something else, for example "Class and unit" or "Ticket number". The title is also used in emails to IT.</p>
+            <div class="fields two">
+                <label class="choice compact"><input type="hidden" name="form[staff_required]" value="0"><input type="checkbox" name="form[staff_required]" value="1" @checked($form['staff_required'])><span><strong>Required for staff</strong><small>Teachers, IT and admins.</small></span></label>
+                <label class="choice compact"><input type="hidden" name="form[student_required]" value="0"><input type="checkbox" name="form[student_required]" value="1" @checked($form['student_required'])><span><strong>Required for students</strong><small>When students may submit requests.</small></span></label>
+            </div>
+            <label>Minimum length when filled in <span class="optional">characters</span><input type="number" name="form[min_length]" min="0" max="500" value="{{ $form['min_length'] }}"></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
     @endif

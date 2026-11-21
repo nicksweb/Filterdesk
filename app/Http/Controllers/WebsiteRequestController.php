@@ -13,6 +13,7 @@ use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\InvalidRequestTransition;
+use App\Services\Requests\RequestFormSettings;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
 use App\Support\Reach;
@@ -68,7 +69,7 @@ class WebsiteRequestController extends Controller
         ]);
     }
 
-    public function create(Request $request, SettingsRepository $settings, DomainNormalizer $normalizer): View|RedirectResponse
+    public function create(Request $request, SettingsRepository $settings, DomainNormalizer $normalizer, RequestFormSettings $form): View|RedirectResponse
     {
         if (! $this->canRequest($request->user(), $settings)) {
             return redirect()->route('checks.create')->with('error', 'Students cannot submit website requests. Ask a teacher to request access.');
@@ -88,7 +89,11 @@ class WebsiteRequestController extends Controller
 
         return view('requests.create', [
             'block' => $request->query('type') === 'block',
-            'categories' => $settings->get('approval.categories', ['Teaching and learning', 'Research', 'Professional development', 'Administration', 'Other']),
+            'categories' => $form->categories($request->user()),
+            'reasonLabel' => $form->label($request->query('type') === 'block'),
+            'reasonHint' => $form->hint($request->query('type') === 'block'),
+            'reasonRequired' => $form->required($request->user()),
+            'reasonMinLength' => $form->minLength(),
             'prefillDomains' => $prefillDomains,
             'defaultTemporaryDays' => (int) $settings->get('approval.default_temporary_days', 30),
             'networkTypes' => NetworkType::query()->where('requestable', true)->ordered()->get(),
@@ -96,11 +101,11 @@ class WebsiteRequestController extends Controller
         ]);
     }
 
-    public function store(Request $request, DomainNormalizer $normalizer, RequestWorkflow $workflow, SettingsRepository $settings): RedirectResponse
+    public function store(Request $request, DomainNormalizer $normalizer, RequestWorkflow $workflow, SettingsRepository $settings, RequestFormSettings $form): RedirectResponse
     {
         abort_unless($this->canRequest($request->user(), $settings), 403);
 
-        $categories = $settings->get('approval.categories', []);
+        $categories = $form->categories($request->user());
         $block = $request->input('request_type') === 'block';
         $validated = $request->validate([
             'request_type' => ['nullable', 'in:allow,block'],
@@ -109,7 +114,7 @@ class WebsiteRequestController extends Controller
             'network_types.*' => ['string', Rule::exists('network_types', 'key')->where('requestable', true)],
             'access_scope' => ['nullable', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:100', ...($categories ? [Rule::in($categories)] : [])],
-            'use_case' => ['required', 'string', 'min:20', 'max:5000'],
+            'use_case' => [$form->required($request->user()) ? 'required' : 'nullable', 'string', 'min:'.$form->minLength(), 'max:5000'],
             'standards_confirmed' => ['accepted'],
             'access_duration' => ['required', 'in:permanent,temporary'],
             'requested_from' => ['nullable', 'date'],
@@ -138,7 +143,7 @@ class WebsiteRequestController extends Controller
             'domains' => $normalizer->many($validated['domains']),
             'access_scope' => $scope,
             'category' => $validated['category'],
-            'use_case' => $validated['use_case'],
+            'use_case' => $validated['use_case'] ?? null,
             'requested_from' => $from,
             'requested_until' => $until,
         ]);

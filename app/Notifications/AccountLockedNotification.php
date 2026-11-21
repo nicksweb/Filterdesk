@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -21,11 +22,8 @@ class AccountLockedNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('Sign-in locked after failed attempts')
-            ->line("Password sign-in for {$this->email} was locked for {$this->minutes} minutes after repeated failed attempts.")
-            ->line("Last attempt from {$this->ip}.")
-            ->line('If this was not you, tell IT. Administrators can turn off password sign-in for an account under Users, or turn off emergency local sign-in entirely under Settings → Authentication.')
-            ->action('Open IT Requests', route('login'));
+        return app(EmailTemplates::class)->mail('account_locked', [
+            'name' => $notifiable->name ?? '', 'email' => $this->email, 'minutes' => (string) $this->minutes, 'ip' => (string) $this->ip,
+        ], route('login'));
     }
 }

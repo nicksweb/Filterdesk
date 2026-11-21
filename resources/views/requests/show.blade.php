@@ -29,7 +29,7 @@
                     @endif
                 </dl>
                 <h3>Use case</h3>
-                <p class="prose">{{ $websiteRequest->use_case }}</p>
+                <p class="prose">{{ $websiteRequest->use_case ?: 'No reason given.' }}</p>
                 @if($websiteRequest->approved_domains)
                     <h3>{{ $websiteRequest->isBlock() ? 'Blocked hostnames' : 'Allowed hostnames' }}</h3>
                     <div class="chip-list">@foreach($websiteRequest->approved_domains as $domain)<span class="chip">{{ $domain }}</span>@endforeach</div>

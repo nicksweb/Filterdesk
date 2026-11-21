@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -22,14 +23,8 @@ class FilterSyncAlertNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $message = (new MailMessage)
-            ->subject('Web filter out of sync')
-            ->greeting('A content filter needs attention');
+        $details = collect($this->policies)->map(fn (array $policy) => ($policy['status'] === 'error' ? 'Cannot check ' : 'Changed outside IT Requests: ')."{$policy['policy']}. {$policy['summary']}")->all();
 
-        foreach ($this->policies as $policy) {
-            $message->line(($policy['status'] === 'error' ? 'Cannot check ' : 'Changed outside IT Requests: ')."{$policy['policy']}. {$policy['summary']}");
-        }
-
-        return $message->action('Open policy lists', route('admin.policy.index'));
+        return app(EmailTemplates::class)->mail('filter_sync_alert', ['details' => $details], route('admin.policy.index'));
     }
 }

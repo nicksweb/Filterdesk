@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Services\Notifications\EmailTemplates;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
@@ -17,9 +18,6 @@ class TestEmailNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('IT Requests test email')
-            ->line("This test was sent by {$this->requestedBy}. Email delivery is working.")
-            ->action('Open IT Requests', route('dashboard'));
+        return app(EmailTemplates::class)->mail('test', ['sender' => (string) $this->requestedBy], route('dashboard'));
     }
 }

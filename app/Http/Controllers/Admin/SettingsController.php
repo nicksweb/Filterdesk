@@ -17,10 +17,12 @@ use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ReadsContentFilters;
 use App\Services\Network\UniFiNetworkProvider;
+use App\Services\Notifications\EmailTemplates;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
+use App\Services\Requests\RequestFormSettings;
 use App\Services\SettingsRepository;
 use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Http\RedirectResponse;
@@ -42,6 +44,7 @@ class SettingsController extends Controller
         'general' => 'School',
         'authentication' => 'Authentication',
         'email' => 'Email and notifications',
+        'templates' => 'Email templates',
         'network' => 'Network provider',
         'types' => 'Network types',
         'categories' => 'Website categories',
@@ -92,6 +95,7 @@ class SettingsController extends Controller
             'profiles' => $this->updateProfiles($request, $policy),
             'types' => $this->updateTypes($request, $policy),
             'categories' => $this->updateCategories($request),
+            'templates' => $this->updateTemplates($request, $settings),
             'approval' => $this->updateApproval($request, $settings),
         };
 
@@ -416,6 +420,41 @@ class SettingsController extends Controller
         NetworkType::flushCache();
     }
 
+    /** Email wording. Blank fields, or "reset", fall back to the built-in text. */
+    private function updateTemplates(Request $request, SettingsRepository $settings): void
+    {
+        $keys = array_keys(EmailTemplates::DEFINITIONS);
+        $validated = $request->validate([
+            'templates' => ['array'],
+            'templates.*.subject' => ['nullable', 'string', 'max:200'],
+            'templates.*.greeting' => ['nullable', 'string', 'max:200'],
+            'templates.*.body' => ['nullable', 'string', 'max:5000'],
+            'templates.*.action' => ['nullable', 'string', 'max:60'],
+            'templates.*.reset' => ['nullable', 'boolean'],
+        ]);
+        $stored = (array) $settings->get('email_templates', []);
+        foreach ($validated['templates'] ?? [] as $key => $fields) {
+            if (! in_array($key, $keys, true)) {
+                continue;
+            }
+            if (! empty($fields['reset'])) {
+                unset($stored[$key]);
+
+                continue;
+            }
+            $defaults = EmailTemplates::DEFINITIONS[$key];
+            // Store only what differs from the default, so improvements to the defaults still reach untouched fields.
+            $custom = collect(EmailTemplates::FIELDS)->mapWithKeys(fn (string $field) => [$field => trim((string) ($fields[$field] ?? ''))])
+                ->filter(fn (string $value, string $field) => $value !== '' && str_replace("\r\n", "\n", $value) !== $defaults[$field])->all();
+            if ($custom === []) {
+                unset($stored[$key]);
+            } else {
+                $stored[$key] = $custom;
+            }
+        }
+        $settings->set('email_templates', $stored);
+    }
+
     /** Website category lookup: off, Cloudflare Radar (token) or Cloudflare Intel (token and account id). Token is write-only. */
     private function updateCategories(Request $request): void
     {
@@ -460,6 +499,23 @@ class SettingsController extends Controller
             'categories' => ['required', 'string', 'max:2000'],
             'window_lead_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
             'window_lag_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
+            'form.access_label' => ['nullable', 'string', 'max:120'],
+            'form.block_label' => ['nullable', 'string', 'max:120'],
+            'form.access_hint' => ['nullable', 'string', 'max:300'],
+            'form.block_hint' => ['nullable', 'string', 'max:300'],
+            'form.staff_required' => ['nullable', 'boolean'],
+            'form.student_required' => ['nullable', 'boolean'],
+            'form.min_length' => ['nullable', 'integer', 'min:0', 'max:500'],
+            'form.student_categories' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $defaults = RequestFormSettings::DEFAULTS;
+        $form = $validated['form'] ?? [];
+        $settings->set('request_form', [
+            'access_label' => $form['access_label'] ?? $defaults['access_label'], 'block_label' => $form['block_label'] ?? $defaults['block_label'],
+            'access_hint' => $form['access_hint'] ?? '', 'block_hint' => $form['block_hint'] ?? '',
+            'staff_required' => $request->boolean('form.staff_required', $defaults['staff_required']), 'student_required' => $request->boolean('form.student_required', $defaults['student_required']),
+            'min_length' => (int) ($form['min_length'] ?? $defaults['min_length']),
+            'student_categories' => filled($form['student_categories'] ?? null) ? $this->commaList($form['student_categories'], lower: false) : $defaults['student_categories'],
         ]);
 
         $settings->set('approval', [

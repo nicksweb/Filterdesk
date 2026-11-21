@@ -35,7 +35,7 @@ class RequestWorkflow
     ) {}
 
     /**
-     * @param  array{domains: list<string>, access_scope: Reach, category: string, use_case: string, requested_from: mixed, requested_until: mixed}  $attributes
+     * @param  array{domains: list<string>, access_scope: Reach, category: string, use_case: ?string, requested_from: mixed, requested_until: mixed}  $attributes
      */
     public function submit(User $requester, array $attributes): WebsiteRequest
     {
