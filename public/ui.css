@@ -167,3 +167,16 @@ a.pager-link:hover{border-color:#9fb4cc}
 details.probe-plan summary{cursor:pointer}
 details.probe-plan summary small{color:var(--muted);font-weight:500}
 .probe-identity small{display:block;color:var(--muted)}.probe-identity{min-width:14rem}
+.network-status.bad{color:#b42318}
+.probe-checklist-row td{background:var(--soft,#f7f9fc);padding-top:4px}
+.probe-checklist summary{cursor:pointer;font-weight:600}
+.probe-checklist summary .network-status{margin-left:8px;font-weight:500}
+.probe-checklist ol{list-style:none;margin:10px 0 4px;padding:0;display:grid;gap:8px}
+.probe-checklist li{display:flex;gap:10px;align-items:flex-start}
+.probe-checklist .check-mark{flex:0 0 1.4rem;height:1.4rem;border-radius:50%;display:grid;place-items:center;font-size:.8rem;font-weight:700;background:#e5e7eb}
+.probe-checklist .check-ok .check-mark{background:#dcfce7;color:#166534}
+.probe-checklist .check-fail .check-mark{background:#fee2e2;color:#b42318}
+.probe-checklist .check-warn .check-mark,.probe-checklist .check-todo .check-mark{background:#fef3c7;color:#92400e}
+.probe-checklist .check-fix{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:.86rem}
+.probe-checklist .check-fix li{display:list-item}
+.ready-probes{margin:6px 0;padding-left:18px}

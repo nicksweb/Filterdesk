@@ -3,6 +3,12 @@
     @if($needsControllerSetup)
         <div class="alert success setup-callout"><strong>Next: bring your UniFi setup in.</strong> The controller is connected but none of its content filters are in the tool yet. <a class="button small primary" href="{{ route('admin.policy.setup.show') }}">Open guided setup</a> to import every filter, list and network in one step, then set up the probes.</div>
     @endif
+    @if($probesNeedingWork->isNotEmpty())
+        <div class="alert error probe-callout" role="alert"><strong>Probes need finishing:</strong>
+            @foreach($probesNeedingWork as $item){{ $item['profile']->name }} ({{ $item['diagnosis']['summary'] ?? 'no network chosen' }})@if(!$loop->last); @endif @endforeach
+            <a class="button small secondary" href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Open the probe checklists</a>
+        </div>
+    @endif
     @if($filtersOutOfSync->isNotEmpty())
         <div class="alert error" role="alert"><strong>Web filters need attention:</strong>
             @foreach($filtersOutOfSync as $policy)<a href="{{ route('admin.policy.policies.show', $policy) }}">{{ $policy->name }}</a> ({{ $policy->sync_details['summary'] ?? $policy->sync_status }})@if(!$loop->last); @endif @endforeach

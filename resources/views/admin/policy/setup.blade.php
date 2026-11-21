@@ -74,9 +74,17 @@
                     <li><a href="{{ route('admin.policy.policies.show', $policy) }}"><strong>{{ $policy->name }}</strong></a> → {{ $policy->provider_name }}{{ $policy->isLayer() ? ' · layer of '.$policy->layerOf?->name : ' · '.$policy->typeLabel().' filtering' }} <x-sync-status :policy="$policy" /></li>
                 @endforeach
                 <li>{{ $ready['mapped'] }} of {{ $ready['networks'] }} networks mapped to a policy. <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a></li>
-                <li>Probes: @forelse($ready['profiles'] as $profile){{ $profile->name }} {{ $profile->enabled ? '(on)' : '(off)' }}@if(!$loop->last), @endif @empty none yet @endforelse. <a href="{{ route('admin.settings.show', 'network') }}">Network profiles</a></li>
+                <li>Probes:
+                    <ul class="ready-probes">
+                        @forelse($ready['profiles'] as $profile)
+                            @php($diagnosis = app(\App\Services\Website\ProbeDiagnostics::class)->cached($profile))
+                            <li><strong>{{ $profile->name }}</strong> {{ $profile->enabled ? '(on)' : '(off)' }} · @if($diagnosis)<span class="network-status {{ ['ok' => 'ok', 'warn' => 'warn', 'todo' => 'warn', 'fail' => 'bad'][$diagnosis['state']] ?? 'muted' }}">{{ $diagnosis['summary'] }}</span>@else<span class="hint">not checked yet</span>@endif</li>
+                        @empty<li>none yet</li>@endforelse
+                    </ul>
+                    <a class="button small secondary" href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Run probe checklists</a> Each probe's checklist says what is left to do: VLAN, gateway, DNS, internet, DHCP, then switch it on.
+                </li>
             </ul>
-            <p class="hint">Before switching to Active mode, open each policy and check its change set is empty: after an import, the first push should change nothing.</p>
+            <p class="hint">Before switching to Active mode, open each policy and check its change set is empty: after an import, the first push should change nothing. Finish every probe checklist so website checks show what each network really sees.</p>
         </section>
     @endif
 

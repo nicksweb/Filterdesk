@@ -278,11 +278,68 @@ function identity() {
   };
 }
 
+/** Whether the kernel has a completed ARP entry for an address (layer 2 works). */
+function arpComplete(address) {
+  try {
+    return readFileSync('/proc/net/arp', 'utf8').split('\n').slice(1)
+      .map(line => line.trim().split(/\s+/))
+      .some(columns => columns[0] === address && columns[2] === '0x2');
+  } catch {
+    return false;
+  }
+}
+
+function tcpReachable(host, port, ms) {
+  return new Promise(resolve => {
+    const socket = net.connect({ host, port, timeout: ms });
+    const done = ok => { socket.destroy(); resolve(ok); };
+    socket.on('connect', () => done(true));
+    socket.on('timeout', () => done(false));
+    socket.on('error', () => done(false));
+  });
+}
+
+/**
+ * Self-test for setup: can the probe reach its gateway (ARP), resolve through
+ * its DNS server, and load a page on the internet? Each step is independent so
+ * the app can say exactly which one fails.
+ */
+async function diagnose() {
+  const info = identity();
+  const result = { ...info, gateway_arp: null, gateway_tcp: null, dns_ok: null, dns_error: null, internet_ok: null, internet_error: null };
+  if (info.gateway) {
+    result.gateway_tcp = await tcpReachable(info.gateway, 53, 1500);
+    result.gateway_arp = arpComplete(info.gateway);
+  }
+  try {
+    const answers = resolver ? await resolver.resolve4('example.com') : (await dns.lookup('example.com', { all: true, family: 4 })).map(item => item.address);
+    result.dns_ok = answers.length > 0;
+  } catch (error) {
+    result.dns_ok = false;
+    result.dns_error = String(error.code || error.message).slice(0, 80);
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const page = await fetch('https://www.google.com/generate_204', { method: 'GET', redirect: 'manual', signal: controller.signal });
+    clearTimeout(timer);
+    result.internet_ok = page.status > 0 && page.status < 500;
+  } catch (error) {
+    result.internet_ok = false;
+    result.internet_error = String(error.cause?.code || error.name || error.message).slice(0, 80);
+  }
+  return result;
+}
+
 const server = http.createServer(async (request, response) => {
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
   if (request.url === '/health') {
     return response.end(JSON.stringify({ ok: true, dns: resolver ? 'direct' : 'system', fresh_browser_per_run: !reuseBrowser }));
+  }
+  if (request.method === 'GET' && request.url === '/diagnose') {
+    if (!authorised(request.headers['x-probe-key'])) { response.statusCode = 401; return response.end(JSON.stringify({ message: 'Unauthorised.' })); }
+    return response.end(JSON.stringify(await diagnose()));
   }
   if (request.method === 'GET' && request.url === '/identity') {
     if (!authorised(request.headers['x-probe-key'])) { response.statusCode = 401; return response.end(JSON.stringify({ message: 'Unauthorised.' })); }

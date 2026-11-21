@@ -39,6 +39,7 @@ All notable changes to this project are documented here. Versions follow [Semant
 
 ### Fixed
 - Push safety: pushes are refused when a filter list would exceed a configurable size (default 100,000, UniFi's practical ceiling), and automatic pushes with more than a configurable number of changes (default 1,000) wait until someone pushes them. The policy page warns above 5,000 entries that the UniFi web interface will be slow to open the filter.
+- **Probe setup checklist**: each probe tests itself (container, VLAN, gateway, DNS, internet) and Settings → Network profiles turns the result into a step-by-step checklist with fixes, including switch-port and Proxmox/VMware/Hyper-V advice; reruns every 10 minutes (`probes:check`), with reminders on the dashboard and in Guided setup.
 - **Network types**: the fixed Staff / Student / Guest / Other audiences are now types you define under Settings → Network types (for example CCTV or Exam rooms), each with its own shared allow and block lists, a *requestable* and an *auto-approve* switch. Requests and approvals choose any set of types or site-wide instead of the fixed *Staff only / Staff and students* choices. Existing data is converted on upgrade.
 - Docs: full setup guide with every `.env` variable (`docs/SETUP.md`) and a security hardening checklist including post-quantum TLS (`docs/SECURITY_HARDENING.md`).
 - Installer: the first page warns when the reverse proxy is not trusted (pages would load unstyled) and names the address to put in `TRUSTED_PROXIES`.

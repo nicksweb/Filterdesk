@@ -153,7 +153,7 @@
 
     @elseif($section === 'profiles')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'profiles') }}">@csrf @method('PUT')
-            <p class="section-copy">Each profile is a network path checked by its own probe container. The network type links the profile to filter policies and lists. <em>Probe address</em> is what the container reports about itself: the address and MAC on its VLAN, which you can name or reserve in UniFi. <a href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Refresh</a></p>
+            <p class="section-copy">Each profile is a network path checked by its own probe container. The network type links the profile to filter policies and lists. <em>Probe address</em> is what the container reports about itself: the address and MAC on its VLAN, which you can name or reserve in UniFi. Each probe runs a setup checklist (container, VLAN, gateway, DNS, internet, filtering, DHCP) and says what to fix; switch a probe on once its checklist passes. <a href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Re-run checks</a></p>
             @php($sharedGateways = collect($identities)->filter(fn ($identity, $id) => ($identity['ok'] ?? false) && $profiles->firstWhere('id', $id)?->enabled)->groupBy(fn ($identity) => $identity['gateway'] ?? '?')->filter(fn ($group) => $group->count() > 1))
             @if($sharedGateways->isNotEmpty())
                 <div class="alert error"><strong>These probes are not on separate networks.</strong> {{ $sharedGateways->map(fn ($group, $gateway) => $group->count().' probes share gateway '.$gateway)->join('; ') }}, so their checks all see the same filtering. Put each probe on its VLAN under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Probe containers</a>.</div>
@@ -168,23 +168,30 @@
                             <td><input name="profiles[{{ $profile->id }}][probe_url]" value="{{ $profile->probe_url }}" required></td>
                             <td><input name="profiles[{{ $profile->id }}][unifi_network_id]" value="{{ $profile->unifi_network_id }}"></td>
                             <td class="probe-identity">
-                                @php($identity = $identities[$profile->id] ?? ['ok' => false, 'message' => 'Not checked.'])
-                                @if($identity['ok'] && $identity['vlan'])
-                                    <strong>{{ implode(', ', $identity['vlan']['ipv4']) ?: 'no IPv4' }}</strong>
-                                    <small>MAC <code>{{ $identity['vlan']['mac'] ?? '?' }}</code> · {{ $identity['vlan']['name'] }} · gateway {{ $identity['gateway'] ?? '?' }}</small>
-                                    <small>DNS {{ implode(', ', $identity['dns']) }} ({{ $identity['dns_mode'] }})</small>
-                                    @php($expected = $expectedGateways[$profile->unifi_network_id] ?? null)
-                                    @if($expected && $identity['gateway'] !== $expected)<small class="network-status warn">Default route is not this network's gateway ({{ $expected }}): the probe is not on its VLAN.</small>@endif
-                                    @if($expected && !in_array($expected, $identity['dns'], true))<small class="network-status warn">DNS is not {{ $expected }}, so checks may not see this network's filtering.</small>@endif
-                                @elseif($identity['ok'])
-                                    <small class="network-status warn">No default route reported.</small>
-                                @else
-                                    <small class="hint">{{ $identity['message'] }}</small>
-                                @endif
+                                @php($diagnosis = $diagnostics[$profile->id] ?? null)
+                                @php($vlanIf = collect($diagnosis['identity']['interfaces'] ?? [])->firstWhere('default_route', true))
+                                @if($vlanIf)<strong>{{ implode(', ', $vlanIf['ipv4']) ?: 'no IPv4' }}</strong><small>MAC <code>{{ $vlanIf['mac'] ?? '?' }}</code> · gateway {{ $diagnosis['identity']['gateway'] ?? '?' }}</small>@endif
+                                @if($diagnosis)<small class="network-status {{ ['ok' => 'ok', 'warn' => 'warn', 'todo' => 'warn', 'fail' => 'bad'][$diagnosis['state']] ?? 'muted' }}">{{ $diagnosis['summary'] }}</small>@endif
                             </td>
                             <td><input type="number" class="narrow" name="profiles[{{ $profile->id }}][sort_order]" value="{{ $profile->sort_order }}"></td>
                             <td><input type="hidden" name="profiles[{{ $profile->id }}][enabled]" value="0"><input type="checkbox" name="profiles[{{ $profile->id }}][enabled]" value="1" @checked($profile->enabled)></td>
                         </tr>
+                        @if($diagnosis)
+                            <tr class="probe-checklist-row"><td colspan="7">
+                                <details class="probe-checklist" @if($diagnosis['state'] !== 'ok') open @endif>
+                                    <summary>Setup checklist for {{ $profile->name }} <span class="network-status {{ ['ok' => 'ok', 'warn' => 'warn', 'todo' => 'warn', 'fail' => 'bad'][$diagnosis['state']] ?? 'muted' }}">{{ $diagnosis['summary'] }}</span></summary>
+                                    <ol>
+                                        @foreach($diagnosis['checks'] as $check)
+                                            <li class="check-{{ $check['status'] }}"><span class="check-mark">{{ ['ok' => '✓', 'fail' => '✗', 'warn' => '!', 'todo' => '→', 'skip' => '–'][$check['status']] ?? '?' }}</span>
+                                                <div><strong>{{ $check['label'] }}</strong> <span>{{ $check['detail'] }}</span>
+                                                    @if($check['fix'])<ul class="check-fix">@foreach($check['fix'] as $step)<li>{{ $step }}</li>@endforeach</ul>@endif
+                                                </div>
+                                            </li>
+                                        @endforeach
+                                    </ol>
+                                </details>
+                            </td></tr>
+                        @endif
                     @endforeach
                 </tbody>
             </table></div>

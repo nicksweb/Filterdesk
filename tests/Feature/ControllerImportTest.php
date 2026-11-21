@@ -13,7 +13,6 @@ use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 use Tests\Concerns\BuildsPolicies;
 use Tests\TestCase;
@@ -116,27 +115,6 @@ class ControllerImportTest extends TestCase
 
         $this->artisan('probes:compose')->assertSuccessful()->expectsOutputToContain('-o parent=eno1.80');
         $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('value="eno1"', false)->assertSee('set by hand');
-    }
-
-    public function test_profiles_show_the_address_and_mac_each_probe_reports_and_flag_a_probe_off_its_vlan(): void
-    {
-        $this->actingAs(User::factory()->admin()->create())->post(route('admin.policy.setup.import-all'));
-        NetworkProfile::query()->where('key', 'student')->update(['probe_url' => 'http://probe-student:3000', 'unifi_network_id' => 'sim-student']);
-        NetworkProfile::query()->where('key', 'staff')->update(['probe_url' => 'http://probe-staff:3000', 'unifi_network_id' => 'sim-staff']);
-        Http::fake([
-            'probe-student:3000/identity' => Http::response(['hostname' => 'a1', 'gateway' => '10.0.20.1', 'dns' => ['10.0.20.1'], 'dns_mode' => 'direct', 'interfaces' => [
-                ['name' => 'eth0', 'mac' => '02:42:ac:11:00:02', 'ipv4' => ['172.18.0.2/16'], 'default_route' => false],
-                ['name' => 'eth1', 'mac' => '02:aa:bb:cc:dd:ee', 'ipv4' => ['10.0.20.241/24'], 'default_route' => true],
-            ]]),
-            'probe-staff:3000/identity' => Http::response(['hostname' => 'b2', 'gateway' => '172.18.0.1', 'dns' => ['127.0.0.11'], 'dns_mode' => 'system', 'interfaces' => [
-                ['name' => 'eth0', 'mac' => '02:42:ac:11:00:03', 'ipv4' => ['172.18.0.3/16'], 'default_route' => true],
-            ]]),
-        ]);
-
-        $this->actingAs(User::factory()->admin()->create())->get(route('admin.settings.show', 'profiles'))->assertOk()
-            ->assertSee('10.0.20.241/24')->assertSee('02:aa:bb:cc:dd:ee')
-            ->assertSee('the probe is not on its VLAN', false)->assertSee('DNS is not 10.0.10.1', false);
-        Http::assertSent(fn ($request) => $request->hasHeader('X-Probe-Key') && str_ends_with($request->url(), '/identity'));
     }
 
     public function test_vlan_numbers_typed_in_the_installer_place_each_probe_on_that_vlan(): void

@@ -104,6 +104,22 @@ After **Policy lists → Guided setup → Bring everything in**, the *Probe cont
 
 Every policy mapped to a network gets its own probe. Policies other than Students and Staff (a guest filter, or one per year level) get a full service definition in the generated file, named `probe-<policy>`. To test from a network that has no policy of its own, or a second VLAN worth checking separately (guest Wi-Fi, BYOD, a lab), tick it under **Extra probes** on the same page, and save (or pass `--network=<controller network id>` to `probes:compose`); it becomes `probe-net-<name>` with its own profile. Checks run on every enabled profile, so the results show each network side by side. Layers share their parent's networks and need no probe of their own.
 
+### Probe setup checklist
+
+Settings → Network profiles shows a checklist for every probe, with a fix for each failed step:
+
+| Step | Usual cause when it fails |
+| --- | --- |
+| Container running | Started without `-f compose.vlan.yml`, or the probe URL does not match the service name. |
+| On its VLAN | The macvlan network was not created, or the stack was restarted without `compose.vlan.yml`. |
+| Gateway reachable | The switch port does not tag that VLAN, or the hypervisor drops it: on Proxmox, a VLAN tag on the VM's NIC, a bridge that is not VLAN aware, or the firewall's MAC filter; on VMware, the port group security settings; on Hyper-V, MAC spoofing off. `sudo bin/probe-interfaces --listen <trunk>` shows which VLAN tags arrive. |
+| DNS through the gateway | The gateway is unreachable, or `*_PROBE_DNS_SERVERS` points somewhere else. |
+| Internet access | The network blocks internet access (common for IoT and camera networks). |
+| Network is filtered | No content filter covers that network, so the probe shows sites unfiltered. |
+| Address outside DHCP | The probe's fixed address is inside UniFi's DHCP range; end the range below it. |
+
+The checklist reruns every 10 minutes (`probes:check`), and the dashboard reminds admins while any probe is unfinished.
+
 ### Addresses, MACs and host networking
 
 Probes do **not** use host networking (`network_mode: host`). Each one is an ordinary container with two interfaces: one on the internal `probe_control` bridge, which the app uses to send it checks, and one macvlan interface on its VLAN, which carries its traffic and its default route. The macvlan interface has its own MAC and IP, so UniFi sees each probe as a separate client on that VLAN, and the Docker host's own network settings are untouched. (Linux does not let a host talk directly to its own macvlan children; nothing here needs it, because the app reaches the probes over `probe_control`.)

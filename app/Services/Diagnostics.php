@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkProfile;
 use App\Services\Network\NetworkProviderManager;
+use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -78,6 +79,11 @@ class Diagnostics
                 } catch (Throwable) {
                     $ok = false;
                     $message = 'Probe unreachable.';
+                }
+                $diagnosis = app(ProbeDiagnostics::class)->cached($profile);
+                if ($ok && $diagnosis && $diagnosis['state'] !== 'ok') {
+                    $ok = $diagnosis['state'] !== 'fail';
+                    $message .= ' · Setup: '.$diagnosis['summary'].' See Settings → Network profiles.';
                 }
                 $checks["probe_{$profile->key}"] = ['ok' => $ok, 'label' => "Probe: {$profile->name}", 'message' => $message];
             }

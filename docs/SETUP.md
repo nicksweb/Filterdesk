@@ -252,7 +252,9 @@ A check is only meaningful if the probe resolves DNS from the same network as th
 
 6. **Enable the probes.** Use **Create and link probe profiles**, then tick *On* for each profile under Settings → Network profiles.
 
-**Check:** Settings → Network profiles shows each probe's address on its VLAN, its MAC, gateway and DNS, with no warnings. Each probe appears as a client on the right network in UniFi (name it there). A website check of a site you know is blocked for students shows *Blocked* for Students and *Allowed* for Staff.
+**Finish each probe with its checklist.** Settings → Network profiles runs a setup checklist for every probe: network chosen, container running, on its VLAN, gateway reachable, DNS through the gateway, internet access, network filtered, address outside DHCP, switched on. Each failed step says what to fix (for example "give the switch port a profile that carries VLAN 20 tagged" or "turn off the Proxmox MAC filter"). The checklist reruns every 10 minutes, the dashboard reminds admins while any probe is unfinished, and `docker compose exec app php artisan probes:check` prints the same list on the host.
+
+**Check:** every checklist is green and each probe is switched on. Settings → Network profiles shows each probe's address on its VLAN, its MAC, gateway and DNS, with no warnings. Each probe appears as a client on the right network in UniFi (name it there). A website check of a site you know is blocked for students shows *Blocked* for Students and *Allowed* for Staff.
 
 ## 10. Test end to end
 

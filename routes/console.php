@@ -37,3 +37,4 @@ Schedule::command('policy:digest')
         }
     })())
     ->withoutOverlapping();
+Schedule::command('probes:check')->everyTenMinutes()->withoutOverlapping()->runInBackground();
