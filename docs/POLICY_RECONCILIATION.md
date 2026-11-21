@@ -64,9 +64,9 @@ With website categories turned on (Settings → Website categories), approving a
 | Why it is blocked | What approval does |
 | --- | --- |
 | Its UniFi category is blocked by a filter the request covers | Adds an allow entry (needed to override the category) |
-| A blocklist feed, or an entry imported from the controller | Adds an allow entry (the feed would put it back) |
+| A blocklist feed | Adds an allow entry (the feed would put it back) |
 | A block in a list that also covers networks outside the request | Adds an allow entry, so the other networks keep their block |
-| Only blocks IT added, in lists the request covers | **Removes those blocks** instead; no allow entry |
+| Only blocks IT added, or blocks made in UniFi (imported), in lists the request covers | **Removes those blocks** instead, and the next push removes them from UniFi; no allow entry |
 | Nothing | Adds nothing |
 | Category unknown, or timed access | Adds an allow entry, as before |
 

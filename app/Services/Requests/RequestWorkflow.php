@@ -165,7 +165,14 @@ class RequestWorkflow
         $lines = [];
         foreach ($plan as $domain => $step) {
             if ($step['action'] === 'unblock' && $step['entries'] !== []) {
-                $removed = PolicyEntry::query()->whereKey($step['entries'])->where('domain', '!=', '')->get();
+                $removed = PolicyEntry::query()->whereKey($step['entries'])->get();
+                // The app now owns these blocks, so the next push removes them from the controller
+                // instead of treating them as entries made by hand in UniFi.
+                foreach (app(AccessPlanner::class)->policiesFor($removed->pluck('id')->all(), $websiteRequest->effectiveScope()) as $policy) {
+                    $managed = $policy->managed();
+                    $managed['block'] = array_values(array_unique([...$managed['block'], ...$removed->pluck('domain')->all()]));
+                    $policy->forceFill(['controller_managed' => $managed])->save();
+                }
                 foreach ($removed as $entry) {
                     $this->audit->log('policy.entry_removed', $entry->policyList, ['domain' => $entry->domain, 'reason' => "Approved {$websiteRequest->reference}"]);
                 }

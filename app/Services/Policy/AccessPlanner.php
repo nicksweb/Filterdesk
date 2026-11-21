@@ -16,8 +16,9 @@ use Illuminate\Support\Collection;
  * Works out the least change that gives access to a site: an allow entry is
  * only needed to override something (a blocked UniFi category, a blocklist
  * feed or an import from the controller, or a block in a list the approval
- * does not cover). When a site is only blocked by entries IT added to lists
- * the approval covers, removing those entries is enough; when nothing blocks
+ * does not cover). When a site is only blocked by entries IT added (or that
+ * were imported from the controller) in lists the approval covers, removing
+ * those entries is enough; when nothing blocks
  * it, nothing is added. Timed access always uses an allow entry, because it
  * has to end on its own. When the category is unknown, an allow entry is the
  * safe choice.
@@ -39,6 +40,21 @@ class AccessPlanner
         }
 
         return $plan;
+    }
+
+    /**
+     * Linked policies a removed block entry applied to: their controller
+     * filters must drop it on the next push.
+     *
+     * @param  list<int>  $entryIds
+     * @return Collection<int, FilterPolicy>
+     */
+    public function policiesFor(array $entryIds, Reach $scope): Collection
+    {
+        $lists = PolicyEntry::query()->with('policyList')->whereKey($entryIds)->get()->pluck('policyList')->unique('id');
+
+        return $this->engine->policiesFor($scope)->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference)
+            && $lists->contains(fn (PolicyList $list) => $list->appliesTo($policy)))->values();
     }
 
     /** Whether the smart plan can do anything other than add allow entries. */
@@ -85,9 +101,11 @@ class AccessPlanner
             return ['action' => 'none', 'reason' => "Categorised as {$categories}; no filter blocks that category and no list blocks the site, so nothing needs adding.", 'entries' => [], 'lists' => []];
         }
 
-        $bulk = $blocks->first(fn (PolicyEntry $entry) => in_array($entry->source, [EntrySource::Feed, EntrySource::Import], true));
-        if ($bulk) {
-            return $allow("It is in {$bulk->policyList->name} (".($bulk->source === EntrySource::Feed ? 'a blocklist feed' : 'imported from the controller').'), which an allow entry overrides.');
+        // A feed puts its entries back on every refresh, so only an allow entry can override it.
+        // An import is a single block someone made in the controller, so it can be removed like one IT added.
+        $feed = $blocks->first(fn (PolicyEntry $entry) => $entry->source === EntrySource::Feed);
+        if ($feed) {
+            return $allow("It is in {$feed->policyList->name}, a blocklist feed that would put it back, so an allow entry overrides it.");
         }
         $outside = $blocks->first(fn (PolicyEntry $entry) => ! $this->listWithin($entry->policyList, $scope));
         if ($outside) {
@@ -96,7 +114,8 @@ class AccessPlanner
 
         return [
             'action' => 'unblock',
-            'reason' => "Categorised as {$categories}, which no filter blocks. It is only blocked by ".$blocks->pluck('policyList.name')->unique()->join(', ').', so removing that block is enough.',
+            'reason' => "Categorised as {$categories}, which no filter blocks. It is only blocked by ".$blocks->pluck('policyList.name')->unique()->join(', ')
+                .($blocks->contains(fn (PolicyEntry $entry) => $entry->source === EntrySource::Import) ? ' (a block made in UniFi)' : '').', so removing that block is enough.',
             'entries' => $blocks->pluck('id')->values()->all(),
             'lists' => $blocks->pluck('policyList.name')->unique()->values()->all(),
         ];

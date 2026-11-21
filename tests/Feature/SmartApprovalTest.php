@@ -94,4 +94,30 @@ class SmartApprovalTest extends TestCase
         $this->assertSame('allow', app(AccessPlanner::class)->plan(['news.example'], Reach::siteWide(), timed: true)['news.example']['action']);
         $this->assertSame('unblock', app(AccessPlanner::class)->plan(['news.example'], Reach::siteWide(), timed: false)['news.example']['action']);
     }
+
+    public function test_a_block_imported_from_unifi_is_removed_from_the_controller_instead_of_overridden(): void
+    {
+        $admin = User::factory()->admin()->create();
+        // As after "Bring everything in": the block was made in UniFi and imported into the policy's own list.
+        (new MockNetworkProvider)->writeContentFilterLists('sim-filter-staff', [], ['church.example', 'www.church.example']);
+        $own = $this->engine->ownList($this->staff, ListKind::Block);
+        foreach (['church.example', 'www.church.example'] as $domain) {
+            $this->engine->upsertEntry($own, $domain, ['source' => 'import']);
+        }
+        $this->artisan('policy:check-sync')->assertSuccessful();
+        Http::fake(['api.cloudflare.com/*/www.church.example' => Http::response(['result' => ['details_0' => ['categories' => [['name' => 'Religion']]]]])]);
+
+        $request = $this->pendingRequest(['church.example', 'www.church.example'], Reach::types('staff'));
+        $this->actingAs($admin)->post(route('it.requests.action', $request), ['action' => 'approve', 'smart' => '1', 'domains' => ['church.example', 'www.church.example']])->assertSessionHas('success');
+
+        $request->refresh();
+        $this->assertSame(['unblock', 'unblock'], array_values(collect($request->access_plan)->map(fn (array $step) => $step['action'])->all()));
+        $filter = collect((new MockNetworkProvider)->contentFilters())->firstWhere('id', 'sim-filter-staff');
+        $this->assertSame([], $filter['block'], 'The UniFi block was removed');
+        $this->assertSame([], $filter['allow'], 'No allow entry was needed');
+        $this->assertSame(RequestStatus::Active, $request->status);
+
+        $this->artisan('policy:check-sync')->assertSuccessful();
+        $this->assertFalse(PolicyEntry::query()->where('domain', 'church.example')->whereHas('policyList', fn ($q) => $q->where('kind', ListKind::Block))->exists(), 'It is not imported back');
+    }
 }
