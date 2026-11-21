@@ -61,7 +61,7 @@ class InstallController extends Controller
                 'unifi_controller_url' => ['nullable', Rule::requiredIf(fn () => $request->boolean('unifi_enabled') && $request->input('unifi_connection', 'local') === 'local'), 'url', 'starts_with:https://'],
                 'unifi_console_id' => ['nullable', 'string', 'max:200', 'regex:/^[A-Za-z0-9:_-]+$/'],
                 'unifi_api_key' => ['nullable', 'required_if:unifi_enabled,1', 'string'],
-                'unifi_site_id' => ['nullable', 'string'],
+                'unifi_site_id' => ['nullable', 'string', 'max:120', 'different:unifi_console_id'],
                 'unifi_verify_tls' => ['nullable', 'boolean'],
                 'unifi_mode' => ['required', 'in:read_only,active'],
                 'entry_matching' => ['nullable', 'in:exact,includes_subdomains'],

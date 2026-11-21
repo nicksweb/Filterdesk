@@ -413,24 +413,28 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     private ?string $siteIdentifier = null;
 
-    /** The integration API's site ID: as configured, or the first site. */
+    /**
+     * The integration API's site ID. A configured value is used when it names
+     * a site on the console (by id, internal reference such as "default", or
+     * name); anything else (for example the console ID pasted by mistake)
+     * falls back to the first site.
+     */
     private function siteId(): string
     {
         if ($this->siteIdentifier !== null) {
             return $this->siteIdentifier;
         }
-        $configured = $this->integration->configuration['site_id'] ?? null;
-        if (filled($configured)) {
-            return $this->siteIdentifier = (string) $configured;
-        }
         $response = $this->client()->get($this->path('/sites'));
         $this->ensureSuccessful($response, 'sites');
-        $first = $response->json('data.0.id');
-        if (! $first) {
+        $sites = collect($response->json('data', []));
+        if ($sites->isEmpty()) {
             throw new ProviderRequestFailed('The controller reported no sites.');
         }
 
-        return $this->siteIdentifier = (string) $first;
+        $configured = trim((string) ($this->integration->configuration['site_id'] ?? ''));
+        $site = $configured === '' ? null : $sites->first(fn ($site) => in_array($configured, [(string) ($site['id'] ?? ''), (string) ($site['internalReference'] ?? ''), (string) ($site['name'] ?? '')], true));
+
+        return $this->siteIdentifier = (string) (($site ?? $sites->first())['id']);
     }
 
     public function networks(): array
@@ -501,7 +505,8 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
         $siteId = $this->integration->configuration['site_id'] ?? null;
         if (filled($siteId)) {
-            $site = collect($this->client()->get($this->path('/sites'))->json('data', []))->firstWhere('id', $siteId);
+            $site = collect(rescue(fn () => $this->client()->get($this->path('/sites'))->json('data', []), [], false))
+                ->first(fn ($site) => in_array((string) $siteId, [(string) ($site['id'] ?? ''), (string) ($site['internalReference'] ?? ''), (string) ($site['name'] ?? '')], true));
             if (filled($site['internalReference'] ?? null)) {
                 return $this->siteReference = (string) $site['internalReference'];
             }

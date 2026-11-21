@@ -274,7 +274,7 @@ class SettingsController extends Controller
             'controller_url' => ['nullable', Rule::requiredIf(fn () => $request->input('provider') === 'unifi' && $request->input('connection', 'local') === 'local'), 'url', 'starts_with:https://'],
             'console_id' => ['nullable', 'string', 'max:200', 'regex:/^[A-Za-z0-9:_-]+$/'],
             'api_key' => ['nullable', 'string', 'max:500'],
-            'site_id' => ['nullable', 'string', 'max:120'],
+            'site_id' => ['nullable', 'string', 'max:120', 'different:console_id'],
             'api_prefix' => ['nullable', 'string', 'max:120', 'regex:/^\/[A-Za-z0-9\/_-]*$/'],
             'verify_tls' => ['nullable', 'boolean'],
             'mode' => ['required', 'in:read_only,active'],
@@ -283,7 +283,7 @@ class SettingsController extends Controller
             'controller_authoritative' => ['nullable', 'boolean'],
             'max_filter_entries' => ['nullable', 'integer', 'min:50', 'max:'.ControllerPusher::DEFAULT_MAX_ENTRIES],
             'max_automatic_changes' => ['nullable', 'integer', 'min:10', 'max:'.ControllerPusher::DEFAULT_MAX_ENTRIES],
-        ]);
+        ], ['site_id.different' => 'That is the console ID. Leave Site ID blank (the first site is used), or enter the site\'s ID or short name such as "default".']);
 
         $integration = IntegrationConfig::query()->where('provider', $validated['provider'])->first()
             ?? new IntegrationConfig(['provider' => $validated['provider'], 'name' => $validated['provider'] === 'unifi' ? 'UniFi Network' : 'Simulation']);

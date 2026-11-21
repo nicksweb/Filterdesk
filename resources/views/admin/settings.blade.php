@@ -108,7 +108,7 @@
             @if($discovery && !empty($discovery['consoles']))<datalist id="discovered-consoles">@foreach($discovery['consoles'] as $console)<option value="{{ $console['id'] }}">{{ $console['name'] }}</option>@endforeach</datalist>@endif
             <div class="fields two">
                 <label>API key <span class="optional">{{ $networkHasKey ? 'stored · blank keeps it' : 'not set' }}</span><input name="api_key" type="password" autocomplete="new-password"><small>Use a dedicated key for IT Requests.</small></label>
-                <label>Site ID<input name="site_id" value="{{ old('site_id', $network?->configuration['site_id'] ?? '') }}" list="discovered-sites"><small>Use Discover to list sites.</small></label>
+                <label>Site ID <span class="optional">usually blank</span><input name="site_id" value="{{ old('site_id', $network?->configuration['site_id'] ?? '') }}" list="discovered-sites"><small>Only for a console with more than one site. Blank uses the first site. This is not the console ID. Use Discover to list sites.</small></label>
             </div>
             @if($discovery && $discovery['sites'])<datalist id="discovered-sites">@foreach($discovery['sites'] as $site)<option value="{{ $site['id'] }}">{{ $site['name'] }}</option>@endforeach</datalist>@endif
             <div class="fields two">

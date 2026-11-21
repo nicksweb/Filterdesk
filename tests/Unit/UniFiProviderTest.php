@@ -137,4 +137,19 @@ class UniFiProviderTest extends TestCase
         Http::assertSentCount(3);
         Sleep::assertSleptTimes(2);
     }
+
+    public function test_a_console_id_in_the_site_id_field_falls_back_to_the_real_site(): void
+    {
+        Http::fake([
+            'unifi.example.test/proxy/network/integration/v1/sites?*' => Http::response(['data' => [['id' => 'site-uuid', 'internalReference' => 'default', 'name' => 'Default']]]),
+            'unifi.example.test/proxy/network/integration/v1/sites' => Http::response(['data' => [['id' => 'site-uuid', 'internalReference' => 'default', 'name' => 'Default']]]),
+            'unifi.example.test/proxy/network/integration/v1/sites/site-uuid/traffic-matching-lists*' => Http::response(['data' => [['id' => 'g1', 'name' => 'Threats', 'type' => 'IPV4_ADDRESSES', 'items' => []]]]),
+            '*' => Http::response(['message' => 'not a valid siteId'], 400),
+        ]);
+
+        $groups = $this->provider(['connection' => 'local', 'controller_url' => 'https://unifi.example.test', 'console_id' => 'ABC:123', 'site_id' => 'ABC:123'])->ipGroups();
+
+        $this->assertSame('Threats', $groups[0]['name']);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'ABC'));
+    }
 }
