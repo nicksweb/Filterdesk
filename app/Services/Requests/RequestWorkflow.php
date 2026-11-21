@@ -4,6 +4,7 @@ namespace App\Services\Requests;
 
 use App\Enums\EntrySource;
 use App\Enums\RequestStatus;
+use App\Jobs\PushAfterRequestChange;
 use App\Models\PolicyEntry;
 use App\Models\RequestEvent;
 use App\Models\User;
@@ -218,7 +219,14 @@ class RequestWorkflow
         return $settled;
     }
 
+    /** Push the affected filters in the background, so the page answers straight away. */
     private function pushAfter(WebsiteRequest $websiteRequest, ?User $actor, Reach $scope, string $trigger): void
+    {
+        PushAfterRequestChange::dispatch($websiteRequest->id, $actor?->id, $scope->value(), $trigger)->afterCommit();
+    }
+
+    /** Push now (from the background job) and note a failure on the request. */
+    public function pushNow(WebsiteRequest $websiteRequest, ?User $actor, Reach $scope, string $trigger): void
     {
         try {
             $results = $this->pusher()->pushAll($actor, $trigger, $scope);

@@ -7,6 +7,9 @@ x-app: &app
     target: runtime
   image: it-edu-selfservice-app:${APP_IMAGE_TAG:-local}
   env_file: .env
+  environment:
+    # Longer than the queue worker's --timeout, so a slow push is not started twice.
+    DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-330}
   restart: unless-stopped
   networks: [app, outbound]
   volumes:
@@ -66,7 +69,7 @@ services:
 
   queue:
     <<: *app
-    command: ["php", "artisan", "queue:work", "--sleep=2", "--tries=3", "--timeout=60", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--sleep=2", "--tries=3", "--timeout=300", "--max-time=3600"]
     depends_on:
       migrate: { condition: service_completed_successfully }
 

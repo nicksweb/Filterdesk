@@ -304,4 +304,16 @@ class ControllerPushTest extends TestCase
 
         $this->assertSame(RequestStatus::Active, $request->refresh()->status);
     }
+
+    public function test_pushes_after_a_request_change_run_in_the_background(): void
+    {
+        \Illuminate\Support\Facades\Queue::fake();
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['auto_push' => true, 'controller_authoritative' => true]]);
+        $request = $this->pendingRequest(['later.example.org']);
+
+        $this->actingAs(User::factory()->admin()->create())->post(route('it.requests.action', $request), ['action' => 'approve'])->assertSessionHas('success');
+
+        \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\PushAfterRequestChange::class, fn ($job) => $job->websiteRequestId === $request->id && $job->trigger === 'approval');
+        $this->assertNotContains('later.example.org', $this->filter('sim-filter-students')['allow'], 'Nothing is pushed while the page waits');
+    }
 }
