@@ -421,7 +421,7 @@ class SettingsController extends Controller
     {
         $validated = $request->validate([
             'enabled' => ['nullable', 'boolean'],
-            'source' => ['required', 'in:radar,intel'],
+            'source' => ['required', 'in:auto,radar,intel'],
             'token' => ['nullable', 'string', 'max:200'],
             'account_id' => ['nullable', 'required_if:source,intel', 'string', 'max:32', 'regex:/^[a-f0-9]{32}$/i'],
         ], ['account_id.regex' => 'The account ID is the 32-character hex id in the Cloudflare dashboard URL.']);

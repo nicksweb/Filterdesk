@@ -82,7 +82,7 @@ class DomainCategoryTest extends TestCase
 
         $refused = app(DomainCategorizer::class)->lookup('other.example');
         $this->assertFalse($refused['ok']);
-        $this->assertStringContainsString('refused the API token', $refused['message']);
+        $this->assertStringContainsString('missing the Intel Read permission', $refused['message']);
     }
 
     public function test_admin_turns_it_on_with_a_write_only_token(): void
@@ -92,5 +92,22 @@ class DomainCategoryTest extends TestCase
         $this->actingAs($admin)->put(route('admin.settings.update', 'categories'), ['enabled' => '1', 'source' => 'radar', 'token' => 'secret-token'])->assertSessionHas('success');
         $this->assertTrue(app(DomainCategorizer::class)->enabled());
         $this->actingAs($admin)->get(route('admin.settings.show', 'categories'))->assertOk()->assertSee('saved; leave blank to keep it')->assertDontSee('secret-token');
+    }
+
+    public function test_auto_asks_intel_first_and_falls_back_to_radar_with_an_explanation(): void
+    {
+        IntegrationConfig::query()->create(['provider' => DomainCategorizer::PROVIDER, 'name' => 'Website categories', 'mode' => 'read_only', 'enabled' => true,
+            'configuration' => ['source' => 'auto', 'account_id' => str_repeat('b', 32)], 'credentials' => ['token' => 't']]);
+        Http::fake([
+            'api.cloudflare.com/client/v4/accounts/*' => Http::response(['success' => false], 403),
+            'api.cloudflare.com/client/v4/radar/ranking/domain/popular.example' => Http::response(['result' => ['details_0' => ['categories' => [['name' => 'Social Networks']]]]]),
+            'api.cloudflare.com/client/v4/radar/ranking/domain/small.example' => Http::response(['result' => ['details_0' => ['categories' => []]]]),
+        ]);
+
+        $this->assertSame(['Social Networks'], app(DomainCategorizer::class)->lookup('popular.example')['categories']);
+        $small = app(DomainCategorizer::class)->lookup('small.example');
+        $this->assertSame([], $small['categories']);
+        $this->assertStringContainsString('missing the Intel Read permission', $small['message']);
+        $this->assertStringContainsString('Radar only categorises popular sites', $small['message']);
     }
 }

@@ -264,12 +264,15 @@
             <label class="choice"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked(old('enabled', $categoryLookup?->enabled))><span><strong>Look up website categories</strong><small>Off by default.</small></span></label>
             <label>Source
                 <select name="source">
-                    <option value="radar" @selected(($categoryLookup?->configuration['source'] ?? 'radar') === 'radar')>Cloudflare Radar: categories (API token)</option>
-                    <option value="intel" @selected(($categoryLookup?->configuration['source'] ?? '') === 'intel')>Cloudflare Intel: categories and security risks (API token and account ID)</option>
+                    @php($source = $categoryLookup?->configuration['source'] ?? 'auto')
+                    <option value="auto" @selected($source === 'auto')>Cloudflare: Intel when an account ID is set, Radar otherwise (recommended)</option>
+                    <option value="intel" @selected($source === 'intel')>Cloudflare Intel only: any site, with security risks (account ID and Intel Read)</option>
+                    <option value="radar" @selected($source === 'radar')>Cloudflare Radar only: popular sites only (token only)</option>
                 </select>
+                <small>Radar only categorises sites in its popularity rankings, so most smaller sites come back empty. Intel categorises almost any domain.</small>
             </label>
-            <label>Cloudflare API token <span class="optional">{{ filled($categoryLookup?->credentials['token'] ?? null) ? 'saved; leave blank to keep it' : 'required' }}</span><input type="password" name="token" autocomplete="off" maxlength="200"><small>Create one at dash.cloudflare.com → My Profile → API Tokens, with read access to Radar (or Intel). A free account works for Radar.</small></label>
-            <label>Account ID <span class="optional">Intel only</span><input name="account_id" value="{{ old('account_id', $categoryLookup?->configuration['account_id'] ?? '') }}" maxlength="32" class="mono"></label>
+            <label>Cloudflare API token <span class="optional">{{ filled($categoryLookup?->credentials['token'] ?? null) ? 'saved; leave blank to keep it' : 'required' }}</span><input type="password" name="token" autocomplete="off" maxlength="200"><small>Create one at dash.cloudflare.com → Manage account → Account API Tokens (or My Profile → API Tokens) with <strong>Account → Intel → Read</strong> and <strong>Account → Radar → Read</strong>. Read access only; nothing else.</small></label>
+            <label>Account ID <span class="optional">needed for Intel; in the dashboard URL after dash.cloudflare.com/</span><input name="account_id" value="{{ old('account_id', $categoryLookup?->configuration['account_id'] ?? '') }}" maxlength="32" class="mono"></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.test-categories') }}">@csrf

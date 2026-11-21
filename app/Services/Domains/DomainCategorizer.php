@@ -43,7 +43,7 @@ class DomainCategorizer
         $config = $this->integration();
 
         return $config !== null && $config->enabled && filled($config->credentials['token'] ?? null)
-            && (($config->configuration['source'] ?? 'radar') !== 'intel' || filled($config->configuration['account_id'] ?? null));
+            && (($config->configuration['source'] ?? 'auto') !== 'intel' || filled($config->configuration['account_id'] ?? null));
     }
 
     /**
@@ -80,24 +80,57 @@ class DomainCategorizer
         return $raw + ['unifi' => $raw['ok'] ? $this->matchUnifi($raw['categories']) : []];
     }
 
-    /** @return array{ok: bool, categories: list<string>, risks: list<string>, message?: string} */
+    /**
+     * Ask Cloudflare. Intel categorises almost any domain but needs an
+     * account ID and the Intel Read permission; Radar needs only a token but
+     * only categorises domains in its popularity rankings. With an account ID
+     * Intel is asked first and Radar is the fallback.
+     *
+     * @return array{ok: bool, categories: list<string>, risks: list<string>, message?: string, source?: string}
+     */
     private function fetch(string $domain): array
     {
         $config = $this->integration();
         $token = (string) ($config?->credentials['token'] ?? '');
-        $intel = ($config?->configuration['source'] ?? 'radar') === 'intel';
+        $accountId = (string) ($config?->configuration['account_id'] ?? '');
+        $source = $config?->configuration['source'] ?? 'radar';
+        $order = match (true) {
+            $source === 'intel' => ['intel'],
+            $source === 'auto' && $accountId !== '' => ['intel', 'radar'],
+            default => ['radar'],
+        };
 
+        $notes = [];
+        foreach ($order as $service) {
+            $result = $this->ask($service, $domain, $token, $accountId);
+            if ($result['ok'] && ($result['categories'] !== [] || $result['risks'] !== [])) {
+                return $result + ['source' => $service];
+            }
+            $notes[] = $result['message'] ?? null;
+            $last = $result;
+        }
+
+        $message = collect($notes)->filter()->unique()->join(' ');
+
+        return ['ok' => $last['ok'] ?? false, 'categories' => [], 'risks' => [], 'message' => $message ?: 'Not categorised yet.'];
+    }
+
+    /** @return array{ok: bool, categories: list<string>, risks: list<string>, message?: string} */
+    private function ask(string $service, string $domain, string $token, string $accountId): array
+    {
         try {
             $request = Http::withToken($token)->acceptJson()->connectTimeout(3)->timeout(6);
-            $response = $intel
-                ? $request->get('https://api.cloudflare.com/client/v4/accounts/'.rawurlencode((string) $config->configuration['account_id']).'/intel/domain', ['domain' => $domain])
+            $response = $service === 'intel'
+                ? $request->get('https://api.cloudflare.com/client/v4/accounts/'.rawurlencode($accountId).'/intel/domain', ['domain' => $domain])
                 : $request->get('https://api.cloudflare.com/client/v4/radar/ranking/domain/'.rawurlencode($domain));
         } catch (Throwable) {
             return ['ok' => false, 'categories' => [], 'risks' => [], 'message' => 'The category service could not be reached.'];
         }
 
         if (in_array($response->status(), [401, 403], true)) {
-            return ['ok' => false, 'categories' => [], 'risks' => [], 'message' => 'The category service refused the API token. Check it under Settings → Website categories.'];
+            return ['ok' => false, 'categories' => [], 'risks' => [], 'message' => $service === 'intel'
+                ? 'The Cloudflare token is missing the Intel Read permission (Account → Intel → Read), so only popular sites can be categorised.'
+                : 'Cloudflare refused the API token for Radar. Check it under Settings → Website categories.'];
         }
         if ($response->status() === 404) {
             return ['ok' => true, 'categories' => [], 'risks' => [], 'message' => 'Not categorised yet.'];
@@ -108,12 +141,18 @@ class DomainCategorizer
 
         $result = (array) $response->json('result', []);
         $names = fn (array $items) => collect($items)->pluck('name')->filter(fn ($name) => is_string($name) && $name !== '')->unique()->values()->all();
-        $categories = $intel
-            ? $names([...(array) ($result['content_categories'] ?? []), ...(array) ($result['inherited_content_categories'] ?? [])])
-            : $names((array) ($result['details_0']['categories'] ?? []));
-        $risks = $intel ? $names([...(array) ($result['risk_types'] ?? []), ...(array) ($result['inherited_risk_types'] ?? [])]) : [];
+        if ($service === 'intel') {
+            $categories = $names([...(array) ($result['content_categories'] ?? []), ...(array) ($result['inherited_content_categories'] ?? [])]);
+            $risks = $names([...(array) ($result['risk_types'] ?? []), ...(array) ($result['inherited_risk_types'] ?? [])]);
+        } else {
+            $categories = $names((array) ($result['details_0']['categories'] ?? []));
+            $risks = [];
+        }
+        $empty = $categories === [] && $risks === [];
 
-        return ['ok' => true, 'categories' => $categories, 'risks' => $risks] + ($categories === [] && $risks === [] ? ['message' => 'Not categorised yet.'] : []);
+        return ['ok' => true, 'categories' => $categories, 'risks' => $risks] + ($empty ? ['message' => $service === 'radar'
+            ? 'Cloudflare Radar only categorises popular sites. Add an account ID and the Intel Read permission to the token to categorise any site.'
+            : 'Not categorised yet.'] : []);
     }
 
     /**
