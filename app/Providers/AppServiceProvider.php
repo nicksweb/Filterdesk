@@ -69,6 +69,11 @@ class AppServiceProvider extends ServiceProvider
                     'mail.mailers.smtp.host' => $mail['host'],
                     'mail.mailers.smtp.port' => $mail['port'] ?? 587,
                     'mail.mailers.smtp.scheme' => ($mail['encryption'] ?? 'tls') === 'ssl' ? 'smtps' : 'smtp',
+                    // "None" means plain SMTP (for example an internal relay on port 25): never upgrade to TLS,
+                    // even when the server offers STARTTLS. Otherwise TLS is used when offered.
+                    'mail.mailers.smtp.auto_tls' => ($mail['encryption'] ?? 'tls') !== 'none',
+                    // Accept a certificate that does not match the host (for example connecting by IP).
+                    'mail.mailers.smtp.verify_peer' => (bool) ($mail['verify_tls'] ?? true),
                     'mail.from.name' => $mail['from_name'] ?? config('app.name'),
                     'mail.mailers.smtp.username' => $credentials['username'] ?? null,
                     'mail.mailers.smtp.password' => $credentials['password'] ?? null,

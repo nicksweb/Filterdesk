@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Models\IntegrationConfig;
 use App\Models\PolicyList;
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use App\Services\SettingsRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\BuildsPolicies;
@@ -65,5 +66,22 @@ class SettingsTest extends TestCase
     public function test_health_endpoint_reports_version_without_authentication(): void
     {
         $this->getJson('/health')->assertOk()->assertJson(['status' => 'ok', 'version' => config('version.app')]);
+    }
+
+    public function test_plain_smtp_on_port_25_never_upgrades_to_tls_and_certificate_checks_can_be_relaxed(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin)->put(route('admin.settings.update', 'email'), [
+            'mail_host' => '10.0.0.25', 'mail_port' => 25, 'mail_encryption' => 'none', 'mail_verify_tls' => '0',
+            'it_notification_address' => 'it@example.org', 'digest_time' => '07:00',
+        ])->assertSessionHas('success');
+
+        (new AppServiceProvider($this->app))->boot();
+        $this->assertSame(25, config('mail.mailers.smtp.port'));
+        $this->assertFalse(config('mail.mailers.smtp.auto_tls'));
+        $this->assertFalse(config('mail.mailers.smtp.verify_peer'));
+
+        $transport = app('mail.manager')->createSymfonyTransport(config('mail.mailers.smtp'));
+        $this->assertFalse((fn () => $this->autoTls)->call($transport), 'Plain SMTP is never upgraded to TLS');
     }
 }

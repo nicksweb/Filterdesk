@@ -51,9 +51,10 @@
                 <label>Host <span class="optional">blank logs mail instead of sending</span><input name="mail_host" value="{{ old('mail_host', $smtp?->configuration['host'] ?? '') }}"></label>
                 <div class="fields two">
                     <label>Port<input name="mail_port" type="number" value="{{ old('mail_port', $smtp?->configuration['port'] ?? 587) }}"></label>
-                    <label>Encryption<select name="mail_encryption">@foreach(['tls' => 'STARTTLS', 'ssl' => 'TLS (SMTPS)', 'none' => 'None'] as $value => $label)<option value="{{ $value }}" @selected(old('mail_encryption', $smtp?->configuration['encryption'] ?? 'tls') === $value)>{{ $label }}</option>@endforeach</select></label>
+                    <label>Encryption<select name="mail_encryption">@foreach(['tls' => 'STARTTLS when offered (587, or 25)', 'ssl' => 'TLS from the start (SMTPS, 465)', 'none' => 'None: plain SMTP, never TLS (internal relay on 25)'] as $value => $label)<option value="{{ $value }}" @selected(old('mail_encryption', $smtp?->configuration['encryption'] ?? 'tls') === $value)>{{ $label }}</option>@endforeach</select></label>
                 </div>
             </div>
+            <label class="choice compact"><input type="hidden" name="mail_verify_tls" value="0"><input type="checkbox" name="mail_verify_tls" value="1" @checked(old('mail_verify_tls', $smtp?->configuration['verify_tls'] ?? true))><span><strong>Verify the server's certificate</strong><small>Leave on. If the test fails with "subjectAltName did not match" (common when the host is an IP address), use the server's name from its certificate as the host instead, or turn this off for an internal server you trust.</small></span></label>
             <div class="fields two">
                 <label>Username<input name="mail_username" autocomplete="off" value="{{ old('mail_username', $smtp?->credentials['username'] ?? '') }}"></label>
                 <label>Password <span class="optional">{{ $smtpHasPassword ? 'stored · blank keeps it' : 'not set' }}</span><input name="mail_password" type="password" autocomplete="new-password"></label>

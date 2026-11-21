@@ -73,7 +73,7 @@ class InstallController extends Controller
                 'staff_network_id' => ['nullable', 'string'],
             ]),
             6 => $request->validate([
-                'mail_host' => ['nullable', 'string'], 'mail_port' => ['nullable', 'integer'],
+                'mail_host' => ['nullable', 'string'], 'mail_port' => ['nullable', 'integer'], 'mail_encryption' => ['nullable', 'in:tls,ssl,none'],
                 'mail_username' => ['nullable', 'string'], 'mail_password' => ['nullable', 'string'],
                 'mail_from_address' => ['nullable', 'email'], 'it_notification_address' => ['required', 'email'],
             ]),
@@ -200,7 +200,7 @@ class InstallController extends Controller
                 IntegrationConfig::query()->create([
                     'provider' => 'smtp', 'name' => 'Email notifications', 'mode' => 'active', 'enabled' => true,
                     'configuration' => [
-                        'host' => $data['mail_host'], 'port' => $data['mail_port'] ?? 587,
+                        'host' => $data['mail_host'], 'port' => $data['mail_port'] ?? 587, 'encryption' => $data['mail_encryption'] ?? 'tls', 'verify_tls' => true,
                         'from' => $data['mail_from_address'] ?? $data['it_notification_address'],
                     ],
                     'credentials' => ['username' => $data['mail_username'] ?? null, 'password' => $data['mail_password'] ?? null],
