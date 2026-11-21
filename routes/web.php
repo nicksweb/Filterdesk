@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\NetworkMapController;
 use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\PolicyLayerController;
 use App\Http\Controllers\Admin\PolicyListController;
+use App\Http\Controllers\Admin\ProbeSetupController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
@@ -122,6 +123,9 @@ Route::middleware('installed')->group(function (): void {
             Route::post('/settings/email/test', [SettingsController::class, 'testEmail'])->middleware('throttle:6,1')->name('settings.test-email');
             Route::post('/settings/network/test', [SettingsController::class, 'testNetwork'])->middleware('throttle:10,1')->name('settings.test-network');
             Route::post('/settings/network/discover', [SettingsController::class, 'discover'])->middleware('throttle:10,1')->name('settings.discover');
+            Route::post('/probes/{profile}/reserve', [ProbeSetupController::class, 'reserve'])->middleware('throttle:10,1')->name('probes.reserve');
+            Route::post('/probes/{profile}/outside-pool', [ProbeSetupController::class, 'useOutsidePool'])->name('probes.outside-pool');
+            Route::post('/probes/{profile}/review', [ProbeSetupController::class, 'review'])->name('probes.review');
             Route::get('/audit', AuditLogController::class)->name('audit');
             Route::get('/diagnostics', DiagnosticsController::class)->name('diagnostics');
             Route::redirect('/integrations', '/admin/settings/network')->name('integrations.index');

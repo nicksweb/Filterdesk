@@ -6,7 +6,7 @@ use App\Models\WebsiteRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
-class MockNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsContentFilters, WritesContentFilters
+class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, NetworkProvider, ReadsContentFilters, WritesContentFilters
 {
     public function capabilities(): array
     {
@@ -63,6 +63,16 @@ class MockNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsCont
         Cache::forever(self::STATE_KEY, [...$this->contentFilters(), $filter]);
 
         return $filter;
+    }
+
+    public function reservations(): array
+    {
+        return Cache::get('mock.reservations', []);
+    }
+
+    public function reserveAddress(string $mac, string $name, string $networkId, string $ip): void
+    {
+        Cache::forever('mock.reservations', [strtolower($mac) => ['ip' => $ip, 'network_id' => $networkId, 'name' => $name]] + $this->reservations());
     }
 
     public function availableCategories(): array

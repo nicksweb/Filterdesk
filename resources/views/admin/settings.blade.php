@@ -178,13 +178,22 @@
                         </tr>
                         @if($diagnosis)
                             <tr class="probe-checklist-row"><td colspan="7">
-                                <details class="probe-checklist" @if($diagnosis['state'] !== 'ok') open @endif>
+                                <details class="probe-checklist" data-remember="probe-{{ $profile->id }}-{{ substr(md5($diagnosis['summary']), 0, 8) }}" @if(!in_array($diagnosis['state'], ['ok'], true)) open @endif>
                                     <summary>Setup checklist for {{ $profile->name }} <span class="network-status {{ ['ok' => 'ok', 'warn' => 'warn', 'todo' => 'warn', 'fail' => 'bad'][$diagnosis['state']] ?? 'muted' }}">{{ $diagnosis['summary'] }}</span></summary>
                                     <ol>
                                         @foreach($diagnosis['checks'] as $check)
-                                            <li class="check-{{ $check['status'] }}"><span class="check-mark">{{ ['ok' => '✓', 'fail' => '✗', 'warn' => '!', 'todo' => '→', 'skip' => '–'][$check['status']] ?? '?' }}</span>
+                                            <li class="check-{{ $check['status'] }}"><span class="check-mark">{{ ['ok' => '✓', 'fail' => '✗', 'warn' => '!', 'todo' => '→', 'skip' => '–', 'reviewed' => '✓'][$check['status']] ?? '?' }}</span>
                                                 <div><strong>{{ $check['label'] }}</strong> <span>{{ $check['detail'] }}</span>
-                                                    @if($check['fix'])<ul class="check-fix">@foreach($check['fix'] as $step)<li>{{ $step }}</li>@endforeach</ul>@endif
+                                                    @if($check['fix'] && $check['status'] !== 'reviewed')<ul class="check-fix">@foreach($check['fix'] as $step)<li>{{ $step }}</li>@endforeach</ul>@endif
+                                                    <div class="check-actions">
+                                                        @if(($check['action'] ?? null) === 'reserve' && $check['mac'] && $check['status'] === 'warn')
+                                                            <button class="button small primary" form="probe-reserve-{{ $profile->id }}" data-confirm="Reserve {{ $check['ip'] }} for {{ $check['mac'] }} ({{ $profile->name }}) in UniFi?">Reserve {{ $check['ip'] }} in UniFi</button>
+                                                            @if($check['outside'])<button class="button small secondary" form="probe-outside-{{ $profile->id }}" data-confirm="Move {{ $profile->name }} to {{ $check['outside'] }}, outside the DHCP pool? You then regenerate compose.vlan.yml and recreate its Docker network.">Use {{ $check['outside'] }} instead</button>@endif
+                                                        @endif
+                                                        @if($check['reviewable'] ?? false)
+                                                            <button class="button small secondary" form="probe-review-{{ $profile->id }}-{{ $check['key'] }}">{{ $check['status'] === 'reviewed' ? 'Undo reviewed' : 'Reviewed, no action needed' }}</button>
+                                                        @endif
+                                                    </div>
                                                 </div>
                                             </li>
                                         @endforeach
@@ -205,6 +214,17 @@
             <p class="hint">A new probe needs its own container on that network's VLAN. Plan it under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Extra probes</a>, which generates the service and creates the profile.</p>
             <div class="form-actions"><button class="button primary">Save profiles</button></div>
         </form>
+        @foreach($profiles as $profile)
+            @if($diagnosis = $diagnostics[$profile->id] ?? null)
+                <form id="probe-reserve-{{ $profile->id }}" method="post" action="{{ route('admin.probes.reserve', $profile) }}" hidden>@csrf</form>
+                <form id="probe-outside-{{ $profile->id }}" method="post" action="{{ route('admin.probes.outside-pool', $profile) }}" hidden>@csrf</form>
+                @foreach($diagnosis['checks'] as $check)
+                    @if($check['reviewable'] ?? false)
+                        <form id="probe-review-{{ $profile->id }}-{{ $check['key'] }}" method="post" action="{{ route('admin.probes.review', $profile) }}" hidden>@csrf<input type="hidden" name="check" value="{{ $check['key'] }}"><input type="hidden" name="reviewed" value="{{ $check['status'] === 'reviewed' ? 0 : 1 }}"></form>
+                    @endif
+                @endforeach
+            @endif
+        @endforeach
 
     @elseif($section === 'types')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'types') }}">@csrf @method('PUT')

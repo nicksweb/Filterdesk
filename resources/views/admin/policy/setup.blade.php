@@ -128,7 +128,12 @@
                                         <small>Only if this network reaches the host another way: a separate NIC on an access port, or an existing VLAN interface or bridge. Leave blank to use the trunk.</small>
                                     </details>
                                 </td>
-                                <td><code>{{ $plan['ipv4'] ?? 'set by hand' }}</code><small>MAC <code>{{ $plan['mac'] }}</code></small>@if($plan['profile'])<small><a href="{{ route('admin.settings.show', 'profiles') }}">What it reports now</a></small>@endif</td>
+                                <td>
+                                    <input name="addresses[{{ $plan['network']->provider_network_id }}]" value="{{ old('addresses.'.$plan['network']->provider_network_id, $plan['address_source'] === 'manual' ? $plan['ipv4'] : '') }}" class="mono narrow-ip" inputmode="decimal" placeholder="{{ $plan['address_source'] === 'manual' ? '' : ($plan['ipv4'] ?? 'set by hand') }}" aria-label="Fixed address for {{ $plan['service'] }}">
+                                    <small>{{ $plan['address_source'] === 'manual' ? 'Set by hand' : 'Suggested; type another to use it' }} · MAC <code>{{ $plan['mac'] }}</code>{{ $plan['subnet'] ? ' · '.$plan['subnet']['network'].', gateway and DNS '.$plan['subnet']['gateway'] : '' }}</small>
+                                    @if($plan['dhcp_mode'] === 'relay')<small class="network-status warn">DHCP relay: reserve this MAC on your DHCP server</small>@elseif($plan['dhcp_clash'] ?? false)<small class="network-status warn">Inside DHCP: reserve it in UniFi</small>@endif
+                                    @if($plan['profile'])<small><a href="{{ route('admin.settings.show', 'profiles') }}">What it reports now</a></small>@endif
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -141,7 +146,7 @@
             <p class="hint">Set up and map at least one policy above to get probe recommendations.</p>
         @else
             <div class="notice"><strong>All probes in one file.</strong> <a href="{{ route('admin.policy.setup.compose') }}">Download compose.vlan.yml</a>, or write it on the Docker host with <code>docker compose exec -T app php artisan probes:compose > compose.vlan.yml</code>. Both use the saved interfaces. The file starts with the network commands and .env lines shown below.</div>
-            <p class="hint">Each probe gets the fixed address and MAC above, inside the suggested <code>/29</code>. Keep that range outside UniFi's DHCP pool so it never clashes with a client; the probe then shows up in UniFi as the same client every time, and you can name it there. Settings → Network profiles shows the address and MAC each running probe reports.</p>
+            <p class="hint">The subnet, gateway and DNS come from UniFi; only the address is yours to choose. Leave it blank to use the suggested one, or type the address you want (for example one you reserved on a DHCP server behind a relay). Each probe gets the fixed address and MAC above. Keep that range outside UniFi's DHCP pool so it never clashes with a client; the probe then shows up in UniFi as the same client every time, and you can name it there. Settings → Network profiles shows the address and MAC each running probe reports.</p>
             @foreach($plans as $plan)
                 <details class="probe-plan">
                     <summary><strong>{{ $plan['policy']?->name ?? $plan['label'] }}</strong> <small>{{ $plan['network']->name }}{{ $plan['network']->vlan ? ' (VLAN '.$plan['network']->vlan.')' : '' }} · <code>{{ $plan['service'] }}</code> on <code>{{ $plan['interface'] }}</code>{{ $plan['profile'] ? ' · profile '.$plan['profile']->name.($plan['profile']->enabled ? '' : ' (disabled)') : '' }}</small></summary>

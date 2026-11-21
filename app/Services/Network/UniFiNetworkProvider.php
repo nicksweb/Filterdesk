@@ -29,7 +29,7 @@ use Throwable;
  * release changes the endpoint, calls fail with a clear message and IT can
  * still paste the lists by hand.
  */
-class UniFiNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsContentFilters, WritesContentFilters
+class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, NetworkProvider, ReadsContentFilters, WritesContentFilters
 {
     /** Network purposes a content filter can apply to. */
     private const FILTERABLE_PURPOSES = ['corporate', 'guest', 'vlan-only', 'remote-user-vpn'];
@@ -431,9 +431,40 @@ class UniFiNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsCon
                 'subnet' => filled($network['ip_subnet'] ?? null) ? (string) $network['ip_subnet'] : null,
                 'dhcp_start' => ($network['dhcpd_enabled'] ?? false) && filled($network['dhcpd_start'] ?? null) ? (string) $network['dhcpd_start'] : null,
                 'dhcp_stop' => ($network['dhcpd_enabled'] ?? false) && filled($network['dhcpd_stop'] ?? null) ? (string) $network['dhcpd_stop'] : null,
+                'dhcp_mode' => ($network['dhcp_relay_enabled'] ?? false) ? 'relay' : (($network['dhcpd_enabled'] ?? false) ? 'unifi' : 'none'),
             ])
             ->sortBy(fn (array $network) => [$network['vlan'] ?? 0, $network['name']])
             ->values()->all();
+    }
+
+    public function reservations(): array
+    {
+        $response = $this->client()->timeout(20)->get($this->networkPath('/api/s/'.rawurlencode($this->siteReference()).'/rest/user'));
+        $this->ensureSuccessful($response, 'client reservations');
+
+        return collect($response->json('data', []))
+            ->filter(fn ($client) => is_array($client) && ($client['use_fixedip'] ?? false) && filled($client['fixed_ip'] ?? null) && filled($client['mac'] ?? null))
+            ->mapWithKeys(fn (array $client) => [strtolower((string) $client['mac']) => [
+                'ip' => (string) $client['fixed_ip'], 'network_id' => isset($client['network_id']) ? (string) $client['network_id'] : null, 'name' => $client['name'] ?? null,
+            ]])->all();
+    }
+
+    public function reserveAddress(string $mac, string $name, string $networkId, string $ip): void
+    {
+        $base = '/api/s/'.rawurlencode($this->siteReference()).'/rest/user';
+        $mac = strtolower($mac);
+        $existing = collect($this->client()->timeout(20)->get($this->networkPath($base))->json('data', []))->first(fn ($client) => strtolower((string) ($client['mac'] ?? '')) === $mac);
+        $body = ['mac' => $mac, 'name' => $name, 'use_fixedip' => true, 'fixed_ip' => $ip, 'network_id' => $networkId, 'note' => 'IT Requests probe'];
+
+        $response = $existing && isset($existing['_id'])
+            ? $this->client()->timeout(20)->put($this->networkPath($base.'/'.rawurlencode((string) $existing['_id'])), $body)
+            : $this->client()->timeout(20)->post($this->networkPath($base), $body);
+        $this->ensureSuccessful($response, 'the address reservation', writing: true);
+
+        $saved = $this->reservations()[$mac] ?? null;
+        if (($saved['ip'] ?? null) !== $ip) {
+            throw new ProviderRequestFailed('UniFi answered but the reservation did not read back. Check Client Devices in UniFi.');
+        }
     }
 
     /**

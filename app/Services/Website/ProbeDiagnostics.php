@@ -4,7 +4,10 @@ namespace App\Services\Website;
 
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
+use App\Services\Network\ManagesReservations;
+use App\Services\Network\NetworkProviderManager;
 use App\Services\Policy\ProbePlanner;
+use App\Services\SettingsRepository;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
@@ -35,7 +38,7 @@ class ProbeDiagnostics
             Cache::forget($key);
         }
 
-        return Cache::remember($key, self::TTL, fn (): array => $this->run($profile));
+        return $this->withReviews($profile, Cache::remember($key, self::TTL, fn (): array => $this->run($profile)));
     }
 
     /**
@@ -72,13 +75,15 @@ class ProbeDiagnostics
             }
         }
 
-        return $results;
+        return collect($results)->map(fn (array $result, int $id) => $this->withReviews($profiles->firstWhere('id', $id), $result))->all();
     }
 
     /** The cached checklist, without asking the probe. */
     public function cached(NetworkProfile $profile): ?array
     {
-        return Cache::get("probe.diagnose.{$profile->id}");
+        $result = Cache::get("probe.diagnose.{$profile->id}");
+
+        return $result ? $this->withReviews($profile, $result) : null;
     }
 
     /** @return array<string, mixed> */
@@ -137,6 +142,7 @@ class ProbeDiagnostics
                     'On Proxmox: leave the VM\'s network device without a VLAN tag, make the bridge VLAN aware (bridge-vids must include this VLAN), and turn off the firewall\'s MAC filter for the VM, which drops the probe\'s own MAC.',
                     'On VMware: the port group needs VLAN 4095 (trunk) plus Promiscuous mode, MAC changes and Forged transmits set to Accept. On Hyper-V: enable MAC address spoofing and a trunk on the VM\'s adapter.',
                     "In UniFi, check {$network->name} has no isolation or firewall rule dropping new devices.",
+                    $network->vlan ? "To see where it stops: sudo tcpdump -nn -e -i {$trunk} 'vlan {$network->vlan} and arp'. If only the probe's \"who-has {$expectedGateway}\" requests appear and no reply, the VLAN is not carried between this host and the gateway: check the switch port profile (and every switch on the way), and on Proxmox run 'bridge vlan show' on the host and confirm this VM's tap interface lists VLAN {$network->vlan}." : null,
                 ])));
         }
 
@@ -173,15 +179,30 @@ class ProbeDiagnostics
                 ]);
         }
 
-        // 8. Address outside DHCP.
-        if ($network && $address && $network->dhcp_start && $network->dhcp_stop) {
-            $ip = ip2long(explode('/', $address)[0]);
-            $inside = $ip !== false && $ip >= ip2long($network->dhcp_start) && $ip <= ip2long($network->dhcp_stop);
-            $checks[] = $inside
-                ? $this->check('dhcp', 'Address outside DHCP', 'warn', "{$address} is inside {$network->name}'s DHCP range ({$network->dhcp_start}–{$network->dhcp_stop}), so UniFi could give it to another device.", [
-                    "In UniFi → Networks → {$network->name}, end the DHCP range below ".explode('/', $address)[0].'.',
-                ])
-                : $this->check('dhcp', 'Address outside DHCP', 'ok', "{$address} is outside the DHCP range.");
+        // 8. The address is safe from DHCP: outside the range, or reserved for this MAC.
+        if ($network && $address) {
+            $ip = explode('/', $address)[0];
+            $mac = strtolower((string) ($vlan['mac'] ?? ''));
+            $reservation = $this->reservations()[$mac] ?? null;
+            $reserved = $reservation && $reservation['ip'] === $ip;
+            $inside = $network->dhcp_start && $network->dhcp_stop && ip2long($ip) >= ip2long($network->dhcp_start) && ip2long($ip) <= ip2long($network->dhcp_stop);
+            $outside = $this->planner->addressOutsidePool($network);
+            $dhcpCheck = match (true) {
+                $reserved => $this->check('dhcp', 'Address safe from DHCP', 'ok', "{$ip} is reserved for {$mac} in UniFi."),
+                $network->dhcp_mode === 'relay' => $this->check('dhcp', 'Address safe from DHCP', 'warn', "{$network->name} uses a DHCP relay, so another server hands out its addresses and could give {$ip} to another device.", [
+                    "On that DHCP server, reserve {$ip} for MAC {$mac} (or exclude {$ip} from its scope).",
+                    'Or set a different address for this probe under Guided setup → Probe containers: one the DHCP server never hands out.',
+                ], 'reserve'),
+                $inside => $this->check('dhcp', 'Address safe from DHCP', 'warn', "{$ip} is inside {$network->name}'s DHCP range ({$network->dhcp_start}–{$network->dhcp_stop}), so UniFi could give it to another device.", array_values(array_filter([
+                    "Reserve in UniFi: pins {$ip} to MAC {$mac}, so UniFi never hands it out. Nothing else changes.",
+                    $outside ? "Or use {$outside}, which is outside the pool. The probe's address changes, so regenerate compose.vlan.yml and recreate its Docker network afterwards." : null,
+                    "Or end the DHCP range below {$ip} in UniFi → Networks → {$network->name}.",
+                ])), 'reserve'),
+                $network->dhcp_mode === 'none' => $this->check('dhcp', 'Address safe from DHCP', 'ok', "{$network->name} has no DHCP server, so {$ip} is only used by this probe."),
+                default => $this->check('dhcp', 'Address safe from DHCP', 'ok', "{$ip} is outside the DHCP range."),
+            };
+            // What the Reserve / Use outside-pool buttons need.
+            $checks[] = ['outside' => $network->dhcp_mode !== 'relay' ? $outside : null, 'network_id' => $network->provider_network_id, 'ip' => $ip, 'mac' => $mac] + $dhcpCheck;
         }
 
         // 9. Switched on.
@@ -232,9 +253,45 @@ class ProbeDiagnostics
      * @param  list<string>  $fix
      * @return array{key: string, label: string, status: string, detail: string, fix: list<string>}
      */
-    private function check(string $key, string $label, string $status, string $detail, array $fix = []): array
+    private function check(string $key, string $label, string $status, string $detail, array $fix = [], ?string $action = null): array
     {
-        return compact('key', 'label', 'status', 'detail', 'fix');
+        return compact('key', 'label', 'status', 'detail', 'fix', 'action') + ['outside' => null, 'network_id' => null, 'ip' => null, 'mac' => null];
+    }
+
+    /** @return array<string, array{ip: string, network_id: ?string, name: ?string}> */
+    private function reservations(): array
+    {
+        return $this->reservations ??= Cache::remember('probe.reservations', 300, function (): array {
+            $provider = rescue(fn () => app(NetworkProviderManager::class)->current(), null, false);
+
+            return $provider instanceof ManagesReservations ? rescue(fn () => $provider->reservations(), [], false) : [];
+        });
+    }
+
+    /** @var array<string, array<string, mixed>>|null */
+    private ?array $reservations = null;
+
+    /**
+     * Steps an admin marked "reviewed, no action needed" stop counting
+     * against the probe until their detail changes.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array<string, mixed>
+     */
+    public function withReviews(NetworkProfile $profile, array $result): array
+    {
+        $reviewed = (array) (((array) app(SettingsRepository::class)->get('probes.reviewed', []))[$profile->id] ?? []);
+        $checks = collect($result['checks'])->map(function (array $check) use ($reviewed): array {
+            if ($check['status'] === 'warn' && ($reviewed[$check['key']] ?? null) === md5($check['detail'])) {
+                $check['status'] = 'reviewed';
+                $check['detail'] = 'Reviewed, no action needed. '.$check['detail'];
+            }
+            $check['reviewable'] = in_array($check['status'], ['warn', 'reviewed'], true) && $check['key'] !== 'enabled';
+
+            return $check;
+        })->all();
+
+        return $this->summarise($checks, $result['identity']);
     }
 
     /**
@@ -245,12 +302,13 @@ class ProbeDiagnostics
     {
         $failed = collect($checks)->where('status', 'fail');
         $warnings = collect($checks)->where('status', 'warn');
+        $reviewedCount = collect($checks)->where('status', 'reviewed')->count();
         $todo = collect($checks)->where('status', 'todo');
         [$state, $summary] = match (true) {
             $failed->isNotEmpty() => ['fail', 'Not working yet: '.$failed->pluck('label')->map(fn ($label) => strtolower($label))->join(', ', ' and ').'.'],
             $todo->isNotEmpty() => ['todo', 'Ready. Switch it on to include it in checks.'],
             $warnings->isNotEmpty() => ['warn', 'Working, with '.$warnings->count().' thing(s) to check.'],
-            default => ['ok', 'Working.'],
+            default => ['ok', 'Working.'.($reviewedCount ? " {$reviewedCount} item(s) reviewed." : '')],
         };
 
         return ['state' => $state, 'summary' => $summary, 'checks' => $checks, 'identity' => $report];

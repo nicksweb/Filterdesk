@@ -49,4 +49,17 @@
     durations.forEach(input => input.addEventListener('change', sync));
     sync();
   }
+
+  // Collapsible panels with data-remember keep the state the user left them in.
+  // The key includes a hash of the content, so a panel opens again when it changes.
+  document.querySelectorAll('details[data-remember]').forEach(panel => {
+    const key = 'details:' + panel.dataset.remember;
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored !== null) panel.open = stored === 'open';
+    } catch (error) { /* storage unavailable */ }
+    panel.addEventListener('toggle', () => {
+      try { localStorage.setItem(key, panel.open ? 'open' : 'closed'); } catch (error) { /* storage unavailable */ }
+    });
+  });
 })();

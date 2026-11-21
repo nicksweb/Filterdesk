@@ -133,7 +133,8 @@ class ControllerImportTest extends TestCase
         $services = collect(app(ProbePlanner::class)->plan('eno1'))->pluck('service');
         $this->assertSame($services->unique()->values()->all(), $services->values()->all(), 'Every probe has its own service name');
         $this->actingAs(User::factory()->admin()->create())->get(route('admin.policy.setup.show'))
-            ->assertSee('DHCP range (10.0.80.6–10.0.80.254) includes the probe range 10.0.80.240/29', false)
+            ->assertSee('10.0.80.241 is inside Guest Wi-Fi&#039;s DHCP range (10.0.80.6–10.0.80.254)', false)
+            ->assertSee('or use 10.0.80.5, which is outside the pool', false)
             ->assertSee('no content filter in UniFi covers Guest Wi-Fi', false);
     }
 

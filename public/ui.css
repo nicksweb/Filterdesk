@@ -180,3 +180,7 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .probe-checklist .check-fix{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:.86rem}
 .probe-checklist .check-fix li{display:list-item}
 .ready-probes{margin:6px 0;padding-left:18px}
+.narrow-ip{max-width:11rem}
+.check-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.check-actions:empty{display:none}
+.probe-checklist .check-reviewed .check-mark{background:#e0e7ff;color:#3730a3}

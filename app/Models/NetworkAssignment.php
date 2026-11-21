@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class NetworkAssignment extends Model
 {
-    protected $fillable = ['provider_network_id', 'name', 'vlan', 'purpose', 'subnet', 'dhcp_start', 'dhcp_stop', 'filter_policy_id'];
+    protected $fillable = ['provider_network_id', 'name', 'vlan', 'purpose', 'subnet', 'dhcp_start', 'dhcp_stop', 'dhcp_mode', 'filter_policy_id'];
 
     protected function casts(): array
     {

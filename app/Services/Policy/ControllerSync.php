@@ -232,7 +232,7 @@ class ControllerSync
     {
         foreach ($networks as $network) {
             $assignment = NetworkAssignment::query()->firstOrNew(['provider_network_id' => $network['id']]);
-            $assignment->fill(['name' => $network['name'], 'vlan' => $network['vlan'], 'purpose' => $network['purpose'], 'subnet' => $network['subnet'] ?? null, 'dhcp_start' => $network['dhcp_start'] ?? null, 'dhcp_stop' => $network['dhcp_stop'] ?? null]);
+            $assignment->fill(['name' => $network['name'], 'vlan' => $network['vlan'], 'purpose' => $network['purpose'], 'subnet' => $network['subnet'] ?? null, 'dhcp_start' => $network['dhcp_start'] ?? null, 'dhcp_stop' => $network['dhcp_stop'] ?? null, 'dhcp_mode' => $network['dhcp_mode'] ?? null]);
             if ($assignment->isDirty()) {
                 $assignment->save();
             }

@@ -116,7 +116,13 @@ Settings → Network profiles shows a checklist for every probe, with a fix for 
 | DNS through the gateway | The gateway is unreachable, or `*_PROBE_DNS_SERVERS` points somewhere else. |
 | Internet access | The network blocks internet access (common for IoT and camera networks). |
 | Network is filtered | No content filter covers that network, so the probe shows sites unfiltered. |
-| Address outside DHCP | The probe's fixed address is inside UniFi's DHCP range; end the range below it. |
+| Address safe from DHCP | The probe's address is inside the DHCP pool. **Reserve in UniFi** pins it to the probe's MAC (Active mode); **Use … instead** moves the probe to a free address outside the pool. On a network with a DHCP relay, reserve the MAC on the other DHCP server. |
+
+Warnings that are fine for your setup (for example a probe on a network no filter covers, kept for comparison) can be marked **Reviewed, no action needed**; they come back if the situation changes. Collapsed checklists stay collapsed until their result changes.
+
+### Choosing a probe's address
+
+The subnet, gateway and DNS come from UniFi. Leave the address blank under *Guided setup → Probe containers* to use the suggested one (the first address of a small range at the top of the subnet), or type your own, for example one reserved on a DHCP server behind a relay. After changing an address, regenerate `compose.vlan.yml`, delete that probe's Docker network (`docker network rm itr_…_vlan`), run its create command from the top of the file, and start the stack again.
 
 The checklist reruns every 10 minutes (`probes:check`), and the dashboard reminds admins while any probe is unfinished.
 

@@ -161,16 +161,19 @@ class ControllerSetupController extends Controller
             'interfaces.*' => $interface,
             'extra' => ['nullable', 'array', 'max:50'],
             'extra.*' => ['string', 'regex:/^[A-Za-z0-9_-]{1,80}$/'],
-        ], ['regex' => 'Use a Linux interface name such as eno1, eno1.20, vlan20 or br0 (up to 15 characters).']);
+            'addresses' => ['nullable', 'array', 'max:200'],
+            'addresses.*' => ['nullable', 'ipv4'],
+        ], ['ipv4' => 'Enter an IPv4 address such as 10.0.20.50.', 'regex' => 'Use a Linux interface name such as eno1, eno1.20, vlan20 or br0 (up to 15 characters).']);
 
         $planner->save([
             'trunk' => $validated['trunk'],
             'interfaces' => collect($validated['interfaces'] ?? [])->filter(fn ($value, $key) => is_string($key) && preg_match('/^[A-Za-z0-9_-]{1,80}$/', $key))->all(),
             'extra' => $validated['extra'] ?? [],
+            'addresses' => collect($validated['addresses'] ?? [])->filter(fn ($value, $key) => is_string($key) && preg_match('/^[A-Za-z0-9_-]{1,80}$/', $key))->all(),
         ]);
         $audit->log('policy.probe_interfaces_saved', null, ['trunk' => $validated['trunk'], 'interfaces' => count(array_filter($validated['interfaces'] ?? []))]);
 
-        return redirect()->route('admin.policy.setup.show')->withFragment('probes')->with('success', 'Probe interfaces saved. The download and probes:compose now use them.');
+        return redirect()->route('admin.policy.setup.show')->withFragment('probes')->with('success', 'Probe settings saved. The download and probes:compose now use them. If you changed an address, recreate that probe\'s Docker network (docker network rm, then the create command in the file) before starting it.');
     }
 
     private function parentOverride(Request $request): ?string

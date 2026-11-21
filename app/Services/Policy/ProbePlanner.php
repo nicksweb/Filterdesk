@@ -21,6 +21,9 @@ class ProbePlanner
     /** @var array<string, string> */
     private array $interfaces = [];
 
+    /** @var array<string, string> network id => fixed IPv4 chosen by an admin */
+    private array $addresses = [];
+
     private const BUILT_IN = ['student' => ['service' => 'probe-student', 'env' => 'STUDENT'], 'staff' => ['service' => 'probe-staff', 'env' => 'STAFF']];
 
     /** A Linux interface name (at most 15 characters). */
@@ -42,6 +45,7 @@ class ProbePlanner
             'trunk' => preg_match(self::INTERFACE_PATTERN, $trunk) ? $trunk : 'eth0',
             'interfaces' => array_filter((array) $this->settings->get('probes.interfaces', []), fn ($value) => is_string($value) && preg_match(self::INTERFACE_PATTERN, $value)),
             'extra' => array_values(array_filter((array) $this->settings->get('probes.extra', []), 'is_string')),
+            'addresses' => array_filter((array) $this->settings->get('probes.addresses', []), fn ($value) => is_string($value) && filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)),
         ];
     }
 
@@ -53,6 +57,9 @@ class ProbePlanner
         $this->settings->set('probes.trunk', $values['trunk']);
         $this->settings->set('probes.interfaces', array_filter($values['interfaces'], fn ($value) => filled($value)));
         $this->settings->set('probes.extra', array_values($values['extra']));
+        if (array_key_exists('addresses', $values)) {
+            $this->settings->set('probes.addresses', array_filter($values['addresses'], fn ($value) => filled($value)));
+        }
     }
 
     /**
@@ -72,6 +79,7 @@ class ProbePlanner
         $parent = $parent !== null && preg_match(self::INTERFACE_PATTERN, $parent) ? $parent : $saved['trunk'];
         $extraNetworkIds ??= $saved['extra'];
         $this->interfaces = $saved['interfaces'];
+        $this->addresses = $saved['addresses'];
 
         // 1. The built-in probes go on the network their profile names (a VLAN typed
         //    in the installer, or set under Settings → Network profiles).
@@ -212,21 +220,34 @@ class ProbePlanner
         if ($chosen === null && ! $network->vlan) {
             $plan['warnings'][] = "{$network->name} is untagged, so the probe uses {$parent} directly. If that interface is not on {$network->name}, set the right one below.";
         }
+        // An admin-chosen address (for example one reserved on a DHCP server behind a relay)
+        // replaces the suggested one; it must sit in the subnet and not be the gateway.
+        $manual = $this->addresses[$network->provider_network_id] ?? null;
+        if ($manual && (! $subnet || ! $this->inSubnet($manual, $subnet) || $manual === $subnet['gateway'])) {
+            $plan['warnings'][] = "The address {$manual} set for this probe is not usable on {$network->name}".($subnet ? " ({$subnet['network']}, gateway {$subnet['gateway']})" : '').'; using the suggested one instead.';
+            $manual = null;
+        }
+        $plan['address_source'] = $manual ? 'manual' : 'suggested';
+        $ipRange = $manual ? "{$manual}/32" : ($subnet['probe_range'] ?? null);
         $plan['commands'] = $subnet
-            ? "docker network create -d macvlan \\\n  --subnet={$subnet['network']} --gateway={$subnet['gateway']} \\\n  --ip-range={$subnet['probe_range']} \\\n  -o parent={$parentInterface} {$dockerNetwork}"
+            ? "docker network create -d macvlan \\\n  --subnet={$subnet['network']} --gateway={$subnet['gateway']} \\\n  --ip-range={$ipRange} \\\n  -o parent={$parentInterface} {$dockerNetwork}"
             : "docker network create -d macvlan --subnet=<network/prefix> --gateway=<gateway> \\\n  --ip-range=<small reserved range> -o parent={$parentInterface} {$dockerNetwork}";
         $plan['dns'] = $subnet['gateway'] ?? '<gateway>';
         // Fixed address and MAC, so the probe is the same client in UniFi on every restart
         // and can be named or reserved there. The MAC is locally administered (02:…).
-        $plan['ipv4'] = $subnet ? long2ip(ip2long(explode('/', $subnet['probe_range'])[0]) + 1) : null;
+        $plan['ipv4'] = $manual ?? ($subnet ? long2ip(ip2long(explode('/', $subnet['probe_range'])[0]) + 1) : null);
+        $plan['dhcp_mode'] = $network->dhcp_mode;
         if ($plan['ipv4'] && $network->dhcp_start && $network->dhcp_stop) {
-            $rangeStart = ip2long(explode('/', $subnet['probe_range'])[0]);
-            $dhcpStart = ip2long($network->dhcp_start);
-            $dhcpStop = ip2long($network->dhcp_stop);
-            if ($dhcpStart !== false && $dhcpStop !== false && $rangeStart <= $dhcpStop && $rangeStart + 7 >= $dhcpStart) {
-                $plan['warnings'][] = "{$network->name}'s DHCP range ({$network->dhcp_start}–{$network->dhcp_stop}) includes the probe range {$subnet['probe_range']}. In UniFi, end that DHCP range at ".long2ip($rangeStart - 1).' or lower before starting the probe, or it may clash with a client.';
+            $ip = ip2long($plan['ipv4']);
+            if ($ip >= ip2long($network->dhcp_start) && $ip <= ip2long($network->dhcp_stop)) {
+                $plan['outside_pool'] = $this->addressOutsidePool($network);
+                $plan['warnings'][] = "{$plan['ipv4']} is inside {$network->name}'s DHCP range ({$network->dhcp_start}–{$network->dhcp_stop}). Reserve it for this probe's MAC (Settings → Network profiles → Reserve in UniFi)"
+                    .($plan['outside_pool'] ? ", or use {$plan['outside_pool']}, which is outside the pool" : ', or end the DHCP range below it').'.';
                 $plan['dhcp_clash'] = true;
             }
+        }
+        if ($network->dhcp_mode === 'relay') {
+            $plan['warnings'][] = "{$network->name} uses a DHCP relay, so addresses come from another DHCP server. Reserve {$plan['ipv4']} for this probe's MAC on that server, or exclude it there.";
         }
         $plan['mac'] = '02:'.implode(':', str_split(substr(md5($key.'|'.$network->provider_network_id), 0, 10), 2));
         $address = ($plan['ipv4'] ? "\n        ipv4_address: {$plan['ipv4']}" : '')."\n        mac_address: {$plan['mac']}";
@@ -276,5 +297,43 @@ class ProbePlanner
             'probe_range' => long2ip($range).'/29',
             'prefix' => $prefix,
         ];
+    }
+
+    /** @param array{network: string} $subnet */
+    private function inSubnet(string $ip, array $subnet): bool
+    {
+        [$base, $prefix] = explode('/', $subnet['network']);
+        $mask = (~0 << (32 - (int) $prefix)) & 0xFFFFFFFF;
+
+        return (ip2long($ip) & $mask) === (ip2long($base) & $mask) && ip2long($ip) !== ip2long($base) && ip2long($ip) !== (ip2long($base) | (~$mask & 0xFFFFFFFF));
+    }
+
+    /**
+     * A usable address outside a network's DHCP pool (the highest free one
+     * above the pool, otherwise the highest below it), skipping the gateway
+     * and the network and broadcast addresses. Null when the pool fills the
+     * subnet or the network has no known pool.
+     */
+    public function addressOutsidePool(NetworkAssignment $network): ?string
+    {
+        $subnet = $this->subnet($network->subnet);
+        if (! $subnet || ! $network->dhcp_start || ! $network->dhcp_stop) {
+            return null;
+        }
+        [$base, $prefix] = explode('/', $subnet['network']);
+        $first = ip2long($base) + 1;
+        $last = (ip2long($base) | (~((~0 << (32 - (int) $prefix)) & 0xFFFFFFFF) & 0xFFFFFFFF)) - 1;
+        $gateway = ip2long($subnet['gateway']);
+        $start = ip2long($network->dhcp_start);
+        $stop = ip2long($network->dhcp_stop);
+        foreach ([range($last, $stop + 1), $start - 1 >= $first ? range($start - 1, $first) : []] as $candidates) {
+            foreach ($candidates as $candidate) {
+                if ($candidate >= $first && $candidate <= $last && $candidate !== $gateway && ($candidate < $start || $candidate > $stop)) {
+                    return long2ip($candidate);
+                }
+            }
+        }
+
+        return null;
     }
 }
