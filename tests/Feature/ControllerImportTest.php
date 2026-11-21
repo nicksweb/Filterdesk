@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Policy\ProbePlanner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -137,6 +138,26 @@ class ControllerImportTest extends TestCase
             ->assertSee('10.0.20.241/24')->assertSee('02:aa:bb:cc:dd:ee')
             ->assertSee('the probe is not on its VLAN', false)->assertSee('DNS is not 10.0.10.1', false);
         Http::assertSent(fn ($request) => $request->hasHeader('X-Probe-Key') && str_ends_with($request->url(), '/identity'));
+    }
+
+    public function test_vlan_numbers_typed_in_the_installer_place_each_probe_on_that_vlan(): void
+    {
+        NetworkProfile::query()->where('key', 'student')->update(['unifi_network_id' => '80']);
+        NetworkProfile::query()->where('key', 'staff')->update(['unifi_network_id' => '10']);
+
+        app(ControllerSync::class)->state(true);
+
+        $this->assertSame('sim-guest', NetworkProfile::query()->where('key', 'student')->value('unifi_network_id'));
+        $this->assertNull(NetworkAssignment::query()->where('provider_network_id', 'sim-guest')->value('filter_policy_id'), 'A probe VLAN does not change which policy filters that network');
+
+        $file = $this->actingAs(User::factory()->admin()->create())->get(route('admin.policy.setup.compose', ['parent' => 'eno1']))->getContent();
+        $this->assertStringContainsString('-o parent=eno1.80 itr_student_vlan', $file);
+        $this->assertStringContainsString('-o parent=eno1.10 itr_staff_vlan', $file);
+        $services = collect(app(ProbePlanner::class)->plan('eno1'))->pluck('service');
+        $this->assertSame($services->unique()->values()->all(), $services->values()->all(), 'Every probe has its own service name');
+        $this->actingAs(User::factory()->admin()->create())->get(route('admin.policy.setup.show'))
+            ->assertSee('DHCP range (10.0.80.6–10.0.80.254) includes the probe range 10.0.80.240/29', false)
+            ->assertSee('no content filter in UniFi covers Guest Wi-Fi', false);
     }
 
     public function test_the_dashboard_points_a_new_install_at_guided_setup(): void

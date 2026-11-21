@@ -129,7 +129,7 @@ class MockNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsCont
         return [
             ['id' => 'sim-staff', 'name' => 'Staff Access', 'vlan' => 10, 'purpose' => 'corporate', 'subnet' => '10.0.10.1/24'],
             ['id' => 'sim-student', 'name' => 'Student Access', 'vlan' => 20, 'purpose' => 'corporate', 'subnet' => '10.0.20.1/24'],
-            ['id' => 'sim-guest', 'name' => 'Guest Wi-Fi', 'vlan' => 80, 'purpose' => 'guest', 'subnet' => '10.0.80.1/24'],
+            ['id' => 'sim-guest', 'name' => 'Guest Wi-Fi', 'vlan' => 80, 'purpose' => 'guest', 'subnet' => '10.0.80.1/24', 'dhcp_start' => '10.0.80.6', 'dhcp_stop' => '10.0.80.254'],
         ];
     }
 

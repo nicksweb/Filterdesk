@@ -74,18 +74,42 @@ class ProbePlanner
         $extraNetworkIds ??= $saved['extra'];
         $this->interfaces = $saved['interfaces'];
 
-        $plans = FilterPolicy::query()->main()->where('enabled', true)->with('networkProfile')->ordered()->get()
-            ->map(function (FilterPolicy $policy) use ($parent): ?array {
+        // 1. The built-in probes go on the network their profile names (a VLAN typed
+        //    in the installer, or set under Settings → Network profiles).
+        $pinned = NetworkProfile::query()->whereIn('key', array_keys(self::BUILT_IN))->whereNotNull('unifi_network_id')->orderBy('sort_order')->get()
+            ->map(function (NetworkProfile $profile) use ($parent): ?array {
+                $network = NetworkAssignment::query()->with('filterPolicy')->where('provider_network_id', $profile->unifi_network_id)->first();
+                if (! $network) {
+                    return null;
+                }
+                $policy = $network->filterPolicy && ! $network->filterPolicy->isLayer() ? $network->filterPolicy : null;
+
+                return $this->planFor($policy, $network, collect(), $parent, $profile);
+            })
+            ->filter()->values();
+
+        // 2. Every other policy with a mapped network gets a probe on one of them.
+        $covered = $pinned->map(fn (array $plan) => $plan['network']->provider_network_id)->all();
+        $takenKeys = $pinned->pluck('key')->all();
+        $policies = FilterPolicy::query()->main()->where('enabled', true)->with('networkProfile')->ordered()->get()
+            ->map(function (FilterPolicy $policy) use ($parent, $covered, $takenKeys): ?array {
                 $networks = NetworkAssignment::query()->where('filter_policy_id', $policy->id)->orderBy('vlan')->get();
-                if ($networks->isEmpty()) {
+                if ($networks->isEmpty() || $networks->contains(fn (NetworkAssignment $network) => in_array($network->provider_network_id, $covered, true))) {
                     return null;
                 }
                 $network = $networks->first(fn (NetworkAssignment $network) => $network->vlan && $this->subnet($network->subnet)) ?? $networks->first();
+                $key = $policy->networkProfile?->key;
+                $key = $key && ! in_array($key, $takenKeys, true) ? $key : Str::slug($policy->slug, '_');
+                if (in_array($key, $takenKeys, true) || isset(self::BUILT_IN[$key]) && $key !== $policy->networkProfile?->key) {
+                    $key .= $network->vlan ? "_vlan{$network->vlan}" : '_policy';
+                }
 
-                return $this->planFor($policy, $network, $networks->reject(fn ($other) => $other->is($network))->values(), $parent);
+                return $this->planFor($policy, $network, $networks->reject(fn ($other) => $other->is($network))->values(), $parent, null, $key);
             })
             ->filter();
+        $plans = $pinned->concat($policies);
 
+        // 3. Extra networks ticked for their own probe.
         $covered = $plans->map(fn (array $plan) => $plan['network']->provider_network_id)->all();
         $extras = NetworkAssignment::query()->with('filterPolicy')->whereIn('provider_network_id', $extraNetworkIds)->orderBy('vlan')->get()
             ->reject(fn (NetworkAssignment $network) => in_array($network->provider_network_id, $covered, true))
@@ -140,15 +164,15 @@ class ProbePlanner
      * @param  Collection<int, NetworkAssignment>  $others
      * @return array<string, mixed>
      */
-    private function planFor(?FilterPolicy $policy, NetworkAssignment $network, Collection $others, string $parent): array
+    private function planFor(?FilterPolicy $policy, NetworkAssignment $network, Collection $others, string $parent, ?NetworkProfile $pinnedProfile = null, ?string $key = null): array
     {
         $subnet = $this->subnet($network->subnet);
         $owner = $policy ?? $network->filterPolicy;
-        $key = $policy
+        $key = $pinnedProfile?->key ?? $key ?? ($policy
             ? ($policy->networkProfile?->key ?? Str::slug($policy->slug, '_'))
-            : 'net_'.Str::slug($network->name, '_').($network->vlan ? "_{$network->vlan}" : '');
+            : 'net_'.Str::slug($network->name, '_').($network->vlan ? "_{$network->vlan}" : ''));
         $builtIn = self::BUILT_IN[$key] ?? null;
-        $slug = Str::slug($policy ? $policy->slug : $key);
+        $slug = Str::slug($key);
         $service = $builtIn['service'] ?? 'probe-'.$slug;
         $dockerNetwork = 'itr_'.Str::slug($slug, '_').'_vlan';
         $vlanKey = Str::slug($key, '_').'_vlan';
@@ -158,18 +182,21 @@ class ProbePlanner
             'network' => $network,
             'others' => $others,
             'key' => $key,
-            'label' => $policy ? $policy->name.' network' : $network->name.($network->vlan ? " (VLAN {$network->vlan})" : ''),
+            'label' => $pinnedProfile?->name ?? ($policy ? $policy->name.' network' : $network->name.($network->vlan ? " (VLAN {$network->vlan})" : '')),
+            'pinned' => $pinnedProfile !== null,
             'audience' => $owner?->audience ?? Audience::Guest,
             'service' => $service,
             'built_in' => $builtIn !== null,
-            'profile' => $policy?->networkProfile ?? NetworkProfile::query()->where('key', $key)->first(),
+            'profile' => $pinnedProfile ?? NetworkProfile::query()->where('key', $key)->first(),
             'probe_url' => "http://{$service}:3000",
             'docker_network' => $dockerNetwork,
             'subnet' => $subnet,
             'warnings' => [],
         ];
 
-        if (! $policy) {
+        if ($pinnedProfile && ! $network->filterPolicy) {
+            $plan['warnings'][] = "{$pinnedProfile->name} is set to {$network->name}, but no content filter in UniFi covers {$network->name}, so this probe will see it unfiltered.";
+        } elseif (! $policy) {
             $plan['warnings'][] = $owner
                 ? "{$network->name} is filtered by {$owner->name}; this probe shows what that network sees."
                 : "{$network->name} is not mapped to a policy here, so checks from it show the controller's filtering without anything to compare.";
@@ -193,6 +220,15 @@ class ProbePlanner
         // Fixed address and MAC, so the probe is the same client in UniFi on every restart
         // and can be named or reserved there. The MAC is locally administered (02:…).
         $plan['ipv4'] = $subnet ? long2ip(ip2long(explode('/', $subnet['probe_range'])[0]) + 1) : null;
+        if ($plan['ipv4'] && $network->dhcp_start && $network->dhcp_stop) {
+            $rangeStart = ip2long(explode('/', $subnet['probe_range'])[0]);
+            $dhcpStart = ip2long($network->dhcp_start);
+            $dhcpStop = ip2long($network->dhcp_stop);
+            if ($dhcpStart !== false && $dhcpStop !== false && $rangeStart <= $dhcpStop && $rangeStart + 7 >= $dhcpStart) {
+                $plan['warnings'][] = "{$network->name}'s DHCP range ({$network->dhcp_start}–{$network->dhcp_stop}) includes the probe range {$subnet['probe_range']}. In UniFi, end that DHCP range at ".long2ip($rangeStart - 1).' or lower before starting the probe, or it may clash with a client.';
+                $plan['dhcp_clash'] = true;
+            }
+        }
         $plan['mac'] = '02:'.implode(':', str_split(substr(md5($key.'|'.$network->provider_network_id), 0, 10), 2));
         $address = ($plan['ipv4'] ? "\n        ipv4_address: {$plan['ipv4']}" : '')."\n        mac_address: {$plan['mac']}";
         $plan['env'] = $builtIn

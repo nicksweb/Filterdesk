@@ -429,6 +429,8 @@ class UniFiNetworkProvider implements ManagesIpGroups, NetworkProvider, ReadsCon
                 'vlan' => isset($network['vlan']) && $network['vlan'] !== '' ? (int) $network['vlan'] : null,
                 'purpose' => isset($network['purpose']) ? (string) $network['purpose'] : null,
                 'subnet' => filled($network['ip_subnet'] ?? null) ? (string) $network['ip_subnet'] : null,
+                'dhcp_start' => ($network['dhcpd_enabled'] ?? false) && filled($network['dhcpd_start'] ?? null) ? (string) $network['dhcpd_start'] : null,
+                'dhcp_stop' => ($network['dhcpd_enabled'] ?? false) && filled($network['dhcpd_stop'] ?? null) ? (string) $network['dhcpd_stop'] : null,
             ])
             ->sortBy(fn (array $network) => [$network['vlan'] ?? 0, $network['name']])
             ->values()->all();

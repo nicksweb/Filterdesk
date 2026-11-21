@@ -154,6 +154,10 @@
     @elseif($section === 'profiles')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'profiles') }}">@csrf @method('PUT')
             <p class="section-copy">Each profile is a network path checked by its own probe container. The audience links the profile to filter policies and lists. <em>Probe address</em> is what the container reports about itself: the address and MAC on its VLAN, which you can name or reserve in UniFi. <a href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Refresh</a></p>
+            @php($sharedGateways = collect($identities)->filter(fn ($identity, $id) => ($identity['ok'] ?? false) && $profiles->firstWhere('id', $id)?->enabled)->groupBy(fn ($identity) => $identity['gateway'] ?? '?')->filter(fn ($group) => $group->count() > 1))
+            @if($sharedGateways->isNotEmpty())
+                <div class="alert error"><strong>These probes are not on separate networks.</strong> {{ $sharedGateways->map(fn ($group, $gateway) => $group->count().' probes share gateway '.$gateway)->join('; ') }}, so their checks all see the same filtering. Put each probe on its VLAN under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Probe containers</a>.</div>
+            @endif
             <div class="table-wrap"><table>
                 <thead><tr><th>Name</th><th>Audience</th><th>Probe URL</th><th>UniFi network ID</th><th>Probe address</th><th>Order</th><th>On</th></tr></thead>
                 <tbody>

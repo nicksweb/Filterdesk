@@ -4,6 +4,7 @@ namespace App\Services\Policy;
 
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
+use App\Models\NetworkProfile;
 use App\Models\User;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ProviderRequestFailed;
@@ -78,6 +79,7 @@ class ControllerSync
 
         Cache::put(self::CACHE_KEY, $state, self::CACHE_SECONDS);
         $this->rememberNetworks($state['networks']);
+        $this->resolveProfileVlans();
 
         return $state;
     }
@@ -205,12 +207,32 @@ class ControllerSync
         });
     }
 
+    /**
+     * A probe profile may name its network by VLAN number (as typed in the
+     * installer). Resolve it to the controller network; the probe planner then
+     * puts that probe on that VLAN.
+     */
+    private function resolveProfileVlans(): void
+    {
+        foreach (NetworkProfile::query()->get() as $profile) {
+            $value = trim((string) $profile->unifi_network_id);
+            if (! preg_match('/^\d{1,4}$/', $value)) {
+                continue;
+            }
+            $network = NetworkAssignment::query()->where('vlan', (int) $value)->first();
+            if (! $network) {
+                continue;
+            }
+            $profile->update(['unifi_network_id' => $network->provider_network_id]);
+        }
+    }
+
     /** @param list<array{id: string, name: string, vlan: int|null, purpose: string|null}> $networks */
     private function rememberNetworks(array $networks): void
     {
         foreach ($networks as $network) {
             $assignment = NetworkAssignment::query()->firstOrNew(['provider_network_id' => $network['id']]);
-            $assignment->fill(['name' => $network['name'], 'vlan' => $network['vlan'], 'purpose' => $network['purpose'], 'subnet' => $network['subnet'] ?? null]);
+            $assignment->fill(['name' => $network['name'], 'vlan' => $network['vlan'], 'purpose' => $network['purpose'], 'subnet' => $network['subnet'] ?? null, 'dhcp_start' => $network['dhcp_start'] ?? null, 'dhcp_stop' => $network['dhcp_stop'] ?? null]);
             if ($assignment->isDirty()) {
                 $assignment->save();
             }

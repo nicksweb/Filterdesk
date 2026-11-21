@@ -141,7 +141,7 @@ class ControllerSetupController extends Controller
                 'sort_order' => (int) NetworkProfile::query()->max('sort_order') + 1,
             ]);
             $profile->update(['unifi_network_id' => $plan['network']->provider_network_id, 'unifi_policy_id' => $plan['policy']?->provider_reference]);
-            if ($plan['policy'] && $plan['policy']->network_profile_id !== $profile->id) {
+            if ($plan['policy'] && ! ($plan['pinned'] ?? false) && $plan['policy']->network_profile_id !== $profile->id) {
                 $plan['policy']->update(['network_profile_id' => $profile->id]);
             }
             if ($profile->wasRecentlyCreated) {
