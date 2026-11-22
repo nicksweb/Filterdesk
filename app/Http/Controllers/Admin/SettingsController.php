@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\ListScope;
 use App\Http\Controllers\Controller;
+use App\Models\BellPeriod;
+use App\Models\CalendarPeriod;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
@@ -23,10 +25,12 @@ use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
 use App\Services\Requests\RequestFormSettings;
+use App\Services\SchoolCalendar;
 use App\Services\SettingsRepository;
 use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -47,6 +51,7 @@ class SettingsController extends Controller
         'templates' => 'Email templates',
         'network' => 'Network provider',
         'types' => 'Network types',
+        'calendar' => 'School calendar',
         'categories' => 'Website categories',
         'profiles' => 'Network profiles',
         'approval' => 'Approval policy',
@@ -74,6 +79,9 @@ class SettingsController extends Controller
             'discovery' => session('discovery'),
             'categoryLookup' => $section === 'categories' ? IntegrationConfig::query()->where('provider', DomainCategorizer::PROVIDER)->first() : null,
             'networkTypes' => $section === 'types' ? NetworkType::query()->ordered()->withCount('filterPolicies')->get() : collect(),
+            'examLists' => $section === 'types' ? PolicyList::query()->where('purpose', 'exam')->withCount('entries')->get()->keyBy('audience') : collect(),
+            'calendarPeriods' => $section === 'calendar' ? CalendarPeriod::query()->orderBy('start_date')->get() : collect(),
+            'bellPeriods' => $section === 'calendar' ? BellPeriod::query()->orderBy('sort_order')->orderBy('starts_at')->get() : collect(),
             'profiles' => $profiles = NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
             'diagnostics' => $diagnostics = $section === 'profiles' ? collect(app(ProbeDiagnostics::class)->forAll($profiles, $request->boolean('refresh'))) : collect(),
             'identities' => $diagnostics->map(fn (array $result) => $result['identity'] ? ['ok' => true, 'gateway' => $result['identity']['gateway'] ?? null] : ['ok' => false]),
@@ -95,6 +103,7 @@ class SettingsController extends Controller
             'profiles' => $this->updateProfiles($request, $policy),
             'types' => $this->updateTypes($request, $policy),
             'categories' => $this->updateCategories($request),
+            'calendar' => $this->updateCalendar($request),
             'templates' => $this->updateTemplates($request, $settings),
             'approval' => $this->updateApproval($request, $settings),
         };
@@ -364,7 +373,12 @@ class SettingsController extends Controller
                 'unifi_network_id' => $values['unifi_network_id'] ?? null,
                 'enabled' => (bool) ($values['enabled'] ?? false),
                 'sort_order' => (int) ($values['sort_order'] ?? 0),
+                'exam_mode' => $values['exam_mode'] ?? $type->exam_mode ?? 'off',
             ]);
+            // Exam mode needs somewhere to put the sites it blocks.
+            if ($type->exam_mode !== 'off') {
+                $policy->examList($type->key);
+            }
         }
 
         if (filled($validated['new']['name'] ?? null)) {
@@ -393,6 +407,7 @@ class SettingsController extends Controller
             'types.*.auto_approve' => ['nullable', 'boolean'],
             'types.*.sort_order' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'types.*.delete' => ['nullable', 'boolean'],
+            'types.*.exam_mode' => ['nullable', Rule::in(array_keys(NetworkType::EXAM_MODES))],
             'new.name' => ['nullable', 'string', 'max:80'],
             'new.description' => ['nullable', 'string', 'max:255'],
         ]);
@@ -415,7 +430,12 @@ class SettingsController extends Controller
                 'name' => $values['name'], 'description' => $values['description'] ?? null,
                 'requestable' => (bool) ($values['requestable'] ?? false), 'auto_approve' => (bool) ($values['auto_approve'] ?? false),
                 'sort_order' => (int) ($values['sort_order'] ?? 0),
+                'exam_mode' => $values['exam_mode'] ?? $type->exam_mode ?? 'off',
             ]);
+            // Exam mode needs somewhere to put the sites it blocks.
+            if ($type->exam_mode !== 'off') {
+                $policy->examList($type->key);
+            }
         }
         if (NetworkType::query()->where('requestable', true)->doesntExist()) {
             throw ValidationException::withMessages(['types' => 'At least one network type must be requestable, or nobody can submit a request.']);
@@ -434,6 +454,54 @@ class SettingsController extends Controller
             $policy->ensureAudienceLists($key);
         }
         NetworkType::flushCache();
+    }
+
+    /**
+     * Terms, holidays and exam periods (dates) and bell times. Rows can be
+     * edited, added (the blank "new" row) or deleted.
+     */
+    private function updateCalendar(Request $request): void
+    {
+        $validated = $request->validate([
+            'periods' => ['array'],
+            'periods.*.name' => ['required', 'string', 'max:80'],
+            'periods.*.kind' => ['required', Rule::in(array_keys(CalendarPeriod::KINDS))],
+            'periods.*.start_date' => ['required', 'date'],
+            'periods.*.end_date' => ['required', 'date', 'after_or_equal:periods.*.start_date'],
+            'periods.*.delete' => ['nullable', 'boolean'],
+            'new_period.name' => ['nullable', 'string', 'max:80'],
+            'new_period.kind' => ['nullable', Rule::in(array_keys(CalendarPeriod::KINDS))],
+            'new_period.start_date' => ['nullable', 'required_with:new_period.name', 'date'],
+            'new_period.end_date' => ['nullable', 'required_with:new_period.name', 'date', 'after_or_equal:new_period.start_date'],
+            'bells' => ['array'],
+            'bells.*.name' => ['required', 'string', 'max:60'],
+            'bells.*.starts_at' => ['required', 'date_format:H:i'],
+            'bells.*.ends_at' => ['required', 'date_format:H:i', 'after:bells.*.starts_at'],
+            'bells.*.delete' => ['nullable', 'boolean'],
+            'new_bell.name' => ['nullable', 'string', 'max:60'],
+            'new_bell.starts_at' => ['nullable', 'required_with:new_bell.name', 'date_format:H:i'],
+            'new_bell.ends_at' => ['nullable', 'required_with:new_bell.name', 'date_format:H:i', 'after:new_bell.starts_at'],
+        ], ['periods.*.end_date.after_or_equal' => 'Each period must end on or after its start.', 'bells.*.ends_at.after' => 'Each period must end after it starts.']);
+
+        foreach ($validated['periods'] ?? [] as $id => $values) {
+            $period = CalendarPeriod::query()->find($id);
+            if ($period) {
+                ! empty($values['delete']) ? $period->delete() : $period->update(Arr::only($values, ['name', 'kind', 'start_date', 'end_date']));
+            }
+        }
+        if (filled($validated['new_period']['name'] ?? null)) {
+            CalendarPeriod::query()->create(['kind' => $validated['new_period']['kind'] ?? 'term'] + Arr::only($validated['new_period'], ['name', 'start_date', 'end_date']));
+        }
+        foreach ($validated['bells'] ?? [] as $id => $values) {
+            $bell = BellPeriod::query()->find($id);
+            if ($bell) {
+                ! empty($values['delete']) ? $bell->delete() : $bell->update(Arr::only($values, ['name', 'starts_at', 'ends_at']));
+            }
+        }
+        if (filled($validated['new_bell']['name'] ?? null)) {
+            BellPeriod::query()->create(Arr::only($validated['new_bell'], ['name', 'starts_at', 'ends_at']) + ['sort_order' => (int) BellPeriod::query()->max('sort_order') + 1]);
+        }
+        app(SchoolCalendar::class)->forget();
     }
 
     /** Email wording. Blank fields, or "reset", fall back to the built-in text. */

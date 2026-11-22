@@ -86,6 +86,17 @@ class PolicyEngine
         $this->ensureList(ListKind::Block, ListScope::Audience, $type, "{$name} block", "Blocked on every {$name} policy.");
     }
 
+    /** The block list that applies to a network type only while it is in exam mode. */
+    public function examList(string $type): PolicyList
+    {
+        $name = NetworkType::ensure($type)->name;
+
+        return PolicyList::query()->firstOrCreate(
+            ['kind' => ListKind::Block, 'scope' => ListScope::Audience, 'audience' => $type, 'purpose' => 'exam'],
+            ['name' => "{$name} exam mode", 'description' => "Blocked on every {$name} policy while exam mode is on (Settings → Network types).", 'is_default' => false],
+        );
+    }
+
     /**
      * The allow list that receives approvals for a network type (or site-wide).
      */
@@ -95,7 +106,7 @@ class PolicyEngine
             return $this->ensureList(ListKind::Allow, ListScope::Site, null, 'Site-wide allow', 'Allowed on every network.');
         }
 
-        $list = PolicyList::query()->where('kind', ListKind::Allow)->where('scope', ListScope::Audience)
+        $list = PolicyList::query()->where('kind', ListKind::Allow)->where('scope', ListScope::Audience)->whereNull('purpose')
             ->where('audience', $audience)->orderByDesc('is_default')->orderBy('id')->first();
 
         if ($list) {
@@ -114,7 +125,7 @@ class PolicyEngine
             return $this->ensureList(ListKind::Block, ListScope::Site, null, 'Site-wide block', 'Blocked on every network unless allowed by a more specific list.');
         }
 
-        $list = PolicyList::query()->where('kind', ListKind::Block)->where('scope', ListScope::Audience)
+        $list = PolicyList::query()->where('kind', ListKind::Block)->where('scope', ListScope::Audience)->whereNull('purpose')
             ->where('audience', $audience)->orderByDesc('is_default')->orderBy('id')->first();
         if ($list) {
             return $list;
@@ -247,7 +258,9 @@ class PolicyEngine
      */
     public function desired(FilterPolicy $policy, ?CarbonInterface $at = null): array
     {
-        $lists = PolicyList::query()->appliesTo($policy)->get();
+        // Exam-mode block lists only count while their network type is in exam mode.
+        $lists = PolicyList::query()->appliesTo($policy)->get()
+            ->reject(fn (PolicyList $list) => $list->purpose === 'exam' && ! NetworkType::examActiveFor($list->audience, $at));
         $allow = [];
         $block = [];
         $sources = [];

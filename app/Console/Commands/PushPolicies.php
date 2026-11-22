@@ -3,8 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Models\FilterPolicy;
+use App\Models\NetworkType;
 use App\Models\PolicyEntry;
+use App\Models\PolicyList;
 use App\Services\Policy\ControllerPusher;
+use App\Services\SchoolCalendar;
 use App\Support\Schedule;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -78,6 +81,13 @@ class PushPolicies extends Command
                 return $schedule !== null && $schedule->isActive($last) !== $schedule->isActive($now);
             });
         $lists = $lists->merge($scheduled->pluck('policyList'))->unique('id');
+
+        // Exam periods starting or ending switch exam-mode lists of types that follow the calendar.
+        $calendar = app(SchoolCalendar::class);
+        if ($calendar->isExamPeriod($last) !== $calendar->isExamPeriod($now)) {
+            $types = NetworkType::query()->where('exam_mode', 'calendar')->pluck('key');
+            $lists = $lists->merge(PolicyList::query()->where('purpose', 'exam')->whereIn('audience', $types)->get())->unique('id');
+        }
 
         if ($lists->isEmpty()) {
             return collect();

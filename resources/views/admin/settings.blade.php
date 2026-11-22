@@ -241,7 +241,7 @@
             <p class="section-copy">A network type is a kind of network the tool manages, such as Staff, Students, CCTV or Exam rooms. Each type has its own shared allow and block lists; every filter policy of that type inherits them, along with the site-wide lists and the policy's own. Requests choose which types they are for. Names can change freely; the key stays the same.</p>
             @error('types')<div class="alert error">{{ $message }}</div>@enderror
             <div class="table-wrap"><table>
-                <thead><tr><th>Name</th><th>Description</th><th>Requestable</th><th>Auto-approve</th><th>Policies</th><th>Order</th><th>Delete</th></tr></thead>
+                <thead><tr><th>Name</th><th>Description</th><th>Requestable</th><th>Auto-approve</th><th>Exam mode</th><th>Policies</th><th>Order</th><th>Delete</th></tr></thead>
                 <tbody>
                     @foreach($networkTypes as $type)
                         <tr>
@@ -249,6 +249,8 @@
                             <td><input name="types[{{ $type->id }}][description]" value="{{ old("types.{$type->id}.description", $type->description) }}" maxlength="255"></td>
                             <td><input type="hidden" name="types[{{ $type->id }}][requestable]" value="0"><input type="checkbox" name="types[{{ $type->id }}][requestable]" value="1" @checked($type->requestable) aria-label="{{ $type->name }} can be chosen on requests"></td>
                             <td><input type="hidden" name="types[{{ $type->id }}][auto_approve]" value="0"><input type="checkbox" name="types[{{ $type->id }}][auto_approve]" value="1" @checked($type->auto_approve) aria-label="Auto-approve requests only for {{ $type->name }}"></td>
+                            <td><select name="types[{{ $type->id }}][exam_mode]" aria-label="Exam mode for {{ $type->name }}">@foreach(\App\Models\NetworkType::EXAM_MODES as $mode => $label)<option value="{{ $mode }}" @selected(($type->exam_mode ?? 'off') === $mode)>{{ $label }}</option>@endforeach</select>
+                                @if($examLists->has($type->key))<small><a href="{{ route('admin.policy.lists.show', $examLists[$type->key]) }}">{{ $examLists[$type->key]->entries_count }} blocked site(s)</a>@if($type->examActive()) · <strong>active now</strong>@endif</small>@endif</td>
                             <td>{{ $type->filter_policies_count }}</td>
                             <td><input type="number" class="narrow" name="types[{{ $type->id }}][sort_order]" value="{{ $type->sort_order }}"></td>
                             <td>@if($type->inUse())<span class="hint">In use</span>@else<input type="hidden" name="types[{{ $type->id }}][delete]" value="0"><input type="checkbox" name="types[{{ $type->id }}][delete]" value="1" aria-label="Delete {{ $type->name }}">@endif @error("types.{$type->id}.delete")<small class="field-error">{{ $message }}</small>@enderror</td>
@@ -256,7 +258,7 @@
                     @endforeach
                 </tbody>
             </table></div>
-            <p class="hint"><strong>Requestable</strong>: shown as a choice when someone requests access or a block. <strong>Auto-approve</strong>: with <em>Auto-approve</em> on under Approval policy, an access request is approved straight away when every network it is for has this ticked.</p>
+            <p class="hint"><strong>Exam mode</strong>: a block list for the type that only applies while exam mode is on, either switched on now or during the exam periods in Settings → School calendar. Choosing a mode creates the list; add the sites to block during exams to it. Changes are pushed automatically when exam periods start and end. <strong>Requestable</strong>: shown as a choice when someone requests access or a block. <strong>Auto-approve</strong>: with <em>Auto-approve</em> on under Approval policy, an access request is approved straight away when every network it is for has this ticked.</p>
             <h3>Add a network type</h3>
             <div class="fields two">
                 <label>Name<input name="new[name]" maxlength="80" placeholder="Exam rooms"></label>
@@ -264,6 +266,56 @@
             </div>
             <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policy lists) or a probe (Network profiles).</p>
             <div class="form-actions"><button class="button primary">Save network types</button></div>
+        </form>
+
+    @elseif($section === 'calendar')
+        <form class="panel" method="post" action="{{ route('admin.settings.update', 'calendar') }}">@csrf @method('PUT')
+            <p class="section-copy">Terms, holidays and exam periods, and the bell times of the school day. Recurring requests can follow the calendar ("Term 2, Mondays, periods 3–4"), skipping holidays, and network types can switch to exam mode during exam periods. Times are school time.</p>
+            <h3>Terms, holidays and exam periods</h3>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Name</th><th>Kind</th><th>First day</th><th>Last day</th><th>Delete</th></tr></thead>
+                <tbody>
+                    @foreach($calendarPeriods as $period)
+                        <tr>
+                            <td><input name="periods[{{ $period->id }}][name]" value="{{ $period->name }}" required maxlength="80" aria-label="Name"></td>
+                            <td><select name="periods[{{ $period->id }}][kind]" aria-label="Kind">@foreach(\App\Models\CalendarPeriod::KINDS as $kind => $label)<option value="{{ $kind }}" @selected($period->kind === $kind)>{{ $label }}</option>@endforeach</select></td>
+                            <td><input type="date" name="periods[{{ $period->id }}][start_date]" value="{{ $period->start_date->format('Y-m-d') }}" required aria-label="First day"></td>
+                            <td><input type="date" name="periods[{{ $period->id }}][end_date]" value="{{ $period->end_date->format('Y-m-d') }}" required aria-label="Last day"></td>
+                            <td><input type="hidden" name="periods[{{ $period->id }}][delete]" value="0"><input type="checkbox" name="periods[{{ $period->id }}][delete]" value="1" aria-label="Delete {{ $period->name }}"></td>
+                        </tr>
+                    @endforeach
+                    <tr>
+                        <td><input name="new_period[name]" maxlength="80" placeholder="Term 1 2027" aria-label="New period name"></td>
+                        <td><select name="new_period[kind]" aria-label="New period kind">@foreach(\App\Models\CalendarPeriod::KINDS as $kind => $label)<option value="{{ $kind }}">{{ $label }}</option>@endforeach</select></td>
+                        <td><input type="date" name="new_period[start_date]" aria-label="New period first day"></td>
+                        <td><input type="date" name="new_period[end_date]" aria-label="New period last day"></td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table></div>
+            <p class="hint">Holidays inside a term (a public holiday, a pupil-free day) are skipped by calendar schedules. Add one row at a time and save.</p>
+            <h3>Bell times</h3>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Period</th><th>Starts</th><th>Ends</th><th>Delete</th></tr></thead>
+                <tbody>
+                    @foreach($bellPeriods as $bell)
+                        <tr>
+                            <td><input name="bells[{{ $bell->id }}][name]" value="{{ $bell->name }}" required maxlength="60" aria-label="Period name"></td>
+                            <td><input type="time" name="bells[{{ $bell->id }}][starts_at]" value="{{ $bell->starts_at }}" required aria-label="Starts"></td>
+                            <td><input type="time" name="bells[{{ $bell->id }}][ends_at]" value="{{ $bell->ends_at }}" required aria-label="Ends"></td>
+                            <td><input type="hidden" name="bells[{{ $bell->id }}][delete]" value="0"><input type="checkbox" name="bells[{{ $bell->id }}][delete]" value="1" aria-label="Delete {{ $bell->name }}"></td>
+                        </tr>
+                    @endforeach
+                    <tr>
+                        <td><input name="new_bell[name]" maxlength="60" placeholder="Period 1" aria-label="New period name"></td>
+                        <td><input type="time" name="new_bell[starts_at]" aria-label="New period starts"></td>
+                        <td><input type="time" name="new_bell[ends_at]" aria-label="New period ends"></td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table></div>
+            <p class="hint">Periods next to each other (within 10 minutes) are treated as one block, so choosing periods 3 and 4 does not include the gap between them, but choosing periods 2 and 5 does not include lunch either.</p>
+            <div class="form-actions"><button class="button primary">Save school calendar</button></div>
         </form>
 
     @elseif($section === 'templates')

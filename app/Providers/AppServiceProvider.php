@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\IntegrationConfig;
 use App\Services\Policy\PolicyPublisher;
+use App\Services\SchoolCalendar;
 use App\Services\SettingsRepository;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -27,6 +28,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(SettingsRepository::class);
         // Holds the policy version being written, for the length of one request or job.
         $this->app->scoped(PolicyPublisher::class);
+        $this->app->scoped(SchoolCalendar::class);
     }
 
     /**

@@ -55,6 +55,20 @@
     sync();
   }
 
+  // Recurring schedule: dates I choose, or the school calendar (terms and periods).
+  const modes = document.querySelectorAll('input[name="schedule[mode]"]');
+  if (modes.length) {
+    const calendarFields = document.querySelector('.calendar-fields');
+    const dateFields = document.querySelector('.date-fields');
+    const syncMode = () => {
+      const calendar = document.querySelector('input[name="schedule[mode]"]:checked')?.value === 'calendar';
+      if (calendarFields) calendarFields.hidden = !calendar;
+      if (dateFields) dateFields.hidden = calendar;
+    };
+    modes.forEach(input => input.addEventListener('change', syncMode));
+    syncMode();
+  }
+
   // Collapsible panels with data-remember keep the state the user left them in.
   // The key includes a hash of the content, so a panel opens again when it changes.
   document.querySelectorAll('details[data-remember]').forEach(panel => {
