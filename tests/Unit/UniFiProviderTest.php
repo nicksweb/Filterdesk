@@ -152,4 +152,44 @@ class UniFiProviderTest extends TestCase
         $this->assertSame('Threats', $groups[0]['name']);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'ABC'));
     }
+
+    public function test_rules_are_moved_to_the_top_of_their_zone_pair_keeping_the_others_in_order(): void
+    {
+        Cache::flush();
+        $put = null;
+        Http::fake(function ($request) use (&$put) {
+            if (preg_match('#/sites(\?|$)#', $request->url())) {
+                return Http::response(['data' => [['id' => 'site-uuid', 'internalReference' => 'default', 'name' => 'Default']]]);
+            }
+            if ($request->method() === 'PUT') {
+                $put = $request;
+
+                return Http::response([], 200);
+            }
+
+            return Http::response(['orderedFirewallPolicyIds' => ['beforeSystemDefined' => ['allow-nas', 'camera', 'ours-1', 'ours-2'], 'afterSystemDefined' => []]]);
+        });
+
+        $this->provider(['connection' => 'local', 'controller_url' => 'https://unifi.example.test', 'site_id' => 'site-uuid'], 'active')
+            ->placeRulesFirst('zone-in', 'zone-out', ['ours-1', 'ours-2']);
+
+        $this->assertNotNull($put);
+        $this->assertStringContainsString('/sites/site-uuid/firewall/policies/ordering?sourceFirewallZoneId=zone-in&destinationFirewallZoneId=zone-out', $put->url());
+        $this->assertSame(['ours-1', 'ours-2', 'allow-nas', 'camera'], $put['orderedFirewallPolicyIds']['beforeSystemDefined']);
+    }
+
+    public function test_rules_already_first_are_not_reordered(): void
+    {
+        Cache::flush();
+        Http::fake([
+            'unifi.example.test/proxy/network/integration/v1/sites?*' => Http::response(['data' => [['id' => 'site-uuid', 'internalReference' => 'default', 'name' => 'Default']]]),
+            'unifi.example.test/proxy/network/integration/v1/sites' => Http::response(['data' => [['id' => 'site-uuid', 'internalReference' => 'default', 'name' => 'Default']]]),
+            '*' => Http::response(['orderedFirewallPolicyIds' => ['beforeSystemDefined' => ['ours-1', 'allow-nas'], 'afterSystemDefined' => []]]),
+        ]);
+
+        $this->provider(['connection' => 'local', 'controller_url' => 'https://unifi.example.test', 'site_id' => 'site-uuid'], 'active')
+            ->placeRulesFirst('zone-in', 'zone-out', ['ours-1']);
+
+        Http::assertNotSent(fn ($request) => $request->method() === 'PUT');
+    }
 }

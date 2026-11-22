@@ -94,7 +94,12 @@
 
     <section class="panel policy-section">
         <div class="panel-heading">
-            <div><h2>Firewall IP lists</h2><p>Each list keeps one controller IP group (UniFi: a traffic matching list, Settings → Profiles) set to its addresses, through the official API. Then a firewall rule in the controller blocks traffic to that group, for example <em>Block · Internal → External · destination: this group</em>. The app manages the group's contents, not the rule.</p></div>
+            <div><h2>Firewall IP lists</h2><p>Each list keeps controller IP groups (UniFi: traffic matching lists, Settings → Profiles) set to its addresses, through the official API, split into groups of up to {{ number_format($groupLimit) }}. A group blocks nothing on its own: a firewall rule has to use it. The app can create and maintain those rules for you, or you can make your own in UniFi.</p>
+                <details class="hint"><summary>How the blocking rules are built</summary>
+                    <p>UniFi's zone-based firewall checks each rule for one <strong>source zone → destination zone</strong> pair, and a rule can use one IP group. So the app creates <strong>one rule per IP group for every zone you tick</strong>, each <em>Block · &lt;zone&gt; → External · destination in the group</em>. With a list split into 2 groups and the Internal and a custom Staff zone ticked, that is 4 rules. Networks you moved to their own zone (for example Staff or CCTV) are not in Internal any more, so tick their zone too; VPN clients are in the Vpn zone.</p>
+                    <p><strong>Incoming</strong> adds <em>Block · External → &lt;zone&gt; · source in the group</em> for each ticked zone and for the Gateway (VPN servers and other services on the gateway). UniFi already blocks unsolicited incoming traffic, so this matters for port forwards, a DMZ and VPN servers.</p>
+                    <p><strong>Order</strong>: UniFi uses the first rule that matches. A rule you made that allows traffic for the same zones and sits above the block wins, so the page warns about those. Tick <em>Put these rules first</em> to have the app move its rules to the top of each zone pair (your other rules keep their order). Rules you delete in UniFi are recreated on the next push; a rule you disable stays disabled.</p>
+                </details></div>
         </div>
         @if($groupsError)<div class="alert error">Controller IP groups could not be read: {{ $groupsError }}</div>@endif
         @foreach($firewallLists as $list)
@@ -106,8 +111,12 @@
                 @if($list->groups)
                     <p class="hint">In UniFi: @foreach($list->groups as $group)<code>{{ $group['name'] }}</code> ({{ number_format($group['count'] ?? 0) }})@if(!$loop->last), @endif @endforeach. UniFi takes up to {{ number_format($groupLimit) }} addresses per group, so longer lists are split across groups automatically.</p>
                 @endif
+                @php($plan = $rulePlans[$list->id] ?? ['rules' => [], 'ahead' => [], 'live' => []])
                 @if($list->rules)
-                    <p class="hint">Blocking rules managed here: @foreach($list->rules as $rule){{ $rule['name'] }}@if(!$loop->last), @endif @endforeach</p>
+                    <p class="hint">Blocking rules managed here: @foreach($list->rules as $rule){{ $rule['name'] }}@if(isset($plan['live'][$rule['id']]) && !$plan['live'][$rule['id']]['enabled']) <span class="status status-action_required">disabled in UniFi</span>@endif @if(!$loop->last), @endif @endforeach</p>
+                    @if($plan['ahead'])
+                        <p class="network-status warn">UniFi checks these rules of yours first and they allow traffic for the same zones, so they can let listed addresses through: @foreach($plan['ahead'] as $rule)<strong>{{ $rule['name'] }}</strong> (above {{ $rule['before'] }})@if(!$loop->last), @endif @endforeach. Tick <em>Put these rules first</em> below, or move them in UniFi.</p>
+                    @endif
                 @elseif($list->provider_reference && is_array($list->referenced_by) && $list->referenced_by === [])
                     <p class="network-status warn">No firewall rule uses these groups yet, so nothing is blocked. Create the blocking rules below, or add your own in UniFi.</p>
                 @elseif($list->referenced_by)
@@ -115,13 +124,20 @@
                 @endif
                 @if($canWrite && $list->provider_reference && $zones)
                     <form method="post" action="{{ route('admin.policy.blocklists.firewall.rules', $list) }}" class="firewall-rules">@csrf
-                        <p><strong>Block traffic to these addresses from</strong> <span class="hint">One rule per group and zone is created in UniFi and kept in step when the list grows or shrinks. Untick everything to remove them.</span></p>
+                        <p><strong>Block traffic to these addresses from</strong> <span class="hint">One rule per IP group and ticked zone is created in UniFi and kept in step when the list grows or shrinks. Untick everything to remove them.</span></p>
                         <div class="category-grid">
                             @foreach(collect($zones)->reject(fn ($zone) => in_array(strtolower($zone['name']), ['external', 'gateway'], true)) as $zone)
-                                <label class="choice compact"><input type="checkbox" name="zones[]" value="{{ $zone['id'] }}" @checked(in_array($zone['id'], $list->rule_zones ?? (strtolower($zone['name']) === 'internal' ? [$zone['id']] : []), true))><span>{{ $zone['name'] }}</span></label>
+                                <label class="choice compact"><input type="checkbox" name="zones[]" value="{{ $zone['id'] }}" @checked(in_array($zone['id'], $list->rule_zones ?? (strtolower($zone['name']) === 'internal' ? [$zone['id']] : []), true))><span>{{ $zone['name'] }}<small>{{ ($zone['networks'] ?? []) ? implode(', ', $zone['networks']) : 'No networks in this zone' }}</small></span></label>
                             @endforeach
                         </div>
-                        <label class="choice compact"><input type="hidden" name="block_incoming" value="0"><input type="checkbox" name="block_incoming" value="1" @checked($list->block_incoming)><span><strong>Also block incoming connections from these addresses</strong><small>Usually already blocked by UniFi's default rules; tick for port forwards or a DMZ.</small></span></label>
+                        <label class="choice compact"><input type="hidden" name="block_incoming" value="0"><input type="checkbox" name="block_incoming" value="1" @checked($list->block_incoming)><span><strong>Also block incoming connections from these addresses</strong><small>Adds External → each ticked zone and External → Gateway. Usually already blocked by UniFi's default rules; tick for port forwards, a DMZ or a VPN server.</small></span></label>
+                        <label class="choice compact"><input type="hidden" name="rules_first" value="0"><input type="checkbox" name="rules_first" value="1" @checked($list->rules_first || (!$list->rules && $plan['ahead'] === []))><span><strong>Put these rules first</strong><small>Moves them above your own rules for the same zones, so an Allow rule of yours cannot let these addresses through. Your other rules keep their order.</small></span></label>
+                        @if($plan['rules'])
+                            <details class="hint"><summary>{{ $list->rules ? 'Rules kept in UniFi with the zones saved now' : 'Rules that will be created with the zones ticked by default' }}: {{ count($plan['rules']) }}</summary>
+                                <ul>@foreach($plan['rules'] as $rule)<li><code>{{ $rule['name'] }}</code> · Block · {{ $rule['from'] }} → {{ $rule['to'] }} · {{ $rule['incoming'] ? 'source' : 'destination' }} in the group</li>@endforeach</ul>
+                                <p>Changing the ticks changes this after saving: {{ count($list->groups ?: [1]) }} group(s) × each ticked zone{{ $list->block_incoming ? ', plus incoming rules for each ticked zone and the Gateway' : '' }}.</p>
+                            </details>
+                        @endif
                         <div class="button-row"><button class="button {{ $list->rules ? 'secondary' : 'primary' }}" data-confirm="{{ $list->rules ? 'Update the blocking rules in UniFi?' : 'Create blocking firewall rules in UniFi for '.$list->name.'? Traffic to these addresses will be blocked straight away.' }}">{{ $list->rules ? 'Update blocking rules' : 'Create blocking rules in UniFi' }}</button></div>
                     </form>
                 @endif

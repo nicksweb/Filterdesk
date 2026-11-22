@@ -33,7 +33,7 @@ When a hostname is in both an allow list and a block list that apply to a filter
 **Policy lists → Blocklists & firewall** (admins) subscribes to third-party lists, with presets for [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists) (DNS bypass, encrypted DNS, threat intelligence, social, gambling and more) or any https URL in hosts, adblock, wildcard or plain format.
 
 - **Domain lists** fill their own list (site-wide, a network type or one policy, allow or block), refreshed on a schedule, and reach content filters through the normal push. Content filters are not built for very large lists: start with the bypass list (about 17,000 domains) or smaller, and check the push reports no shortfall. Lists of 100,000+ domains belong on a DNS resolver.
-- **IP lists** (and your own addresses) keep a UniFi IP group (traffic matching list) up to date through the official API. Create the group from the app or link an existing one, then add a firewall rule in UniFi that blocks it, for example *Block · Internal → External · destination: the group*. The app shows which firewall rules use each group. It manages the group's contents, never the rules.
+- **IP lists** (and your own addresses) keep a UniFi IP group (traffic matching list) up to date through the official API. Create the group from the app or link an existing one, then let the app create the blocking rules (below) or add your own in UniFi, for example *Block · Internal → External · destination: the group*. The app shows which firewall rules use each group.
 
 `blocklists:refresh` runs hourly and downloads feeds that are due; with automatic pushing on, firewall IP groups are updated straight after.
 
@@ -41,7 +41,16 @@ When a hostname is in both an allow list and a block list that apply to a filter
 
 IP blocklists go into UniFi IP groups (traffic matching lists). UniFi rejects a group above about **20,000** addresses (a 30,000-address push returns HTTP 400), so a longer list is split automatically into groups named "List (1 of 3)", "List (2 of 3)" and so on; when it shrinks, surplus groups and their rules are removed. The per-group limit can be changed with `max_ip_group_entries` in the network provider configuration if a UniFi release allows more.
 
-**Create blocking rules in UniFi** (on the Blocklists page) creates one Block rule per group for each zone you tick (Internal by default; Hotspot and Vpn are offered), from that zone to External with the group as destination, plus optional rules blocking incoming connections from the group. The app keeps those rules in step with the groups and deletes them when you untick the zones or delete the list. Rules you made yourself are listed but never changed.
+**Create blocking rules in UniFi** (on the Blocklists page) creates and maintains the rules for you. Each zone shows the networks in it, and the page lists the exact rules before you create them.
+
+How the rules are built, and why there are several:
+
+- A UniFi zone-based firewall rule has **one source zone, one destination zone and one IP group**. So the app creates **one rule per IP group for each zone you tick**: *Block · &lt;zone&gt; → External · destination in the group*. A list split into 2 groups with the Internal and a custom Staff zone ticked needs 4 rules: groups × zones.
+- **Tick every zone that holds client networks.** A network moved into its own zone (Staff, CCTV, Exam rooms) is no longer in Internal, so an Internal-only rule does not cover it. VPN clients are in the Vpn zone, and guest hotspots are in Hotspot. External and Gateway are never sources.
+- **Incoming** (optional) adds *Block · External → &lt;zone&gt; · source in the group* for each ticked zone and for the **Gateway** zone (VPN servers and other services on the gateway). UniFi already blocks unsolicited incoming traffic, so this matters for port forwards, a DMZ and VPN servers.
+- **Order:** UniFi uses the first matching rule within a zone pair. If one of your Allow rules for the same zones sits above the block, it can let listed addresses through, and the page warns about it. **Put these rules first** (on by default for new lists) moves the app's rules to the top of each zone pair through the official ordering API. Your other rules keep their order, and system rules are untouched.
+- **Drift:** a rule deleted in UniFi is recreated on the next push or hourly refresh. A rule you only disable stays disabled, and the page shows it as disabled. The app deletes its rules when you untick the zones or delete the list. Rules you made yourself are listed but never changed.
+- **Content filters are separate.** They apply per network and keep working as before; firewall IP lists add address-level blocking on top.
 
 Feeds refresh on their schedule (hourly check); with *Push automatically* on, each linked list is pushed after a refresh, but a list whose addresses, groups and rules are unchanged is skipped, so UniFi only receives real changes.
 

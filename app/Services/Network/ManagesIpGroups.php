@@ -45,9 +45,10 @@ interface ManagesIpGroups
     public function deleteIpGroup(string $id): void;
 
     /**
-     * Firewall zones, for choosing where blocking rules apply.
+     * Firewall zones, for choosing where blocking rules apply, with the
+     * names of the networks in each.
      *
-     * @return list<array{id: string, name: string}>
+     * @return list<array{id: string, name: string, networks: list<string>}>
      *
      * @throws ProviderRequestFailed
      */
@@ -63,4 +64,24 @@ interface ManagesIpGroups
 
     /** @throws ProviderRequestFailed */
     public function deleteFirewallRule(string $id): void;
+
+    /**
+     * Every firewall rule, in evaluation order per zone pair (lower index first).
+     *
+     * @return list<array{id: string, name: string, action: string, enabled: bool, index: int, source: string, destination: string, user: bool}>
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function firewallRules(): array;
+
+    /**
+     * Move rules to the top of their zone pair, ahead of the other rules
+     * people made (which keep their order), so nothing allows the
+     * addresses before they are blocked.
+     *
+     * @param  list<string>  $ruleIds
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function placeRulesFirst(string $sourceZoneId, string $destinationZoneId, array $ruleIds): void;
 }

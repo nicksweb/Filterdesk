@@ -141,7 +141,10 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function firewallZones(): array
     {
-        return [['id' => 'zone-internal', 'name' => 'Internal'], ['id' => 'zone-external', 'name' => 'External'], ['id' => 'zone-hotspot', 'name' => 'Hotspot'], ['id' => 'zone-vpn', 'name' => 'Vpn']];
+        return [
+            ['id' => 'zone-internal', 'name' => 'Internal', 'networks' => ['Staff Access', 'Student Access']], ['id' => 'zone-external', 'name' => 'External', 'networks' => []],
+            ['id' => 'zone-gateway', 'name' => 'Gateway', 'networks' => []], ['id' => 'zone-hotspot', 'name' => 'Hotspot', 'networks' => ['Guest Wi-Fi']], ['id' => 'zone-vpn', 'name' => 'Vpn', 'networks' => []],
+        ];
     }
 
     public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string
@@ -159,6 +162,22 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
         $rules = Cache::get('mock.firewall_rules', []);
         unset($rules[$id]);
         Cache::forever('mock.firewall_rules', $rules);
+    }
+
+    public function firewallRules(): array
+    {
+        $order = Cache::get('mock.firewall_first', []);
+
+        return collect(Cache::get('mock.firewall_rules', []))->values()->map(fn (array $rule, int $index) => [
+            'id' => $rule['id'], 'name' => $rule['name'], 'action' => $rule['action'] ?? 'BLOCK', 'enabled' => $rule['enabled'] ?? true,
+            'index' => in_array($rule['id'], $order, true) ? array_search($rule['id'], $order, true) : 10000 + $index,
+            'source' => $rule['source'], 'destination' => $rule['destination'], 'user' => true,
+        ])->all();
+    }
+
+    public function placeRulesFirst(string $sourceZoneId, string $destinationZoneId, array $ruleIds): void
+    {
+        Cache::forever('mock.firewall_first', array_values(array_unique([...$ruleIds, ...Cache::get('mock.firewall_first', [])])));
     }
 
     public function verifyContentFilterWrite(string $filterId): array

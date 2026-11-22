@@ -404,9 +404,66 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     public function firewallZones(): array
     {
-        return Cache::remember(self::FIREWALL_CACHE.'zones', 3600, fn () => collect($this->paginated('/firewall/zones'))
-            ->filter(fn ($zone) => is_array($zone) && isset($zone['id']))
-            ->map(fn (array $zone) => ['id' => (string) $zone['id'], 'name' => (string) ($zone['name'] ?? $zone['id'])])->values()->all());
+        return Cache::remember(self::FIREWALL_CACHE.'zones.v2', 3600, function (): array {
+            $names = collect(rescue(fn () => $this->paginated('/networks'), [], false))
+                ->filter(fn ($network) => is_array($network) && isset($network['id']))
+                ->mapWithKeys(fn (array $network) => [(string) $network['id'] => (string) ($network['name'] ?? $network['id'])]);
+
+            return collect($this->paginated('/firewall/zones'))
+                ->filter(fn ($zone) => is_array($zone) && isset($zone['id']))
+                ->map(fn (array $zone) => [
+                    'id' => (string) $zone['id'], 'name' => (string) ($zone['name'] ?? $zone['id']),
+                    'networks' => $this->zoneNetworkNames((array) ($zone['networkIds'] ?? []), $names->all()),
+                ])->values()->all();
+        });
+    }
+
+    /**
+     * @param  list<mixed>  $ids
+     * @param  array<string, string>  $names
+     * @return list<string>
+     */
+    private function zoneNetworkNames(array $ids, array $names): array
+    {
+        $known = array_values(array_filter(array_map(fn ($id) => $names[(string) $id] ?? null, $ids)));
+        $other = count($ids) - count($known);
+
+        // VPN servers and WAN links are zone members the networks endpoint does not list.
+        return $other > 0 ? [...$known, $other.' other network'.($other === 1 ? '' : 's').' (VPN or WAN)'] : $known;
+    }
+
+    public function firewallRules(): array
+    {
+        return collect(Cache::remember(self::FIREWALL_CACHE.'policies', 300, fn () => $this->paginated('/firewall/policies')))
+            ->filter(fn ($policy) => is_array($policy) && isset($policy['id']))
+            ->map(fn (array $policy) => [
+                'id' => (string) $policy['id'], 'name' => (string) ($policy['name'] ?? $policy['id']),
+                'action' => (string) ($policy['action']['type'] ?? ''), 'enabled' => (bool) ($policy['enabled'] ?? false),
+                'index' => (int) ($policy['index'] ?? PHP_INT_MAX),
+                'source' => (string) ($policy['source']['zoneId'] ?? ''), 'destination' => (string) ($policy['destination']['zoneId'] ?? ''),
+                'user' => ($policy['metadata']['origin'] ?? 'USER_DEFINED') === 'USER_DEFINED',
+            ])->values()->all();
+    }
+
+    public function placeRulesFirst(string $sourceZoneId, string $destinationZoneId, array $ruleIds): void
+    {
+        $path = $this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies/ordering');
+        $query = ['sourceFirewallZoneId' => $sourceZoneId, 'destinationFirewallZoneId' => $destinationZoneId];
+        $response = $this->client()->timeout(30)->get($path, $query);
+        $this->ensureSuccessful($response, 'the firewall rule order');
+        $before = array_values(array_map('strval', (array) $response->json('orderedFirewallPolicyIds.beforeSystemDefined', [])));
+        $after = array_values(array_map('strval', (array) $response->json('orderedFirewallPolicyIds.afterSystemDefined', [])));
+        $ours = array_values(array_intersect($ruleIds, [...$before, ...$after]));
+        $wanted = [...$ours, ...array_values(array_diff($before, $ours))];
+        if (array_slice($before, 0, count($ours)) === $ours && array_intersect($after, $ours) === []) {
+            return;
+        }
+
+        $saved = $this->client()->timeout(30)->withQueryParameters($query)->put($path, ['orderedFirewallPolicyIds' => [
+            'beforeSystemDefined' => $wanted, 'afterSystemDefined' => array_values(array_diff($after, $ours)),
+        ]]);
+        $this->ensureSuccessful($saved, 'the firewall rule order', writing: true);
+        $this->forgetFirewall();
     }
 
     public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string
@@ -440,7 +497,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     public function firewallRulesUsing(string $id): array
     {
-        // One read of every rule serves all groups for 5 minutes.
+        // One read of every rule serves all groups (and firewallRules()) for 5 minutes.
         $policies = Cache::remember(self::FIREWALL_CACHE.'policies', 300, fn () => $this->paginated('/firewall/policies'));
 
         return collect($policies)

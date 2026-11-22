@@ -14,13 +14,13 @@ class FirewallList extends Model
     protected $fillable = [
         'name', 'family', 'provider_reference', 'provider_name', 'manual_entries', 'enabled', 'max_entries',
         'last_pushed_at', 'last_push_status', 'last_push_message', 'live_count', 'referenced_by',
-        'groups', 'rules', 'rule_zones', 'block_incoming', 'pushed_hash',
+        'groups', 'rules', 'rule_zones', 'block_incoming', 'rules_first', 'pushed_hash',
     ];
 
     protected function casts(): array
     {
         return ['manual_entries' => 'array', 'referenced_by' => 'array', 'enabled' => 'boolean', 'last_pushed_at' => 'datetime',
-            'groups' => 'array', 'rules' => 'array', 'rule_zones' => 'array', 'block_incoming' => 'boolean'];
+            'groups' => 'array', 'rules' => 'array', 'rule_zones' => 'array', 'block_incoming' => 'boolean', 'rules_first' => 'boolean'];
     }
 
     public function sources(): HasMany

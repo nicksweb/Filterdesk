@@ -37,11 +37,13 @@ class BlocklistController extends Controller
     {
         $groups = [];
         $zones = [];
+        $liveRules = [];
         $groupsError = null;
         if ($manager = $firewall->manager()) {
             try {
                 $groups = $manager->ipGroups();
                 $zones = $manager->firewallZones();
+                $liveRules = $manager->firewallRules();
             } catch (ProviderRequestFailed $exception) {
                 $groupsError = $exception->getMessage();
             } catch (Throwable $exception) {
@@ -60,6 +62,12 @@ class BlocklistController extends Controller
             'policies' => FilterPolicy::query()->ordered()->get(),
             'groups' => $groups,
             'zones' => $zones,
+            'rulePlans' => FirewallList::query()->get()->mapWithKeys(fn (FirewallList $list) => [$list->id => [
+                'rules' => rescue(fn () => $firewall->wantedRules($list, $list->groups ?: [['id' => '', 'name' => $list->name]], $zones,
+                    $list->rule_zones ?? collect($zones)->where(fn (array $zone) => strtolower($zone['name']) === 'internal')->pluck('id')->all()), [], false),
+                'ahead' => $firewall->rulesAhead($list, $liveRules),
+                'live' => collect($liveRules)->whereIn('id', collect($list->rules ?? [])->pluck('id'))->keyBy('id')->all(),
+            ]])->all(),
             'firewallStatus' => FirewallList::query()->pluck('id')->mapWithKeys(fn (int $id) => [$id => Cache::get(RunManualPush::statusKey('firewall', $id))])->filter()->all(),
             'groupLimit' => $firewall->groupLimit(),
             'groupsError' => $groupsError,
@@ -241,13 +249,14 @@ class BlocklistController extends Controller
         $validated = $request->validate([
             'zones' => ['nullable', 'array', 'max:10'], 'zones.*' => ['string', 'max:64'],
             'block_incoming' => ['nullable', 'boolean'],
+            'rules_first' => ['nullable', 'boolean'],
         ]);
         if (! $pusher->canWrite()) {
             return back()->with('error', 'Set the network provider to Active to create firewall rules.');
         }
         $zones = array_values(array_intersect($validated['zones'] ?? [], collect(rescue(fn () => $pusher->manager()->firewallZones(), [], false))->pluck('id')->all()));
-        $list->forceFill(['rule_zones' => $zones ?: null, 'block_incoming' => $zones !== [] && $request->boolean('block_incoming')])->save();
-        $audit->log('firewall.rules_chosen', $list, ['zones' => $zones, 'incoming' => $list->block_incoming]);
+        $list->forceFill(['rule_zones' => $zones ?: null, 'block_incoming' => $zones !== [] && $request->boolean('block_incoming'), 'rules_first' => $zones !== [] && $request->boolean('rules_first')])->save();
+        $audit->log('firewall.rules_chosen', $list, ['zones' => $zones, 'incoming' => $list->block_incoming, 'first' => $list->rules_first]);
         $result = RunManualPush::start('firewall', $list->id, $request->user(), force: true);
 
         return RunManualPush::flash(back(), $result, ($zones ? 'Updating the blocking rules' : 'Removing the blocking rules')." for {$list->name} in UniFi. It runs in the background; refresh in a minute to see the result.");
