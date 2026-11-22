@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\FilterPolicy;
 use App\Models\PolicyEntry;
 use App\Services\Policy\ControllerPusher;
+use App\Support\Schedule;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -67,6 +68,16 @@ class PushPolicies extends Command
                 ->where(fn ($query) => $query->where('starts_at', '>', $last->copy()->addMinutes($lead))->where('starts_at', '<=', $now->copy()->addMinutes($lead)))
                 ->orWhere(fn ($query) => $query->where('expires_at', '>', $last->copy()->subMinutes($lag))->where('expires_at', '<=', $now->copy()->subMinutes($lag))))
             ->get()->pluck('policyList')->unique('id');
+
+        // Recurring entries whose schedule switched on or off since the last run.
+        $scheduled = PolicyEntry::query()->with('policyList')->whereNotNull('schedule')
+            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', $last->copy()->subDay()))->get()
+            ->filter(function (PolicyEntry $entry) use ($last, $now): bool {
+                $schedule = Schedule::fromArray($entry->schedule);
+
+                return $schedule !== null && $schedule->isActive($last) !== $schedule->isActive($now);
+            });
+        $lists = $lists->merge($scheduled->pluck('policyList'))->unique('id');
 
         if ($lists->isEmpty()) {
             return collect();

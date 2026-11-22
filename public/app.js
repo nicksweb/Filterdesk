@@ -44,8 +44,13 @@
   // Request form: temporary fields only for temporary access.
   const durations = document.querySelectorAll('input[name="access_duration"]');
   const temporary = document.querySelector('.temporary-fields');
+  const recurring = document.querySelector('.recurring-fields');
   if (durations.length && temporary) {
-    const sync = () => { temporary.hidden = document.querySelector('input[name="access_duration"]:checked')?.value !== 'temporary'; };
+    const sync = () => {
+      const chosen = document.querySelector('input[name="access_duration"]:checked')?.value;
+      temporary.hidden = chosen !== 'temporary';
+      if (recurring) recurring.hidden = chosen !== 'recurring';
+    };
     durations.forEach(input => input.addEventListener('change', sync));
     sync();
   }

@@ -38,7 +38,7 @@ class RequestWorkflow
     ) {}
 
     /**
-     * @param  array{domains: list<string>, access_scope: Reach, category: string, use_case: ?string, requested_from: mixed, requested_until: mixed}  $attributes
+     * @param  array{domains: list<string>, access_scope: Reach, category: string, use_case: ?string, requested_from: mixed, requested_until: mixed, schedule?: ?array}  $attributes
      */
     public function submit(User $requester, array $attributes): WebsiteRequest
     {
@@ -202,6 +202,15 @@ class RequestWorkflow
                 continue;
             }
 
+            // A recurring request that is off right now has nothing to see in the filters yet; its
+            // entries are in place and the scheduler pushes each time the schedule switches on.
+            if (($schedule = $websiteRequest->recurrence()) && ! $schedule->isActive(now())) {
+                $websiteRequest->forceFill(['status' => RequestStatus::Active, 'resolved_at' => now()])->save();
+                $this->event($websiteRequest, $actor, 'applied', 'Scheduled: '.$schedule->label().'. Each occurrence is pushed to the controller automatically.');
+                $settled++;
+
+                continue;
+            }
             // Listed hostnames must be in the filter's list; hostnames a smart approval unblocked (or left alone) must not be blocked.
             $listed = $websiteRequest->listedDomains();
             $applied = $policies->every(fn ($policy) => collect($websiteRequest->effectiveDomains())->every(function (string $domain) use ($policy, $listed, $rules, $websiteRequest): bool {

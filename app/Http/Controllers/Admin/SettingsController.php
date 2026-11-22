@@ -515,6 +515,7 @@ class SettingsController extends Controller
             'categories' => ['required', 'string', 'max:2000'],
             'window_lead_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
             'window_lag_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
+            'schedule_margin_minutes' => ['nullable', 'integer', 'min:0', 'max:180'],
             'form.access_label' => ['nullable', 'string', 'max:120'],
             'form.block_label' => ['nullable', 'string', 'max:120'],
             'form.access_hint' => ['nullable', 'string', 'max:300'],
@@ -541,6 +542,7 @@ class SettingsController extends Controller
             'categories' => $this->commaList($validated['categories'], lower: false),
             'window_lead_minutes' => (int) ($validated['window_lead_minutes'] ?? 5),
             'window_lag_minutes' => (int) ($validated['window_lag_minutes'] ?? 5),
+            'schedule_margin_minutes' => (int) ($validated['schedule_margin_minutes'] ?? 60),
         ]);
     }
 

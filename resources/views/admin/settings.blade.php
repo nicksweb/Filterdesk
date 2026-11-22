@@ -323,6 +323,7 @@
             <div class="fields two">
                 <label>Open timed access early (minutes)<input name="window_lead_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lead_minutes', 5) }}"><small>Allow or block entries go live this long before their start, so the controller has them in place on time.</small></label>
                 <label>Close timed access late (minutes)<input name="window_lag_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lag_minutes', 5) }}"><small>Entries are removed this long after their end. With automatic pushing, changes reach the controller within about a minute.</small></label>
+                <label>Recurring schedules: open early and close late (minutes)<input name="schedule_margin_minutes" type="number" min="0" max="180" value="{{ $settings->get('approval.schedule_margin_minutes', 60) }}"><small>For schedules with set hours, access starts this long before the first hour and ends this long after the last. All-day schedules switch on at 1 am.</small></label>
             </div>
             @php($form = app(\App\Services\Requests\RequestFormSettings::class)->all())
             <h3>Request form</h3>

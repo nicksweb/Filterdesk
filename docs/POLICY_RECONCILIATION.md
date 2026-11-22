@@ -57,6 +57,16 @@ changes, so renaming is always safe.
 | **Added by IT** | *Policy lists → Add hostnames*, with no request needed. Adding to **Site-wide allow** reaches every policy, students included. | When removed, or at its expiry if one was set. |
 | **Imported** | Bulk paste into a list (merge or replace). Request entries are never replaced. | When removed. |
 
+### Recurring requests
+
+A request can be **Recurring**: between a first and last day (up to 6 months apart), on chosen days of the week, every 1–4 weeks, either all day or between two hours. Its entries stay in the lists for the whole range but only count while the schedule is on:
+
+- **All day** occurrences switch on at **1 am** school time and off at midnight, so the nightly change brings them in.
+- **Set hours** open an hour before the first hour and close an hour after the last (Settings → Approval policy → *Recurring schedules: open early and close late*).
+- The scheduler checks every minute and pushes whenever an occurrence switches on or off, so a request approved for later today still takes effect on time. Block requests can be recurring too.
+
+IT sees the pattern on the request and approves it as it is; the one-off access window fields are not shown for recurring requests.
+
 ### Smart approval
 
 With website categories turned on (Settings → Website categories), approving a permanent access request first works out why each hostname is blocked, and the approval panel shows the plan:

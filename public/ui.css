@@ -205,3 +205,7 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .brand-icon{width:30px;height:30px;border-radius:8px;object-fit:contain}
 .icon-preview{display:flex;align-items:center;gap:12px}
 .icon-preview img{border:1px solid var(--line);border-radius:10px;padding:4px;background:#fff}
+.recurring-fields{display:grid;gap:10px;margin-top:10px}
+.day-picker{display:flex;flex-wrap:wrap;gap:6px}
+.day-picker .day{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:999px;padding:4px 12px;cursor:pointer}
+.day-picker .day input{margin:0}

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Tests\Concerns\BuildsPolicies;
@@ -25,7 +26,7 @@ class BrandingTest extends TestCase
             'app_name' => 'uConnect', 'brand_mark' => 'uC', 'icon' => UploadedFile::fake()->createWithContent('icon.png', $png),
         ])->assertSessionHas('success');
 
-        (new \App\Providers\AppServiceProvider($this->app))->boot();
+        (new AppServiceProvider($this->app))->boot();
         $this->actingAs($admin)->get(route('dashboard'))->assertOk()->assertSee('uConnect')->assertSee('class="brand-icon"', false)->assertSee('rel="icon"', false);
         $icon = $this->get(route('brand.icon'))->assertOk()->assertHeader('Content-Type', 'image/png');
         $this->assertSame($png, $icon->getContent());

@@ -16,6 +16,7 @@ use App\Models\WebsiteRequest;
 use App\Services\Network\DomainRules;
 use App\Services\Network\NetworkProviderManager;
 use App\Support\Reach;
+use App\Support\Schedule;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -164,6 +165,7 @@ class PolicyEngine
                         'added_by_id' => $actor?->id,
                         'starts_at' => $request->accessFrom(),
                         'expires_at' => $request->accessUntil(),
+                        'schedule' => $request->schedule,
                         'note' => "{$request->reference}: {$request->category}",
                     ]);
                 }
@@ -260,7 +262,9 @@ class PolicyEngine
             };
             // Plain rows, not models: feed lists can hold tens of thousands of entries.
             $entries = PolicyEntry::query()->where('policy_list_id', $list->id)->effective($at)->toBase()
-                ->get(['id', 'domain', 'source', 'website_request_id', 'expires_at', 'created_at']);
+                ->get(['id', 'domain', 'source', 'website_request_id', 'expires_at', 'created_at', 'schedule'])
+                // Recurring entries only count while their schedule is on.
+                ->filter(fn ($entry) => $entry->schedule === null || Schedule::fromArray(json_decode((string) $entry->schedule, true))?->isActive($at ?? now()) !== false);
             $references = WebsiteRequest::query()->whereIn('id', $entries->pluck('website_request_id')->filter()->unique()->all())->pluck('reference', 'id');
             $feed = EntrySource::Feed->value;
             $bulk = [EntrySource::Feed->value, EntrySource::Import->value];

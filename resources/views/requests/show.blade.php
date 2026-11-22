@@ -68,6 +68,9 @@
                         @endif
                         <label>Additional hostnames <span class="optional">one per line</span><textarea name="extra_domains" rows="2" placeholder="cdn.example.net">{{ old('extra_domains') }}</textarea></label>
                         @php($margins = \App\Models\PolicyEntry::margins())
+                        @if($websiteRequest->recurrence())
+                            <div class="notice"><strong>Recurring:</strong> {{ $websiteRequest->recurrence()->label() }}. Entries switch on and off automatically; set-hour windows open {{ \App\Support\Schedule::margin() }} minutes early and close {{ \App\Support\Schedule::margin() }} minutes late.</div>
+                        @else
                         <fieldset class="window-fields"><legend>Access window <span class="optional">school time · blank end = permanent</span></legend>
                             <div class="fields two">
                                 <label>Allow from<input type="datetime-local" name="access_from" value="{{ old('access_from', $websiteRequest->requested_from?->local()->format('Y-m-d\TH:i')) }}"></label>
@@ -75,6 +78,7 @@
                             </div>
                             <p class="hint">Pre-filled with what was requested; change it to approve a different period. Timed access is put in place {{ $margins['lead'] }} min before the start and taken out {{ $margins['lag'] }} min after the end.</p>
                         </fieldset>
+                        @endif
                         <div class="fields two">
                             @php($requestedScope = $websiteRequest->access_scope)
                             @php($chosenScope = old('scope', $requestedScope?->siteWide ? ['site'] : ($requestedScope?->types ?? [])))
@@ -201,6 +205,7 @@
                     <section class="panel action-panel">
                         <h2>Access window</h2>
                         <p class="section-copy">{{ $websiteRequest->windowLabel() }}</p>
+@unless($websiteRequest->recurrence())
                         <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}">@csrf
                             <input type="hidden" name="action" value="window">
                             <label>Allow from<input type="datetime-local" name="access_from" value="{{ $websiteRequest->access_from?->local()->format('Y-m-d\TH:i') }}"></label>
@@ -208,6 +213,7 @@
                             <label>Note to requester <span class="optional">optional</span><input name="message"></label>
                             <button class="button secondary full">Change window</button>
                         </form>
+                        @endunless
                     </section>
 
                     <section class="panel action-panel">

@@ -18,6 +18,7 @@ use App\Services\Requests\RequestFormSettings;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
 use App\Support\Reach;
+use App\Support\Schedule;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -117,7 +118,8 @@ class WebsiteRequestController extends Controller
             'category' => ['required', 'string', 'max:100', ...($categories ? [Rule::in($categories)] : [])],
             'use_case' => [$form->required($request->user()) ? 'required' : 'nullable', 'string', 'min:'.$form->minLength(), 'max:5000'],
             'standards_confirmed' => ['accepted'],
-            'access_duration' => ['required', 'in:permanent,temporary'],
+            'access_duration' => ['required', 'in:permanent,temporary,recurring'],
+            'schedule' => ['nullable', 'array'],
             'requested_from' => ['nullable', 'date'],
             'requested_until' => ['nullable', 'required_if:access_duration,temporary', 'date'],
         ]);
@@ -128,6 +130,9 @@ class WebsiteRequestController extends Controller
         if (! $scope || $scope->siteWide || array_diff($scope->types, $requestable) !== []) {
             throw ValidationException::withMessages(['network_types' => 'Choose the networks this request is for.']);
         }
+
+        // Recurring: the pattern decides when entries are in place; the request spans its whole range.
+        $schedule = $validated['access_duration'] === 'recurring' ? Schedule::fromInput((array) ($validated['schedule'] ?? [])) : null;
 
         $temporary = $validated['access_duration'] === 'temporary';
         $from = $temporary ? $settings->parseLocal($validated['requested_from'] ?? null) : null;
@@ -145,8 +150,10 @@ class WebsiteRequestController extends Controller
             'access_scope' => $scope,
             'category' => $validated['category'],
             'use_case' => $validated['use_case'] ?? null,
-            'requested_from' => $from,
-            'requested_until' => $until,
+            // Stored in UTC like every other time (Laravel keeps a Carbon's clock time as given).
+            'requested_from' => $schedule ? $schedule->firstOpening()?->utc() : $from,
+            'requested_until' => $schedule ? $schedule->lastClosing()->utc() : $until,
+            'schedule' => $schedule?->toArray(),
         ]);
 
         // Auto-approval applies when every chosen network type allows it (by default only Staff).

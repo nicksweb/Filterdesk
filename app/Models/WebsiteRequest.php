@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Casts\AsReach;
 use App\Enums\RequestStatus;
 use App\Support\Reach;
+use App\Support\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,7 +14,7 @@ use Illuminate\Support\Carbon;
 class WebsiteRequest extends Model
 {
     protected $fillable = [
-        'reference', 'request_type', 'domain_categories', 'access_plan', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
+        'reference', 'request_type', 'domain_categories', 'access_plan', 'schedule', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
         'category', 'use_case', 'standards_confirmed', 'status', 'requested_from',
         'requested_until', 'approved_at', 'access_from', 'expires_at', 'expiry_reminded_at', 'resolved_at', 'resolution',
         'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at',
@@ -31,6 +32,7 @@ class WebsiteRequest extends Model
             'access_scope' => AsReach::class,
             'domain_categories' => 'array',
             'access_plan' => 'array',
+            'schedule' => 'array',
             'status' => RequestStatus::class,
             'standards_confirmed' => 'boolean',
             'requested_from' => 'datetime',
@@ -123,6 +125,12 @@ class WebsiteRequest extends Model
                 || $this->expires_at?->toIso8601String() !== $this->requested_until?->toIso8601String());
     }
 
+    /** The recurring pattern, when the request has one. */
+    public function recurrence(): ?Schedule
+    {
+        return Schedule::fromArray($this->schedule);
+    }
+
     public function isTemporary(): bool
     {
         return $this->accessUntil() !== null;
@@ -131,6 +139,9 @@ class WebsiteRequest extends Model
     /** "1 Dec 9:00 am – 1 Dec 3:00 pm", "From 1 Dec 9:00 am", or "Permanent", in school time. */
     public function windowLabel(): string
     {
+        if ($schedule = $this->recurrence()) {
+            return 'Recurring: '.$schedule->label();
+        }
         $from = $this->accessFrom();
         $until = $this->accessUntil();
 
