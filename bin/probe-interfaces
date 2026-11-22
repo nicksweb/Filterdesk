@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Run on the Docker host. Lists network interfaces so you can pick the trunk
+# for the probe containers (Policy lists → Guided setup → Trunk interface),
+# and optionally listens on one for VLAN-tagged traffic to confirm the switch
+# port really carries the VLANs.
+#
+#   bin/probe-interfaces                 list interfaces and suggest a trunk
+#   sudo bin/probe-interfaces --listen eno1 [seconds]
+#                                        report the VLAN tags seen on eno1
+set -euo pipefail
+
+if [[ "${1:-}" == "--listen" ]]; then
+    iface="${2:?Give the interface to listen on, for example: --listen eno1}"
+    seconds="${3:-20}"
+    if ! command -v tcpdump >/dev/null; then
+        echo "tcpdump is not installed (apt install tcpdump)." >&2
+        exit 1
+    fi
+    echo "Listening on ${iface} for ${seconds}s for 802.1Q-tagged frames..."
+    tags=$(timeout "${seconds}" tcpdump -nn -e -i "${iface}" vlan 2>/dev/null | grep -oE 'vlan [0-9]+' | awk '{print $2}' | sort -n | uniq -c || true)
+    if [[ -z "${tags}" ]]; then
+        echo "No tagged frames seen. Either the switch port sends only the native (untagged) network,"
+        echo "or the NIC strips tags. In UniFi, give the port a profile that tags the probe VLANs."
+        exit 2
+    fi
+    echo "VLAN tags seen (frames, VLAN):"
+    echo "${tags}"
+    echo "Use ${iface} as the trunk; probes on these VLANs will work."
+    exit 0
+fi
+
+default_iface=$(ip -4 route show default 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") print $(i + 1); exit}')
+
+printf '%-16s %-7s %-10s %-8s %s\n' INTERFACE STATE KIND VLAN ADDRESSES
+for path in /sys/class/net/*; do
+    name=$(basename "${path}")
+    case "${name}" in
+        lo|docker*|br-*|veth*|virbr*|tailscale*|wg*|tun*|tap*) continue ;;
+    esac
+    state=$(cat "${path}/operstate" 2>/dev/null || echo "?")
+    kind="virtual"
+    [[ -e "${path}/device" ]] && kind="physical"
+    vlan="-"
+    details=$(ip -d link show "${name}" 2>/dev/null || true)
+    if grep -q 'vlan protocol' <<<"${details}"; then
+        kind="vlan"
+        vlan=$(grep -oE 'id [0-9]+' <<<"${details}" | head -1 | awk '{print $2}')
+    elif grep -qE '^\s*bridge ' <<<"${details}"; then
+        kind="bridge"
+    fi
+    addresses=$(ip -4 -o addr show dev "${name}" 2>/dev/null | awk '{print $4}' | paste -sd, -)
+    marker=""
+    [[ "${name}" == "${default_iface}" ]] && marker="  <- default route"
+    printf '%-16s %-7s %-10s %-8s %s%s\n' "${name}" "${state}" "${kind}" "${vlan}" "${addresses:--}" "${marker}"
+done
+
+echo
+if [[ -n "${default_iface}" ]]; then
+    echo "Suggested trunk: ${default_iface} (the interface with the default route)."
+else
+    echo "No default route found; pick the physical interface cabled to the switch."
+fi
+echo "Probes on tagged VLANs use <trunk>.<VLAN> (Docker creates it); the native network uses the trunk itself."
+echo "Check the port really carries the VLANs: sudo $0 --listen ${default_iface:-<trunk>}"

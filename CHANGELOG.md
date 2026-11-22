@@ -1,14 +1,86 @@
 # Changelog
 
-This project follows Semantic Versioning and Keep a Changelog.
+All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
-## [Unreleased]
+## 2026.11.0
+
+The release previously planned as 0.2.0, shipped under the new calendar versioning.
 
 ### Added
+- Blocklists & firewall: subscribe to hagezi presets or any URL (hosts, adblock, wildcard, plain); domain feeds fill their own allow/block list, IP feeds and manual addresses keep a UniFi IP group in step through the official API, with firewall-rule usage shown; hourly refresh (`blocklists:refresh`).
+- Allow/block precedence: the most specific list wins, then the most recent entry; feed entries never override IT or approvals. Overridden additions are reported.
+- "Include www. and the bare domain" when adding hostnames.
+- Timed access: IT can approve a different window from the one requested, or change it later (or make it permanent). Timed allow and block entries go live 5 minutes early and are removed 5 minutes late (configurable), and a once-a-minute scheduler pushes only the filters whose windows open or close.
+- Sign-in protection: account lockout after 5 failures in 15 minutes, per-IP limit, audit of failures, lockout emails, and a per-account password sign-in switch; the recovery command re-enables it.
+- Requester emails: received confirmation, scheduled approval, expiry reminder for longer access, and access ended; clearer subjects ("approved and scheduled", "access is live").
+- Networks & filters: live UniFi content filters and VLANs, link filters to policies, map each VLAN to a staff, student or guest policy, mismatch warnings.
+- Push policy changes to linked UniFi content filters (Active mode): change sets only, hand-made entries kept, read-back verification, push history and rollback, push all policies at once, optional automatic pushing on approval, revocation, expiry and schedule (`policy:push`), and a no-change write check.
+- Guided setup from the controller: create or link a policy per content filter, import its entries into policy-owned lists, map its networks, and get per-policy probe container recommendations (macvlan command, DNS, compose snippet) with one-click probe profiles.
+- The controller is the source of truth (default): entries added in UniFi are imported into the policy's own lists, managed entries removed in UniFi are excluded from that filter and never pushed back until restored, UniFi blocks win for that filter, and category edits are accepted.
+- Sync checks every 15 minutes: in sync, changes to push, changed in controller (entries, categories, network attachments) or cannot check; email alert on drift, dashboard banner, accept-controller-changes action.
+- Networks attached to more than one content filter are detected and reported.
+- Manage a linked filter's blocked content categories (Active mode).
+- Fetch a policy's current lists straight from the controller, and import entries added in the controller by hand (allow and block) into a managed list.
+- Domain scanner: hostnames a page loads on each network plus optional certificate-transparency subdomains, added to any allow or block list in one step.
+- Administrators can view the app as a staff member or student (or built-in preview accounts), with a banner to return and the real actor recorded in the audit log.
+- Adding hostnames reports where they are already listed and whether a controller filter blocks them.
+- Audience-aware filter policies (Staff, Student, Guest, Other) with site-wide, audience and per-policy allow/block lists.
+- Per-policy reconciliation: paste the controller lists, review add/remove/review sets, copy or download the desired lists, mark in sync.
+- Manual hostname entries with optional start and expiry. Site-wide entries reach every policy, including students.
+- DNS-aware approval recommendations: registrable domain (Public Suffix List), www alias, and subdomains and third-party hosts observed during checks.
+- Probe reports every host a page loads and which failed; recognises DNS sinkhole answers.
+- Fresh Chromium per check run, DoH disabled, optional uncached direct DNS (`*_PROBE_DNS_SERVERS`), and a re-run button.
+- IT action panel: assignee dropdown of enabled IT staff, assign to me, approve with selected hostnames and scope override, revoke, internal notes.
+- Request queue tabs, assignment filter and search.
+- Email to IT on new requests, replies and assignment; daily reconciliation digest; per-user opt-in.
+- Admin settings for school, authentication, email (with test send), network provider (test and discovery), network profiles and approval policy.
+- OIDC role rules by email domain or group/role claim, default role or deny, optional sync at sign-in.
+- Audit log viewer, diagnostics page and `/health` endpoint.
+- UniFi Site Manager (unifi.ui.com) keys via Ubiquiti's cloud connector, with console discovery; clear guidance when a Site Manager key is used locally. Short console IDs from the web UI are resolved to the full connector ID.
+- `itrequests:upgrade`, `itrequests:admin-password` and `policy:digest` commands; versioned upgrades.
 
-- Docker-first Laravel application and eight-step installation wizard
-- OIDC/local recovery authentication and student/teacher/IT/admin roles
-- Isolated Student and Staff Chromium probes with optional screenshots
-- Domain request, approval, information, assignment, notification and expiry workflow
-- Capability-driven UniFi official API adapter with safe manual fallback
-- Reverse-proxy, operations, security and compatibility documentation
+### Fixed
+- Push safety: pushes are refused when a filter list would exceed a configurable size (default 100,000, UniFi's practical ceiling), and automatic pushes with more than a configurable number of changes (default 1,000) wait until someone pushes them. The policy page warns above 5,000 entries that the UniFi web interface will be slow to open the filter.
+- Automatic pushes after an approval, revocation or window change run in the background queue, so the page answers at once (several filters through the cloud connector could exceed the 30 s gateway timeout and show a 504). The web timeout is now 120 s and the queue worker allows 300 s.
+- Firewall blocking rules: the Blocklists page shows the networks in each zone and lists the exact rules before they are created (one per IP group and zone, because a UniFi rule has one source zone, one destination zone and one group). Incoming blocks now cover every ticked zone and the Gateway, not only Internal. **Put these rules first** moves the app's rules above your own rules for the same zones, and the page warns when one of your Allow rules is checked first. Rules deleted in UniFi are recreated, and creating rules without an External zone is refused clearly instead of making a zone-to-itself rule.
+- Resilience: an unreachable UniFi controller is reported as a normal error everywhere (it crashed the hourly blocklist refresh and returned a 500 on firewall pushes); a test loads every page and runs every scheduled job with UniFi, all probes and the category service offline.
+- **Recurring requests**: access or blocks on chosen weekdays, all day (on at 1 am) or set hours (an hour's margin either side, configurable), every 1–4 weeks, for up to 6 months; pushed on and off automatically.
+- Branding: change the application name (for example "uConnect"), the header initials and upload a browser/header icon under Settings → School.
+- Speed: pages show the last known UniFi state immediately and refresh it in the background; IP groups, zones and firewall rules are cached for 5 minutes. Manual pushes (policy, push all, firewall lists and rules) run in the background with an in-progress note.
+- Checks: screenshots wait for the page to finish loading (PROBE_TIMEOUT_MS default 8000, PROBE_SETTLE_MS 1500); a probe whose setup checklist fails shows "probe not working" instead of a misleading DNS result.
+- Firewall IP lists: lists over 20,000 addresses are split across several UniFi IP groups; **Create blocking rules in UniFi** creates and maintains a Block rule per group and zone (optionally incoming too); unchanged lists are not re-pushed after scheduled refreshes; deleting a list removes the rules it created.
+- Category guard: if a category becomes blocked after a smart approval, the affected approved sites get an allow entry automatically (stored categories, no extra lookups; daily refresh of only those sites). Category lookups are capped at 300 an hour.
+- **Smart approval**: with website categories on, approving access removes a block IT added instead of adding an allow entry when the site's category is not blocked, adds nothing when nothing blocks it, and only adds allow entries to override a blocked category, a feed or an import. The approval panel shows the plan per hostname.
+- **Email templates**: every email's subject, greeting, body and button are editable under Settings → Email templates, with placeholders, a preview and reset to default.
+- Request form: the reason field's title and hint are configurable; it can be optional for staff and required for students, and students get their own category list (Settings → Approval policy).
+- Email: *None* encryption now means plain SMTP that is never upgraded to TLS (internal relays on port 25), and certificate verification can be turned off for an internal server reached by IP. The installer asks for the encryption too.
+- **Website categories** (optional, off by default): Cloudflare Radar or Intel categorises checked and requested domains; checks, the request form and request pages show the categories, the matching UniFi content category and which linked filters block it. Categories are saved on each request when it is submitted.
+- Probe addresses: set a probe's IP by hand (subnet, gateway and DNS still come from UniFi), reserve it for the probe's MAC in UniFi in one click, or move it to a free address outside the DHCP pool; DHCP relay networks are recognised. Checklist warnings can be marked reviewed, and collapsed checklists stay collapsed.
+- **Probe setup checklist**: each probe tests itself (container, VLAN, gateway, DNS, internet) and Settings → Network profiles turns the result into a step-by-step checklist with fixes, including switch-port and Proxmox/VMware/Hyper-V advice; reruns every 10 minutes (`probes:check`), with reminders on the dashboard and in Guided setup.
+- **Network types**: the fixed Staff / Student / Guest / Other audiences are now types you define under Settings → Network types (for example CCTV or Exam rooms), each with its own shared allow and block lists, a *requestable* and an *auto-approve* switch. Requests and approvals choose any set of types or site-wide instead of the fixed *Staff only / Staff and students* choices. Existing data is converted on upgrade.
+- Docs: full setup guide with every `.env` variable (`docs/SETUP.md`) and a security hardening checklist including post-quantum TLS (`docs/SECURITY_HARDENING.md`).
+- Installer: the first page warns when the reverse proxy is not trusted (pages would load unstyled) and names the address to put in `TRUSTED_PROXIES`.
+- Probe identity: probes report their VLAN address, MAC, gateway and DNS (`/identity`), shown under Settings → Network profiles with a warning when a probe is off its VLAN; generated probes get a fixed address and MAC.
+- Guided setup: **Bring everything in** imports every UniFi content filter in one step (reusing the default policies, recognising layers, importing all entries in bulk, mapping networks, preparing probe profiles); the dashboard points new installs at it.
+- Probes: one saved trunk interface with each probe on `<trunk>.<VLAN>` (tagged), an optional per-probe interface for hosts with a NIC per network, and `bin/probe-interfaces` to list host interfaces and confirm which VLAN tags reach the trunk. The setup page generates the whole `compose.vlan.yml` (also `php artisan probes:compose`) with the host commands, and plans extra probes for any network, such as guest Wi-Fi or BYOD, beyond Staff and Students.
+- Precedence: an allow added by IT or an approved request now beats a block from a feed or a controller import at any level (before, a feed or import in a policy's own list beat an audience-wide approval). Adding such an allow says which blocks it overrides.
+- Layers: a second UniFi content filter on the same networks as a policy, created from the policy page, carries that policy's blocklist feeds. Filters on one network add up and a block wins, so the app leaves anything the policy allows out of the layer. Layers are pushed before their parent and copy its categories.
+- Entries the app wrote to the controller and later dropped (deleted entries, feeds switched off) are removed from the controller instead of being imported back as hand-made.
+- Pagination uses a compact pager instead of unstyled framework markup.
+- A block for one audience was silently ignored when the hostname was also allowed site-wide or by an approval ("allow always wins").
+- Policy comparisons scale to feed-sized lists (set lookups instead of nested scans; plain rows instead of models).
+- Docker build: the Composer stage ignores only upper-bound PHP constraints, so builds keep working when the `composer:2` image moves to a newer PHP than the 8.5 runtime.
+- Settings were cached as Eloquent objects and silently fell back to defaults (school name, URL, timezone, Schoolbox origin, local login flag).
+- Temporary windows were stored as wall-clock time in a UTC column; times displayed in UTC.
+- New OIDC users were created with a null `enabled` attribute and refused at first sign-in.
+- Assignment accepted any user ID; it is now restricted to enabled IT staff.
+- Disabled accounts kept working until their session ended.
+
+### Security
+- OIDC accounts match on the immutable subject; email matching is used only for pre-staged accounts that have no subject.
+- The installer no longer keeps the administrator's plain-text password in the session.
+- At least one enabled administrator must remain.
+
+## 0.1.0
+
+- Initial release.

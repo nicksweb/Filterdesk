@@ -9,13 +9,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
           extensions: mbstring, sqlite, pdo_sqlite
           coverage: none
       - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
       - run: vendor/bin/pint --test
       - run: php artisan test
         env:
@@ -26,5 +27,5 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: docker compose build app web probe-student

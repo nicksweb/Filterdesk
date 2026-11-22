@@ -25,4 +25,7 @@ fi
 chmod 600 "$env_file"
 
 echo "Configuration created at $env_file"
-echo "Review APP_URL, TRUSTED_PROXIES and VLAN settings, then run: docker compose up -d --build"
+echo "Review APP_URL and TRUSTED_PROXIES, then run: docker compose up -d --build"
+echo "Behind a reverse proxy, TRUSTED_PROXIES must be the proxy's address (for Nginx Proxy Manager in Docker:"
+echo "  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' <npm container>)"
+echo "or pages link to http:// stylesheets and appear unstyled. The wizard's first page checks this."

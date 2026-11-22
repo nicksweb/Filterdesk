@@ -7,6 +7,9 @@ x-app: &app
     target: runtime
   image: it-edu-selfservice-app:${APP_IMAGE_TAG:-local}
   env_file: .env
+  environment:
+    # Longer than the queue worker's --timeout, so a slow push is not started twice.
+    DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-330}
   restart: unless-stopped
   networks: [app, outbound]
   volumes:
@@ -47,7 +50,7 @@ services:
   migrate:
     <<: *app
     restart: "no"
-    command: ["php", "artisan", "migrate", "--force"]
+    command: ["php", "artisan", "itrequests:upgrade"]
     depends_on:
       db: { condition: service_healthy }
 
@@ -66,7 +69,7 @@ services:
 
   queue:
     <<: *app
-    command: ["php", "artisan", "queue:work", "--sleep=2", "--tries=3", "--timeout=60", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--sleep=2", "--tries=3", "--timeout=300", "--max-time=3600"]
     depends_on:
       migrate: { condition: service_completed_successfully }
 
@@ -96,17 +99,25 @@ services:
     <<: *probe
     environment:
       PROBE_SHARED_KEY: ${PROBE_SHARED_KEY}
-      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
+      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-8000}
+      PROBE_SETTLE_MS: ${PROBE_SETTLE_MS:-1500}
       BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
       ALLOWED_PRIVATE_HOSTS: ${STUDENT_ALLOWED_PRIVATE_HOSTS:-}
+      PROBE_DNS_SERVERS: ${STUDENT_PROBE_DNS_SERVERS:-}
+      BLOCK_PAGE_ADDRESSES: ${BLOCK_PAGE_ADDRESSES:-}
+      PROBE_REUSE_BROWSER: ${PROBE_REUSE_BROWSER:-false}
 
   probe-staff:
     <<: *probe
     environment:
       PROBE_SHARED_KEY: ${PROBE_SHARED_KEY}
-      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
+      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-8000}
+      PROBE_SETTLE_MS: ${PROBE_SETTLE_MS:-1500}
       BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
       ALLOWED_PRIVATE_HOSTS: ${STAFF_ALLOWED_PRIVATE_HOSTS:-}
+      PROBE_DNS_SERVERS: ${STAFF_PROBE_DNS_SERVERS:-}
+      BLOCK_PAGE_ADDRESSES: ${BLOCK_PAGE_ADDRESSES:-}
+      PROBE_REUSE_BROWSER: ${PROBE_REUSE_BROWSER:-false}
 
 networks:
   app: { internal: true }

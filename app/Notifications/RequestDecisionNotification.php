@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\WebsiteRequest;
+use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -12,7 +13,8 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(private readonly WebsiteRequest $websiteRequest, private readonly string $message) {}
+    /** @param  string|null  $stage  Overrides the subject wording: received or ending. */
+    public function __construct(private readonly WebsiteRequest $websiteRequest, private readonly string $message, private readonly ?string $stage = null) {}
 
     public function via(object $notifiable): array
     {
@@ -21,11 +23,22 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject("Website request {$this->websiteRequest->reference}: {$this->websiteRequest->status->label()}")
-            ->greeting("Hello {$notifiable->name},")
-            ->line($this->message)
-            ->line('Domains: '.implode(', ', $this->websiteRequest->domains))
-            ->action('View request', route('requests.show', $this->websiteRequest));
+        $request = $this->websiteRequest;
+        $template = match ($this->stage ?? $request->status->value) {
+            'received', 'pending' => 'request_received',
+            'ending' => 'request_ending',
+            'approved', 'action_required', 'failed', 'active' => match (true) {
+                (bool) $request->accessFrom()?->isFuture() => 'request_scheduled',
+                $request->status->value === 'active' => 'request_live',
+                default => 'request_approved',
+            },
+            'needs_information' => 'request_information',
+            'rejected' => 'request_declined',
+            'revoked' => 'request_revoked',
+            'expired' => 'request_expired',
+            default => 'request_approved',
+        };
+
+        return app(EmailTemplates::class)->mail($template, RequestTemplateValues::for($request, $notifiable) + ['message' => $this->message], route('requests.show', $request));
     }
 }

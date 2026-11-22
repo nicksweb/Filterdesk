@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1.7
 FROM composer:2 AS vendor
 WORKDIR /app
+# The composer image tracks the newest PHP; the runtime below is PHP 8.5.
+# Ignore only upper-bound PHP constraints so lower bounds are still enforced.
+ENV COMPOSER_IGNORE_PLATFORM_REQ=php+
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-interaction
 COPY . .

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Refreshes the bundled Public Suffix List used to work out registrable domains.
+set -eu
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+target="$project_dir/resources/data/public_suffix_icann.dat"
+tmp=$(mktemp)
+curl -fsSL https://publicsuffix.org/list/public_suffix_list.dat -o "$tmp"
+{
+  printf '// Public Suffix List (ICANN section) from https://publicsuffix.org/list/public_suffix_list.dat\n'
+  printf '// Licensed under the Mozilla Public License 2.0: https://mozilla.org/MPL/2.0/\n'
+  printf '// Refresh with: bin/update-public-suffix-list\n'
+  sed -n '/===BEGIN ICANN DOMAINS===/,/===END ICANN DOMAINS===/p' "$tmp" | grep -v '^//' | grep -v '^$'
+} > "$target"
+rm -f "$tmp"
+echo "Updated $target ($(wc -l < "$target") lines)"

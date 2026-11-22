@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\ConfigureSchoolboxEmbedding;
 use App\Http\Middleware\EnsureInstalled;
+use App\Http\Middleware\EnsureUserEnabled;
 use App\Http\Middleware\InstallationOnly;
 use App\Http\Middleware\RequireRole;
 use App\Http\Middleware\SecurityHeaders;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'installed' => EnsureInstalled::class,
             'installation.only' => InstallationOnly::class,
             'role' => RequireRole::class,
+            'enabled' => EnsureUserEnabled::class,
         ]);
         $middleware->prependToGroup('web', EnsureInstalled::class);
         $middleware->prependToGroup('web', ConfigureSchoolboxEmbedding::class);

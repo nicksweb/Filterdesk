@@ -54,6 +54,9 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    /** Reverse proxies allowed to set X-Forwarded-* headers (comma separated). */
+    'trusted_proxies' => env('TRUSTED_PROXIES', '127.0.0.1'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone
@@ -66,6 +69,9 @@ return [
     */
 
     'timezone' => 'UTC',
+
+    /** Timezone used to display and enter dates. Overridden by Settings → School. */
+    'display_timezone' => env('APP_TIMEZONE', 'UTC'),
 
     /*
     |--------------------------------------------------------------------------

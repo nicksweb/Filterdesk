@@ -4,9 +4,16 @@ namespace App\Services\Website;
 
 use App\Models\NetworkProfile;
 use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
+/**
+ * Sends one batch per network probe. Each probe starts a fresh browser for
+ * the batch and resolves DNS without caching, so a re-run always reflects
+ * the network's current filtering decision.
+ */
 class WebsiteChecker
 {
     /** @return array{results: array<string, array<string, mixed>>, duration_ms: int} */
@@ -24,28 +31,29 @@ class WebsiteChecker
      * @param  list<array{url: string, hostname: string}>  $targets
      * @return array{checks: list<array{url: string, hostname: string, results: array<string, array<string, mixed>>, duration_ms: int}>, duration_ms: int}
      */
+    /** Long enough for a batch of slow pages with screenshots (probe page timeout plus settling, run in parallel). */
+    private const PROBE_TIMEOUT_SECONDS = 45;
+
     public function checkMany(array $targets, bool $screenshot = true): array
     {
-        $profiles = NetworkProfile::query()->where('enabled', true)->get();
+        $profiles = NetworkProfile::query()->where('enabled', true)->orderBy('sort_order')->orderBy('id')->get();
 
         if ($profiles->isEmpty()) {
             throw new RuntimeException('No network probe profiles are configured.');
         }
 
         $started = hrtime(true);
-        $responses = Http::pool(function (Pool $pool) use ($profiles, $targets, $screenshot): array {
+        $urls = array_column($targets, 'url');
+        $responses = Http::pool(function (Pool $pool) use ($profiles, $urls, $screenshot): array {
             $requests = [];
-            foreach ($targets as $targetIndex => $target) {
-                foreach ($profiles as $profile) {
-                    $key = "{$targetIndex}:{$profile->key}";
-                    $requests[$key] = $pool->as($key)
-                        ->withHeaders(['X-Probe-Key' => (string) config('services.probe.key')])
-                        ->connectTimeout(1)->timeout(4)->retry(2, 100, throw: false)
-                        ->post(rtrim($profile->probe_url, '/').'/check', [
-                            'url' => $target['url'],
-                            'screenshot' => $screenshot,
-                        ]);
-                }
+            foreach ($profiles as $profile) {
+                $requests[$profile->key] = $pool->as($profile->key)
+                    ->withHeaders(['X-Probe-Key' => (string) config('services.probe.key')])
+                    ->connectTimeout(2)->timeout(self::PROBE_TIMEOUT_SECONDS)
+                    ->post(rtrim($profile->probe_url, '/').'/check-batch', [
+                        'urls' => $urls,
+                        'screenshot' => $screenshot,
+                    ]);
             }
 
             return $requests;
@@ -55,17 +63,13 @@ class WebsiteChecker
         foreach ($targets as $targetIndex => $target) {
             $results = [];
             foreach ($profiles as $profile) {
-                $response = $responses["{$targetIndex}:{$profile->key}"] ?? null;
-                if ($response instanceof \Throwable) {
-                    $results[$profile->key] = ['profile' => $profile->name, 'status' => 'probe_error', 'message' => 'Probe unavailable.'];
-
-                    continue;
-                }
-
-                $payload = $response?->json() ?? [];
-                $results[$profile->key] = ['profile' => $profile->name] + ($response?->successful()
-                    ? $payload
-                    : ['status' => 'probe_error', 'message' => $payload['message'] ?? 'Probe returned an error.']);
+                $base = ['profile' => $profile->name, 'audience' => $profile->audience, 'type' => $profile->typeLabel()];
+                // A probe whose setup checklist fails (for example no route to its gateway) would report
+                // every site as "DNS could not resolve"; say the probe is the problem instead.
+                $diagnosis = app(ProbeDiagnostics::class)->cached($profile);
+                $results[$profile->key] = $diagnosis && $diagnosis['state'] === 'fail'
+                    ? $base + ['status' => 'probe_error', 'message' => "This probe is not working ({$diagnosis['summary']}) so its result is not shown. Fix it under Settings → Network profiles, or switch it off.", 'duration_ms' => 0]
+                    : $base + $this->resultFor($responses[$profile->key] ?? null, $targetIndex);
             }
 
             $checks[] = $target + [
@@ -78,5 +82,49 @@ class WebsiteChecker
             'checks' => $checks,
             'duration_ms' => (int) round((hrtime(true) - $started) / 1_000_000),
         ];
+    }
+
+    /**
+     * Hostnames a page loaded or tried to load, merged across every network,
+     * with the networks on which each one failed.
+     *
+     * @param  array<string, array<string, mixed>>  $results
+     * @return list<array{host: string, failed_on: list<string>}>
+     */
+    public function relatedHosts(array $results): array
+    {
+        $hosts = [];
+        foreach ($results as $key => $result) {
+            foreach ($result['hosts'] ?? [] as $host) {
+                $name = strtolower((string) ($host['host'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+                $hosts[$name] ??= ['host' => $name, 'failed_on' => []];
+                if (! empty($host['failed'])) {
+                    $hosts[$name]['failed_on'][] = (string) $key;
+                }
+            }
+        }
+
+        ksort($hosts);
+
+        return array_values($hosts);
+    }
+
+    /** @return array<string, mixed> */
+    private function resultFor(mixed $response, int $index): array
+    {
+        if ($response instanceof Throwable || ! $response instanceof Response) {
+            return ['status' => 'probe_error', 'message' => 'Probe unavailable.'];
+        }
+
+        if (! $response->successful()) {
+            return ['status' => 'probe_error', 'message' => (string) ($response->json('message') ?? 'Probe returned an error.')];
+        }
+
+        $result = $response->json("results.{$index}");
+
+        return is_array($result) ? $result : ['status' => 'probe_error', 'message' => 'Probe returned no result.'];
     }
 }

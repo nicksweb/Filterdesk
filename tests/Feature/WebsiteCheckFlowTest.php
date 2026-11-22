@@ -25,7 +25,7 @@ class WebsiteCheckFlowTest extends TestCase
 
     public function test_multiple_websites_return_screenshots_and_are_stored_as_individual_checks(): void
     {
-        Http::fake(fn () => Http::response([
+        Http::fake(fn ($request) => Http::response(['results' => array_map(fn () => [
             'status' => 'blocked',
             'http_status' => 200,
             'page_title' => 'Access blocked',
@@ -33,7 +33,8 @@ class WebsiteCheckFlowTest extends TestCase
             'addresses' => ['203.0.113.10'],
             'duration_ms' => 230,
             'screenshot' => base64_encode('jpeg'),
-        ]));
+            'hosts' => [['host' => 'cdn.example.net', 'requests' => 0, 'failed' => true]],
+        ], $request['urls'])]));
 
         $teacher = User::factory()->create(['role' => 'teacher']);
         $response = $this->actingAs($teacher)->post(route('checks.store'), [
@@ -45,6 +46,9 @@ class WebsiteCheckFlowTest extends TestCase
             ->assertSee('data:image/jpeg;base64,'.base64_encode('jpeg'), false)
             ->assertSee('automatically selected');
         $this->assertSame(2, WebsiteCheck::query()->count());
+        $this->assertArrayNotHasKey('screenshot', WebsiteCheck::query()->first()->results['student']);
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/check-batch') && count($request['urls']) === 2);
     }
 
     public function test_selected_checked_domains_prefill_one_access_request(): void

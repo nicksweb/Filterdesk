@@ -1,5 +1,11 @@
+# Easiest: generate this file from Policy lists → Guided setup (Download
+# compose.vlan.yml), or run `php artisan probes:compose --parent=<trunk>` in the
+# app container. It covers every policy and any extra networks.
+#
 # Copy to compose.vlan.yml and replace these external network names with
 # Docker macvlan/ipvlan networks that egress through the relevant VLAN.
+# Also set STUDENT_PROBE_DNS_SERVERS / STAFF_PROBE_DNS_SERVERS in .env to each
+# VLAN's gateway so lookups go uncached to the resolver UniFi filters on.
 services:
   probe-student:
     networks:

@@ -3,6 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\IntegrationConfig;
+use App\Models\User;
+use App\Notifications\AccountLockedNotification;
+use App\Services\AuditLogger;
+use App\Services\Auth\LoginThrottle;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Oidc\OidcClient;
 use App\Services\SettingsRepository;
@@ -10,6 +14,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\View\View;
 use Throwable;
 
@@ -23,17 +28,32 @@ class AuthController extends Controller
         ]);
     }
 
-    public function local(Request $request): RedirectResponse
+    public function local(Request $request, LoginThrottle $throttle, AuditLogger $audit): RedirectResponse
     {
         abort_unless(app(SettingsRepository::class)->get('auth.emergency_local_login', true), 404);
-        $credentials = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string']]);
+        $credentials = $request->validate(['email' => ['required', 'email', 'max:255'], 'password' => ['required', 'string', 'max:500']]);
+        $credentials['email'] = strtolower(trim($credentials['email']));
 
-        if (! Auth::attempt($credentials + ['enabled' => true], $request->boolean('remember'))) {
+        if ($seconds = $throttle->blockedFor($request)) {
+            $audit->log('auth.login_blocked', null, ['email' => $credentials['email']]);
+
+            return back()->withErrors(['email' => 'Too many failed sign-in attempts. Try again in '.max(1, (int) ceil($seconds / 60)).' minute(s).'])->onlyInput('email');
+        }
+
+        if (! Auth::attempt($credentials + ['enabled' => true, 'sign_in_allowed' => fn ($query) => $query->where('password_login_enabled', true)], $request->boolean('remember'))) {
+            $locked = $throttle->failed($request);
+            $audit->log($locked ? 'auth.account_locked' : 'auth.login_failed', User::query()->where('email', $credentials['email'])->first(), ['email' => $credentials['email']]);
+            if ($locked) {
+                $this->alertLocked($credentials['email'], (string) $request->ip());
+            }
+
             return back()->withErrors(['email' => 'The supplied credentials are invalid.'])->onlyInput('email');
         }
 
+        $throttle->succeeded($request);
         $request->session()->regenerate();
         $request->user()->forceFill(['last_login_at' => now()])->save();
+        $audit->log('auth.login', $request->user(), ['method' => 'password']);
 
         return redirect()->intended(route('dashboard'));
     }
@@ -62,6 +82,22 @@ class AuthController extends Controller
             Log::warning('OIDC sign-in failed', ['message' => $exception->getMessage()]);
 
             return redirect()->route('login')->withErrors(['email' => 'Single sign-on failed. Contact IT if this continues.']);
+        }
+    }
+
+    /** Tell the account owner and IT that an account was locked. */
+    private function alertLocked(string $email, string $ip): void
+    {
+        $notification = new AccountLockedNotification($email, $ip, (int) (LoginThrottle::DECAY_SECONDS / 60));
+        try {
+            $user = User::query()->where('email', $email)->where('enabled', true)->first();
+            $user?->notify($notification);
+            $address = app(SettingsRepository::class)->get('notifications.it_address');
+            if (filled($address) && strcasecmp($address, $email) !== 0) {
+                Notification::route('mail', $address)->notify($notification);
+            }
+        } catch (Throwable $exception) {
+            report($exception);
         }
     }
 

@@ -1,0 +1,350 @@
+<x-layouts.app title="Settings">
+    <x-slot:head><link rel="stylesheet" href="{{ asset('admin.css') }}"></x-slot:head>
+
+    <div class="page-heading">
+        <div><p class="eyebrow">Administration</p><h1>Settings</h1><p>Reconfigure the installation. Secrets are write-only: leave a secret blank to keep the stored value.</p></div>
+    </div>
+
+    <nav class="tabs" aria-label="Settings sections">
+        @foreach($sections as $key => $label)
+            <a href="{{ route('admin.settings.show', $key) }}" @class(['active' => $section === $key])>{{ $label }}</a>
+        @endforeach
+    </nav>
+
+    @if($section === 'general')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'general') }}" enctype="multipart/form-data">@csrf @method('PUT')
+            @php($branding = (array) $settings->get('branding', []))
+            <div class="fields two">
+                <label>Application name <span class="optional">blank: "{{ $settings->get('school.name') }} IT Requests"</span><input name="app_name" maxlength="60" placeholder="uConnect" value="{{ old('app_name', $branding['app_name'] ?? '') }}"><small>Shown in the header, browser tab and emails.</small></label>
+                <label>Initials in the header <span class="optional">up to 3 letters; used when there is no icon</span><input name="brand_mark" maxlength="3" placeholder="IT" value="{{ old('brand_mark', $branding['mark'] ?? '') }}"></label>
+            </div>
+            <div class="fields two">
+                <label>Browser and header icon <span class="optional">PNG, SVG, WebP, JPEG or ICO, square, up to 512 KB</span><input type="file" name="icon" accept="image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon"></label>
+                <div class="icon-preview"><img src="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}" alt="Current icon" width="48" height="48">@if(filled($branding['icon_data'] ?? null))<label class="choice compact"><input type="checkbox" name="remove_icon" value="1"><span>Use the built-in icon again</span></label>@else<small class="hint">Built-in icon</small>@endif</div>
+            </div>
+            <label>School or organisation name<input name="school_name" required value="{{ old('school_name', $settings->get('school.name')) }}"></label>
+            <div class="fields two">
+                <label>Timezone<select name="timezone">@foreach(timezone_identifiers_list() as $zone)<option @selected(old('timezone', $settings->get('school.timezone', config('app.timezone'))) === $zone)>{{ $zone }}</option>@endforeach</select></label>
+                <label>Public application URL<input name="app_url" type="url" required value="{{ old('app_url', $settings->get('school.app_url', config('app.url'))) }}"><small>Used for email links and the OIDC redirect URI.</small></label>
+            </div>
+            <label>Schoolbox origin <span class="optional">optional</span><input name="schoolbox_origin" type="url" placeholder="https://schoolbox.example.edu.au" value="{{ old('schoolbox_origin', $settings->get('school.schoolbox_origin')) }}"><small>Only this exact origin may embed the app. Setting it switches session cookies to SameSite=None; Secure.</small></label>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+
+    @elseif($section === 'authentication')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'authentication') }}">@csrf @method('PUT')
+            <label class="choice"><input type="hidden" name="oidc_enabled" value="0"><input type="checkbox" name="oidc_enabled" value="1" @checked(old('oidc_enabled', $oidc?->enabled))><span><strong>OpenID Connect single sign-on</strong><small>Microsoft Entra ID or any standards-compliant provider.</small></span></label>
+            <p class="notice">Redirect URI to register: <code>{{ $redirectUri }}</code></p>
+            <label>Issuer URL<input name="oidc_issuer" type="url" placeholder="https://login.microsoftonline.com/&lt;tenant-id&gt;/v2.0" value="{{ old('oidc_issuer', $oidc?->configuration['issuer'] ?? '') }}"></label>
+            <div class="fields two">
+                <label>Client ID<input name="oidc_client_id" value="{{ old('oidc_client_id', $oidc?->configuration['client_id'] ?? '') }}"></label>
+                <label>Client secret <span class="optional">{{ $oidcHasSecret ? 'stored · blank keeps it' : 'not set' }}</span><input name="oidc_client_secret" type="password" autocomplete="new-password"></label>
+            </div>
+            <label>Allowed email domains <span class="optional">comma separated; blank allows any</span><input name="oidc_allowed_domains" value="{{ old('oidc_allowed_domains', implode(', ', $oidc?->configuration['allowed_domains'] ?? [])) }}"></label>
+            <label>Role rules <span class="optional">one per line, first match wins</span>
+                <textarea name="role_rules" rows="5" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:it-staff-group-object-id=it&#10;group:ITRequests.Admin=admin">{{ old('role_rules', $roleRules) }}</textarea>
+                <small><code>email_domain:</code> matches the address domain and its subdomains. <code>group:</code> matches a value in the <code>groups</code> or <code>roles</code> claim (Entra: add a groups claim or app roles to the token).</small>
+            </label>
+            <div class="fields two">
+                <label>Default role for unmatched users<select name="default_role">@foreach(['teacher' => 'Teacher', 'student' => 'Student', 'deny' => 'Refuse sign-in'] as $value => $label)<option value="{{ $value }}" @selected(old('default_role', $oidc?->configuration['default_role'] ?? 'teacher') === $value)>{{ $label }}</option>@endforeach</select></label>
+                <label class="choice compact"><input type="hidden" name="sync_roles" value="0"><input type="checkbox" name="sync_roles" value="1" @checked(old('sync_roles', $oidc?->configuration['sync_roles'] ?? false))><span><strong>Re-apply rules at every sign-in</strong><small>Never removes IT or administrator access granted by hand.</small></span></label>
+            </div>
+            <label class="choice"><input type="hidden" name="emergency_local_login" value="0"><input type="checkbox" name="emergency_local_login" value="1" @checked(old('emergency_local_login', $settings->get('auth.emergency_local_login', true)))><span><strong>Emergency local sign-in</strong><small>Password sign-in for local accounts. Restrict /login at the reverse proxy where possible. Recover from the host with <code>php artisan itrequests:admin-password</code>.</small></span></label>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+
+    @elseif($section === 'email')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'email') }}">@csrf @method('PUT')
+            <h2>SMTP</h2>
+            <div class="fields two">
+                <label>Host <span class="optional">blank logs mail instead of sending</span><input name="mail_host" value="{{ old('mail_host', $smtp?->configuration['host'] ?? '') }}"></label>
+                <div class="fields two">
+                    <label>Port<input name="mail_port" type="number" value="{{ old('mail_port', $smtp?->configuration['port'] ?? 587) }}"></label>
+                    <label>Encryption<select name="mail_encryption">@foreach(['tls' => 'STARTTLS when offered (587, or 25)', 'ssl' => 'TLS from the start (SMTPS, 465)', 'none' => 'None: plain SMTP, never TLS (internal relay on 25)'] as $value => $label)<option value="{{ $value }}" @selected(old('mail_encryption', $smtp?->configuration['encryption'] ?? 'tls') === $value)>{{ $label }}</option>@endforeach</select></label>
+                </div>
+            </div>
+            <label class="choice compact"><input type="hidden" name="mail_verify_tls" value="0"><input type="checkbox" name="mail_verify_tls" value="1" @checked(old('mail_verify_tls', $smtp?->configuration['verify_tls'] ?? true))><span><strong>Verify the server's certificate</strong><small>Leave on. If the test fails with "subjectAltName did not match" (common when the host is an IP address), use the server's name from its certificate as the host instead, or turn this off for an internal server you trust.</small></span></label>
+            <div class="fields two">
+                <label>Username<input name="mail_username" autocomplete="off" value="{{ old('mail_username', $smtp?->credentials['username'] ?? '') }}"></label>
+                <label>Password <span class="optional">{{ $smtpHasPassword ? 'stored · blank keeps it' : 'not set' }}</span><input name="mail_password" type="password" autocomplete="new-password"></label>
+            </div>
+            <div class="fields two">
+                <label>From address<input name="mail_from_address" type="email" value="{{ old('mail_from_address', $smtp?->configuration['from'] ?? '') }}"></label>
+                <label>From name<input name="mail_from_name" value="{{ old('mail_from_name', $smtp?->configuration['from_name'] ?? '') }}"></label>
+            </div>
+
+            <h2>Notifications</h2>
+            <label>IT notification address<input name="it_notification_address" type="email" required value="{{ old('it_notification_address', $settings->get('notifications.it_address')) }}"></label>
+            <fieldset><legend>Email IT when</legend>
+                @foreach(['new_request' => 'A new request is submitted', 'requester_reply' => 'A requester answers a question (sent to the assignee, or IT if unassigned)', 'assignment' => 'A request is assigned to someone', 'filter_sync' => 'A controller content filter is changed outside IT Requests, or cannot be read'] as $event => $label)
+                    <label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked($settings->get("notifications.events.{$event}", true))><span>{{ $label }}</span></label>
+                @endforeach
+            </fieldset>
+            <fieldset><legend>Email requesters when</legend>
+                <p class="hint">Requesters are always emailed when their request is approved, declined, needs more information, goes live, has its access window changed or is revoked.</p>
+                @foreach(['submitted' => 'Their request is received (confirmation)', 'expiry_reminder' => 'Temporary access longer than a day ends within 24 hours', 'expired' => 'Temporary access has ended'] as $event => $label)
+                    <label class="choice compact"><input type="checkbox" name="requester_events[]" value="{{ $event }}" @checked($settings->get("notifications.requester.{$event}", true))><span>{{ $label }}</span></label>
+                @endforeach
+            </fieldset>
+            <div class="fields two">
+                <label class="choice compact"><input type="hidden" name="daily_digest" value="0"><input type="checkbox" name="daily_digest" value="1" @checked($settings->get('notifications.daily_digest', true))><span><strong>Daily reconciliation digest</strong><small>Sent only when there are changes to apply.</small></span></label>
+                <label>Digest time<input type="time" name="digest_time" value="{{ old('digest_time', $settings->get('notifications.digest_time', '07:30')) }}"></label>
+            </div>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.test-email') }}">@csrf
+            <h2>Send a test email</h2>
+            <p class="section-copy">Sent immediately, not queued, so SMTP errors appear here. Save changes first.</p>
+            <div class="search-line"><label>Recipient<input name="address" type="email" required value="{{ auth()->user()->email }}"></label><button class="button secondary">Send test</button></div>
+        </form>
+
+    @elseif($section === 'network')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'network') }}">@csrf @method('PUT')
+            <div class="fields two">
+                <label>Provider<select name="provider"><option value="unifi" @selected(($network?->provider ?? 'unifi') === 'unifi')>Ubiquiti UniFi Network</option><option value="mock" @selected($network?->provider === 'mock')>Simulation (testing only)</option></select></label>
+                <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: push list changes to linked content filters</option></select><small>Active lets IT push allow and block list changes to the content filters linked under Policy lists → Networks &amp; filters. Each push only changes those lists, is read back, recorded and can be rolled back.</small></label>
+            </div>
+            @php($connection = old('connection', $network?->configuration['connection'] ?? 'local'))
+            <label>Connection
+                <select name="connection" data-scope-select>
+                    <option value="local" @selected($connection === 'local')>Local console key: the app calls the console directly</option>
+                    <option value="cloud" @selected($connection === 'cloud')>Site Manager key (unifi.ui.com): through Ubiquiti's cloud connector</option>
+                </select>
+                <small>Keys made at unifi.ui.com only work with the cloud connector. Keys made on the console (Network → Settings → Control Plane → Integrations) only work locally.</small>
+            </label>
+            <label data-scope-field="local">Controller URL<input name="controller_url" type="url" placeholder="https://unifi.example.edu.au" value="{{ old('controller_url', $network?->configuration['controller_url'] ?? '') }}"></label>
+            <label data-scope-field="cloud">Console ID <span class="optional">use Discover to list your consoles</span><input name="console_id" list="discovered-consoles" value="{{ old('console_id', $network?->configuration['console_id'] ?? '') }}"><small>The connector requires the key's owner to be an owner of the console, and the console to be online.</small></label>
+            @if($discovery && !empty($discovery['consoles']))<datalist id="discovered-consoles">@foreach($discovery['consoles'] as $console)<option value="{{ $console['id'] }}">{{ $console['name'] }}</option>@endforeach</datalist>@endif
+            <div class="fields two">
+                <label>API key <span class="optional">{{ $networkHasKey ? 'stored · blank keeps it' : 'not set' }}</span><input name="api_key" type="password" autocomplete="new-password"><small>Use a dedicated key for IT Requests.</small></label>
+                <label>Site ID <span class="optional">usually blank</span><input name="site_id" value="{{ old('site_id', $network?->configuration['site_id'] ?? '') }}" list="discovered-sites"><small>Only for a console with more than one site. Blank uses the first site. This is not the console ID. Use Discover to list sites.</small></label>
+            </div>
+            @if($discovery && $discovery['sites'])<datalist id="discovered-sites">@foreach($discovery['sites'] as $site)<option value="{{ $site['id'] }}">{{ $site['name'] }}</option>@endforeach</datalist>@endif
+            <div class="fields two">
+                <label>API prefix<input name="api_prefix" value="{{ old('api_prefix', $network?->configuration['api_prefix'] ?? '/proxy/network/integration/v1') }}"></label>
+                <label class="choice compact" data-scope-field="local"><input type="hidden" name="verify_tls" value="0"><input type="checkbox" name="verify_tls" value="1" @checked(old('verify_tls', $network?->configuration['verify_tls'] ?? true))><span><strong>Verify TLS certificate</strong><small>Local only; the cloud connector is always verified. Turn off only for a self-signed console while you install its CA.</small></span></label>
+            </div>
+            <label>DNS filter entry matching
+                <select name="entry_matching">
+                    <option value="exact" @selected(($network?->configuration['entry_matching'] ?? 'exact') === 'exact')>Explicit: list the domain and each needed subdomain (recommended)</option>
+                    <option value="includes_subdomains" @selected(($network?->configuration['entry_matching'] ?? '') === 'includes_subdomains')>An entry also covers its subdomains: collapse redundant subdomains</option>
+                </select>
+                <small>UniFi content filtering is DNS based and only sees hostnames. The explicit setting is safe on every controller version. Choose the second only after confirming the controller matches subdomains of a listed domain.</small>
+            </label>
+            <div class="fields two">
+                <label>Largest list per content filter <span class="optional">entries</span><input type="number" name="max_filter_entries" min="50" max="100000" value="{{ old('max_filter_entries', $network?->configuration['max_filter_entries'] ?? 100000) }}"><small>Pushes that would make a filter's allow or block list longer than this are refused. UniFi handles up to about 100,000 entries, but its Content Filtering page gets slow to open and edit above a few thousand. A layer keeps big feeds in their own filter.</small></label>
+                <label>Largest automatic push <span class="optional">changes</span><input type="number" name="max_automatic_changes" min="10" max="100000" value="{{ old('max_automatic_changes', $network?->configuration['max_automatic_changes'] ?? 1000) }}"><small>Automatic pushes (approvals, schedules, feed refreshes) with more changes than this wait for someone to push them from the policy page.</small></label>
+            </div>
+            <label class="choice compact"><input type="hidden" name="controller_authoritative" value="0"><input type="checkbox" name="controller_authoritative" value="1" @checked(old('controller_authoritative', $network?->configuration['controller_authoritative'] ?? true))><span><strong>The controller is the source of truth</strong><small>Entries added in UniFi are imported into the policy's own lists, and managed entries removed in UniFi are kept out of that filter, so pushes never undo changes made in UniFi (for example while this app was unavailable). Turn off to only report those changes for review.</small></span></label>
+            <label class="choice compact"><input type="hidden" name="auto_push" value="0"><input type="checkbox" name="auto_push" value="1" @checked(old('auto_push', $network?->configuration['auto_push'] ?? false))><span><strong>Push automatically</strong><small>Active mode only. Approvals and revocations are pushed straight away; expiries, scheduled starts and list edits within five minutes. Entries added in UniFi by hand are never removed.</small></span></label>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+        <section class="panel form-panel">
+            <div class="panel-heading"><div><h2>Test and discover</h2><p>Read-only calls to the official API.{{ $network?->last_tested_at ? ' Last test: '.$network->last_test_status.' · '.$network->last_tested_at->diffForHumans().'.' : '' }}</p></div></div>
+            @if($network?->last_test_message)<p class="hint">{{ $network->last_test_message }}</p>@endif
+            <div class="button-row">
+                <form method="post" action="{{ route('admin.settings.test-network') }}">@csrf<button class="button secondary">Test connection</button></form>
+                <form method="post" action="{{ route('admin.settings.discover') }}">@csrf<input type="hidden" name="site_id" value="{{ $network?->configuration['site_id'] ?? '' }}"><button class="button secondary">Discover sites and networks</button></form>
+            </div>
+            @if($discovery && !empty($discovery['consoles']))
+                <h3>Consoles visible to this Site Manager key</h3>
+                @foreach($discovery['consoles'] as $console)<div class="list-row static"><span><strong>{{ $console['name'] }}</strong><small><code>{{ $console['id'] }}</code></small></span></div>@endforeach
+                <p class="hint">Paste the console's ID into Console ID above, save, then test and discover again.</p>
+            @endif
+            @if($discovery)
+                <div class="fields two policy-editors">
+                    <div><h3>Sites</h3>@forelse($discovery['sites'] as $site)<div class="list-row static"><span><strong>{{ $site['name'] }}</strong><small><code>{{ $site['id'] }}</code></small></span></div>@empty<p class="hint">None returned.</p>@endforelse</div>
+                    <div><h3>Networks</h3>@forelse($discovery['networks'] as $item)<div class="list-row static"><span><strong>{{ $item['name'] }}</strong><small><code>{{ $item['id'] }}</code>{{ isset($item['vlan']) ? ' · VLAN '.$item['vlan'] : '' }}</small></span></div>@empty<p class="hint">None returned.</p>@endforelse</div>
+                </div>
+                <p class="hint">Copy network IDs into Network profiles to map each probe to its UniFi network.</p>
+            @endif
+            <div class="notice">The official UniFi API does not expose content-filter domain lists. The app reads them, and in Active mode updates them, through the Network application's own content-filter endpoint. Link filters to policies under <a href="{{ route('admin.policy.networks.index') }}">Networks &amp; filters</a>, then use <strong>Verify write access</strong> on a policy before the first push.</div>
+        </section>
+
+    @elseif($section === 'profiles')
+        <form class="panel" method="post" action="{{ route('admin.settings.update', 'profiles') }}">@csrf @method('PUT')
+            <p class="section-copy">Each profile is a network path checked by its own probe container. The network type links the profile to filter policies and lists. <em>Probe address</em> is what the container reports about itself: the address and MAC on its VLAN, which you can name or reserve in UniFi. Each probe runs a setup checklist (container, VLAN, gateway, DNS, internet, filtering, DHCP) and says what to fix; switch a probe on once its checklist passes. <a href="{{ route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]) }}">Re-run checks</a></p>
+            @php($sharedGateways = collect($identities)->filter(fn ($identity, $id) => ($identity['ok'] ?? false) && $profiles->firstWhere('id', $id)?->enabled)->groupBy(fn ($identity) => $identity['gateway'] ?? '?')->filter(fn ($group) => $group->count() > 1))
+            @if($sharedGateways->isNotEmpty())
+                <div class="alert error"><strong>These probes are not on separate networks.</strong> {{ $sharedGateways->map(fn ($group, $gateway) => $group->count().' probes share gateway '.$gateway)->join('; ') }}, so their checks all see the same filtering. Put each probe on its VLAN under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Probe containers</a>.</div>
+            @endif
+            <div class="table-wrap"><table>
+                <thead><tr><th>Name</th><th>Network type</th><th>Probe URL</th><th>UniFi network ID</th><th>Probe address</th><th>Order</th><th>On</th></tr></thead>
+                <tbody>
+                    @foreach($profiles as $profile)
+                        <tr>
+                            <td><input name="profiles[{{ $profile->id }}][name]" value="{{ $profile->name }}" required><small><code>{{ $profile->key }}</code></small></td>
+                            <td><select name="profiles[{{ $profile->id }}][audience]">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}" @selected($profile->audience === $value)>{{ $label }}</option>@endforeach</select></td>
+                            <td><input name="profiles[{{ $profile->id }}][probe_url]" value="{{ $profile->probe_url }}" required></td>
+                            <td><input name="profiles[{{ $profile->id }}][unifi_network_id]" value="{{ $profile->unifi_network_id }}"></td>
+                            <td class="probe-identity">
+                                @php($diagnosis = $diagnostics[$profile->id] ?? null)
+                                @php($vlanIf = collect($diagnosis['identity']['interfaces'] ?? [])->firstWhere('default_route', true))
+                                @if($vlanIf)<strong>{{ implode(', ', $vlanIf['ipv4']) ?: 'no IPv4' }}</strong><small>MAC <code>{{ $vlanIf['mac'] ?? '?' }}</code> · gateway {{ $diagnosis['identity']['gateway'] ?? '?' }}</small>@endif
+                                @if($diagnosis)<small class="network-status {{ ['ok' => 'ok', 'warn' => 'warn', 'todo' => 'warn', 'fail' => 'bad'][$diagnosis['state']] ?? 'muted' }}">{{ $diagnosis['summary'] }}</small>@endif
+                            </td>
+                            <td><input type="number" class="narrow" name="profiles[{{ $profile->id }}][sort_order]" value="{{ $profile->sort_order }}"></td>
+                            <td><input type="hidden" name="profiles[{{ $profile->id }}][enabled]" value="0"><input type="checkbox" name="profiles[{{ $profile->id }}][enabled]" value="1" @checked($profile->enabled)></td>
+                        </tr>
+                        @if($diagnosis)
+                            <tr class="probe-checklist-row"><td colspan="7">
+                                <details class="probe-checklist" data-remember="probe-{{ $profile->id }}-{{ substr(md5($diagnosis['summary']), 0, 8) }}" @if(!in_array($diagnosis['state'], ['ok'], true)) open @endif>
+                                    <summary>Setup checklist for {{ $profile->name }} <span class="network-status {{ ['ok' => 'ok', 'warn' => 'warn', 'todo' => 'warn', 'fail' => 'bad'][$diagnosis['state']] ?? 'muted' }}">{{ $diagnosis['summary'] }}</span></summary>
+                                    <ol>
+                                        @foreach($diagnosis['checks'] as $check)
+                                            <li class="check-{{ $check['status'] }}"><span class="check-mark">{{ ['ok' => '✓', 'fail' => '✗', 'warn' => '!', 'todo' => '→', 'skip' => '–', 'reviewed' => '✓'][$check['status']] ?? '?' }}</span>
+                                                <div><strong>{{ $check['label'] }}</strong> <span>{{ $check['detail'] }}</span>
+                                                    @if($check['fix'] && $check['status'] !== 'reviewed')<ul class="check-fix">@foreach($check['fix'] as $step)<li>{{ $step }}</li>@endforeach</ul>@endif
+                                                    <div class="check-actions">
+                                                        @if(($check['action'] ?? null) === 'reserve' && $check['mac'] && $check['status'] === 'warn')
+                                                            <button class="button small primary" form="probe-reserve-{{ $profile->id }}" data-confirm="Reserve {{ $check['ip'] }} for {{ $check['mac'] }} ({{ $profile->name }}) in UniFi?">Reserve {{ $check['ip'] }} in UniFi</button>
+                                                            @if($check['outside'])<button class="button small secondary" form="probe-outside-{{ $profile->id }}" data-confirm="Move {{ $profile->name }} to {{ $check['outside'] }}, outside the DHCP pool? You then regenerate compose.vlan.yml and recreate its Docker network.">Use {{ $check['outside'] }} instead</button>@endif
+                                                        @endif
+                                                        @if($check['reviewable'] ?? false)
+                                                            <button class="button small secondary" form="probe-review-{{ $profile->id }}-{{ $check['key'] }}">{{ $check['status'] === 'reviewed' ? 'Undo reviewed' : 'Reviewed, no action needed' }}</button>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        @endforeach
+                                    </ol>
+                                </details>
+                            </td></tr>
+                        @endif
+                    @endforeach
+                </tbody>
+            </table></div>
+            <h3>Add a profile</h3>
+            <div class="fields three">
+                <label>Name<input name="new[name]" placeholder="Guest Wi-Fi"></label>
+                <label>Key<input name="new[key]" placeholder="guest"></label>
+                <label>Network type<select name="new[audience]">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
+            </div>
+            <label>Probe URL<input name="new[probe_url]" placeholder="http://probe-guest:3000"></label>
+            <p class="hint">A new probe needs its own container on that network's VLAN. Plan it under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Extra probes</a>, which generates the service and creates the profile.</p>
+            <div class="form-actions"><button class="button primary">Save profiles</button></div>
+        </form>
+        @foreach($profiles as $profile)
+            @if($diagnosis = $diagnostics[$profile->id] ?? null)
+                <form id="probe-reserve-{{ $profile->id }}" method="post" action="{{ route('admin.probes.reserve', $profile) }}" hidden>@csrf</form>
+                <form id="probe-outside-{{ $profile->id }}" method="post" action="{{ route('admin.probes.outside-pool', $profile) }}" hidden>@csrf</form>
+                @foreach($diagnosis['checks'] as $check)
+                    @if($check['reviewable'] ?? false)
+                        <form id="probe-review-{{ $profile->id }}-{{ $check['key'] }}" method="post" action="{{ route('admin.probes.review', $profile) }}" hidden>@csrf<input type="hidden" name="check" value="{{ $check['key'] }}"><input type="hidden" name="reviewed" value="{{ $check['status'] === 'reviewed' ? 0 : 1 }}"></form>
+                    @endif
+                @endforeach
+            @endif
+        @endforeach
+
+    @elseif($section === 'types')
+        <form class="panel" method="post" action="{{ route('admin.settings.update', 'types') }}">@csrf @method('PUT')
+            <p class="section-copy">A network type is a kind of network the tool manages, such as Staff, Students, CCTV or Exam rooms. Each type has its own shared allow and block lists; every filter policy of that type inherits them, along with the site-wide lists and the policy's own. Requests choose which types they are for. Names can change freely; the key stays the same.</p>
+            @error('types')<div class="alert error">{{ $message }}</div>@enderror
+            <div class="table-wrap"><table>
+                <thead><tr><th>Name</th><th>Description</th><th>Requestable</th><th>Auto-approve</th><th>Policies</th><th>Order</th><th>Delete</th></tr></thead>
+                <tbody>
+                    @foreach($networkTypes as $type)
+                        <tr>
+                            <td><input name="types[{{ $type->id }}][name]" value="{{ old("types.{$type->id}.name", $type->name) }}" required maxlength="80"><small><code>{{ $type->key }}</code></small></td>
+                            <td><input name="types[{{ $type->id }}][description]" value="{{ old("types.{$type->id}.description", $type->description) }}" maxlength="255"></td>
+                            <td><input type="hidden" name="types[{{ $type->id }}][requestable]" value="0"><input type="checkbox" name="types[{{ $type->id }}][requestable]" value="1" @checked($type->requestable) aria-label="{{ $type->name }} can be chosen on requests"></td>
+                            <td><input type="hidden" name="types[{{ $type->id }}][auto_approve]" value="0"><input type="checkbox" name="types[{{ $type->id }}][auto_approve]" value="1" @checked($type->auto_approve) aria-label="Auto-approve requests only for {{ $type->name }}"></td>
+                            <td>{{ $type->filter_policies_count }}</td>
+                            <td><input type="number" class="narrow" name="types[{{ $type->id }}][sort_order]" value="{{ $type->sort_order }}"></td>
+                            <td>@if($type->inUse())<span class="hint">In use</span>@else<input type="hidden" name="types[{{ $type->id }}][delete]" value="0"><input type="checkbox" name="types[{{ $type->id }}][delete]" value="1" aria-label="Delete {{ $type->name }}">@endif @error("types.{$type->id}.delete")<small class="field-error">{{ $message }}</small>@enderror</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table></div>
+            <p class="hint"><strong>Requestable</strong>: shown as a choice when someone requests access or a block. <strong>Auto-approve</strong>: with <em>Auto-approve</em> on under Approval policy, an access request is approved straight away when every network it is for has this ticked.</p>
+            <h3>Add a network type</h3>
+            <div class="fields two">
+                <label>Name<input name="new[name]" maxlength="80" placeholder="Exam rooms"></label>
+                <label>Description <span class="optional">optional</span><input name="new[description]" maxlength="255" placeholder="Locked down during exams"></label>
+            </div>
+            <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policy lists) or a probe (Network profiles).</p>
+            <div class="form-actions"><button class="button primary">Save network types</button></div>
+        </form>
+
+    @elseif($section === 'templates')
+        @php($templates = app(\App\Services\Notifications\EmailTemplates::class))
+        <form class="panel" method="post" action="{{ route('admin.settings.update', 'templates') }}">@csrf @method('PUT')
+            <p class="section-copy">Change the wording of every email the app sends. Use the placeholders listed with each template; they are filled in when the email is sent. Separate paragraphs with a blank line. Leave a field blank to use the default. Text is sent as plain text, so HTML is shown as typed.</p>
+            @foreach(collect(\App\Services\Notifications\EmailTemplates::DEFINITIONS)->groupBy('group', preserveKeys: true) as $group => $definitions)
+                <h3>{{ $group }}</h3>
+                @foreach($definitions as $key => $definition)
+                    @php($current = $templates->template($key))
+                    <details class="panel template-editor">
+                        <summary><strong>{{ $definition['label'] }}</strong> @if($templates->customised($key))<span class="status status-ok">Customised</span>@else<span class="hint">Default</span>@endif</summary>
+                        <div class="fields two">
+                            <label>Subject<input name="templates[{{ $key }}][subject]" maxlength="200" value="{{ $current['subject'] }}"></label>
+                            <label>Greeting <span class="optional">blank for none</span><input name="templates[{{ $key }}][greeting]" maxlength="200" value="{{ $current['greeting'] }}"></label>
+                        </div>
+                        <label>Body<textarea name="templates[{{ $key }}][body]" rows="6" maxlength="5000" class="mono">{{ $current['body'] }}</textarea></label>
+                        <label>Button<input name="templates[{{ $key }}][action]" maxlength="60" value="{{ $current['action'] }}"></label>
+                        <p class="hint">Placeholders: @foreach(['name' => "Recipient's name", 'app_name' => 'App name', 'school' => 'School name'] + $definition['placeholders'] as $placeholder => $meaning)<code>{{ '{'.$placeholder.'}' }}</code> {{ strtolower($meaning) }}@if(!$loop->last) · @endif @endforeach</p>
+                        @php($preview = $templates->mail($key, $templates->sample($key), url('/')))
+                        <div class="template-preview"><small class="hint">Preview with sample values</small><strong>{{ $preview->subject }}</strong>@if($preview->greeting)<p>{{ $preview->greeting }}</p>@endif @foreach($preview->introLines as $line)<p>{{ $line }}</p>@endforeach @if($preview->actionText)<span class="button small secondary">{{ $preview->actionText }}</span>@endif</div>
+                        @if($templates->customised($key))<label class="choice compact"><input type="checkbox" name="templates[{{ $key }}][reset]" value="1"><span>Reset to the default wording</span></label>@endif
+                    </details>
+                @endforeach
+            @endforeach
+            <div class="form-actions"><button class="button primary">Save email templates</button></div>
+        </form>
+
+    @elseif($section === 'categories')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'categories') }}">@csrf @method('PUT')
+            <p class="section-copy">Shows what kind of site a domain is (for example <em>Gambling</em> or <em>Social Networks</em>) on website checks and requests, and which UniFi content category it probably falls in, with whether a linked filter already blocks that category. It helps decide between a category block and a list of hostnames. It is a guide: UniFi's own category database can differ.</p>
+            <div class="notice"><strong>Privacy:</strong> when this is on, every domain someone checks or requests is sent to Cloudflare to be categorised (no user details are sent). Answers are cached for a week. Leave it off if your privacy policy does not allow that.</div>
+            <label class="choice"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked(old('enabled', $categoryLookup?->enabled))><span><strong>Look up website categories</strong><small>Off by default.</small></span></label>
+            <label>Source
+                <select name="source">
+                    @php($source = $categoryLookup?->configuration['source'] ?? 'auto')
+                    <option value="auto" @selected($source === 'auto')>Cloudflare: Intel when an account ID is set, Radar otherwise (recommended)</option>
+                    <option value="intel" @selected($source === 'intel')>Cloudflare Intel only: any site, with security risks (account ID and Intel Read)</option>
+                    <option value="radar" @selected($source === 'radar')>Cloudflare Radar only: popular sites only (token only)</option>
+                </select>
+                <small>Radar only categorises sites in its popularity rankings, so most smaller sites come back empty. Intel categorises almost any domain.</small>
+            </label>
+            <label>Cloudflare API token <span class="optional">{{ filled($categoryLookup?->credentials['token'] ?? null) ? 'saved; leave blank to keep it' : 'required' }}</span><input type="password" name="token" autocomplete="off" maxlength="200"><small>Create one at dash.cloudflare.com → Manage account → Account API Tokens (or My Profile → API Tokens) with <strong>Account → Intel → Read</strong> and <strong>Account → Radar → Read</strong>. Read access only; nothing else.</small></label>
+            <label>Account ID <span class="optional">needed for Intel; in the dashboard URL after dash.cloudflare.com/</span><input name="account_id" value="{{ old('account_id', $categoryLookup?->configuration['account_id'] ?? '') }}" maxlength="32" class="mono"></label>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.test-categories') }}">@csrf
+            <label>Try a domain<input name="domain" placeholder="example.com" required maxlength="253"></label>
+            <div class="form-actions"><button class="button secondary">Look it up</button></div>
+        </form>
+
+    @elseif($section === 'approval')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'approval') }}">@csrf @method('PUT')
+            <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked($settings->get('approval.auto_approve_staff', false))><span><strong>Auto-approve requests for trusted networks</strong><small>Access requests whose networks are all marked <em>Auto-approve</em> under Network types (by default Staff) are approved straight away. IT still applies them in the controller unless the provider can do it automatically.</small></span></label>
+            <label class="choice"><input type="hidden" name="students_can_request" value="0"><input type="checkbox" name="students_can_request" value="1" @checked($settings->get('approval.students_can_request', false))><span><strong>Students may submit requests</strong><small>Students can always run website checks.</small></span></label>
+            <label>Default temporary access (days)<input name="default_temporary_days" type="number" min="1" max="365" value="{{ $settings->get('approval.default_temporary_days', 30) }}"></label>
+            <div class="fields two">
+                <label>Open timed access early (minutes)<input name="window_lead_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lead_minutes', 5) }}"><small>Allow or block entries go live this long before their start, so the controller has them in place on time.</small></label>
+                <label>Close timed access late (minutes)<input name="window_lag_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lag_minutes', 5) }}"><small>Entries are removed this long after their end. With automatic pushing, changes reach the controller within about a minute.</small></label>
+                <label>Recurring schedules: open early and close late (minutes)<input name="schedule_margin_minutes" type="number" min="0" max="180" value="{{ $settings->get('approval.schedule_margin_minutes', 60) }}"><small>For schedules with set hours, access starts this long before the first hour and ends this long after the last. All-day schedules switch on at 1 am.</small></label>
+            </div>
+            @php($form = app(\App\Services\Requests\RequestFormSettings::class)->all())
+            <h3>Request form</h3>
+            <div class="fields two">
+                <label>Request categories for staff <span class="optional">comma or line separated</span><textarea name="categories" rows="5">{{ implode("\n", $settings->get('approval.categories', [])) }}</textarea></label>
+                <label>Request categories for students <span class="optional">comma or line separated</span><textarea name="form[student_categories]" rows="5" required>{{ implode("\n", $form['student_categories']) }}</textarea></label>
+            </div>
+            <p class="hint">The "Category" dropdown on the request form. Students see their own list, worded for them.</p>
+            <div class="fields two">
+                <label>Reason field title (access requests)<input name="form[access_label]" maxlength="120" required value="{{ $form['access_label'] }}"></label>
+                <label>Reason field title (block requests)<input name="form[block_label]" maxlength="120" required value="{{ $form['block_label'] }}"></label>
+                <label>Hint inside the field (access)<input name="form[access_hint]" maxlength="300" value="{{ $form['access_hint'] }}"></label>
+                <label>Hint inside the field (block)<input name="form[block_hint]" maxlength="300" value="{{ $form['block_hint'] }}"></label>
+            </div>
+            <p class="hint">Rename the field to ask for something else, for example "Class and unit" or "Ticket number". The title is also used in emails to IT.</p>
+            <div class="fields two">
+                <label class="choice compact"><input type="hidden" name="form[staff_required]" value="0"><input type="checkbox" name="form[staff_required]" value="1" @checked($form['staff_required'])><span><strong>Required for staff</strong><small>Teachers, IT and admins.</small></span></label>
+                <label class="choice compact"><input type="hidden" name="form[student_required]" value="0"><input type="checkbox" name="form[student_required]" value="1" @checked($form['student_required'])><span><strong>Required for students</strong><small>When students may submit requests.</small></span></label>
+            </div>
+            <label>Minimum length when filled in <span class="optional">characters</span><input type="number" name="form[min_length]" min="0" max="500" value="{{ $form['min_length'] }}"></label>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+    @endif
+</x-layouts.app>

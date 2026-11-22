@@ -12,6 +12,16 @@ interface NetworkProvider
     /** @return array{ok: bool, message: string, details?: array<string, mixed>} */
     public function test(): array;
 
+    /** How domain entries are matched and what syntax the provider accepts. */
+    public function domainRules(): DomainRules;
+
+    /**
+     * Sites and networks available for mapping, where the provider can list them.
+     *
+     * @return array{consoles?: list<array{id: string, name: string}>, sites: list<array{id: string, name: string}>, networks: list<array{id: string, name: string, vlan?: int|null}>, message?: string|null}
+     */
+    public function discover(?string $siteId = null): array;
+
     /** @return array<string, mixed> */
     public function apply(WebsiteRequest $request): array;
 
