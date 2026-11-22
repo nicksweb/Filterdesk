@@ -123,6 +123,7 @@
     </section>
 
     @php($pending = count($report['allow_add']) + count($report['allow_remove']) + count($report['block_add']) + count($report['block_remove']))
+    <x-push-status :status="$pushStatus ?? null" />
     <section class="panel policy-section push-panel">
         <div class="panel-heading">
             <div><h2>Push to the controller</h2><p>

@@ -201,3 +201,7 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .access-plan li small{display:block;color:var(--muted)}
 .access-plan li .status{margin-left:6px}
 .firewall-rules{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}.firewall-rules p{margin:0 0 6px}
+.push-running{border-left:4px solid var(--accent,#2563eb)}
+.brand-icon{width:30px;height:30px;border-radius:8px;object-fit:contain}
+.icon-preview{display:flex;align-items:center;gap:12px}
+.icon-preview img{border:1px solid var(--line);border-radius:10px;padding:4px;background:#fff}

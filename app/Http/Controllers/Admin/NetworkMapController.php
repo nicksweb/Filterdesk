@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\RunManualPush;
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
 use App\Services\AuditLogger;
@@ -12,6 +13,7 @@ use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\SyncChecker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -38,6 +40,7 @@ class NetworkMapController extends Controller
                 'policy' => $policies->first(fn (FilterPolicy $policy) => $policy->provider_reference === $filter['id']),
                 'network_names' => $networks->whereIn('id', $filter['network_ids'])->map(fn (array $network) => $network['name'].($network['vlan'] ? " (VLAN {$network['vlan']})" : ''))->values()->all(),
             ]),
+            'pushStatus' => Cache::get(RunManualPush::statusKey('all')),
             'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
         ]);
     }
@@ -108,12 +111,12 @@ class NetworkMapController extends Controller
             return back()->with('error', 'Pushing is off. An admin can turn it on under Settings → Network provider (Mode: Active).');
         }
 
-        $results = $pusher->pushAll($request->user());
-        if ($results->isEmpty()) {
+        if (FilterPolicy::query()->whereNotNull('provider_reference')->doesntExist()) {
             return back()->with('error', 'No policy is linked to a controller content filter yet.');
         }
+        $result = RunManualPush::start('all', null, $request->user());
 
-        return back()->with($results->every(fn (array $result) => $result['ok']) ? 'success' : 'error', $results->pluck('message')->join(' '));
+        return RunManualPush::flash(back(), $result, 'Pushing every linked policy. It runs in the background; the result appears in the push history in a minute or so.');
     }
 
     /** Compare every linked policy with its live controller filter now. */

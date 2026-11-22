@@ -49,6 +49,15 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     private ?string $siteReference = null;
 
+    private const FIREWALL_CACHE = 'unifi.firewall.';
+
+    /** Forget cached groups and rules after the app changes them. */
+    private function forgetFirewall(): void
+    {
+        Cache::forget(self::FIREWALL_CACHE.'groups');
+        Cache::forget(self::FIREWALL_CACHE.'policies');
+    }
+
     public function __construct(private readonly IntegrationConfig $integration) {}
 
     public function capabilities(): array
@@ -333,7 +342,14 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         return $this->networkPath('/v2/api/site/'.rawurlencode($this->siteReference()).'/content-filtering'.$suffix);
     }
 
+    /** Cached for 5 minutes: listing groups returns every address and takes several seconds through the cloud. */
     public function ipGroups(): array
+    {
+        return Cache::remember(self::FIREWALL_CACHE.'groups', 300, fn () => $this->readIpGroups());
+    }
+
+    /** @return list<array{id: string, name: string, family: string, count: int}> */
+    private function readIpGroups(): array
     {
         return collect($this->paginated('/traffic-matching-lists'))
             ->filter(fn ($group) => in_array($group['type'] ?? '', ['IPV4_ADDRESSES', 'IPV6_ADDRESSES'], true))
@@ -350,6 +366,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         $path = $this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists/'.rawurlencode($id));
         $response = $this->client()->timeout(60)->put($path, $this->ipGroupBody($name, $family, $entries));
         $this->ensureSuccessful($response, 'IP group changes', writing: true);
+        $this->forgetFirewall();
 
         $saved = $this->client()->timeout(30)->get($path);
         $this->ensureSuccessful($saved, 'the IP group');
@@ -363,6 +380,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
     {
         $response = $this->client()->timeout(60)->post($this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists'), $this->ipGroupBody($name, $family, $entries));
         $this->ensureSuccessful($response, 'a new IP group', writing: true);
+        $this->forgetFirewall();
         $id = (string) ($response->json('id') ?? $response->json('data.id') ?? '');
         if ($id === '') {
             throw new ProviderRequestFailed('UniFi created the IP group but did not return its ID. Refresh and link it by name.');
@@ -377,13 +395,14 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         if ($response->status() !== 404) {
             $this->ensureSuccessful($response, 'deleting the IP group', writing: true);
         }
+        $this->forgetFirewall();
     }
 
     public function firewallZones(): array
     {
-        return collect($this->paginated('/firewall/zones'))
+        return Cache::remember(self::FIREWALL_CACHE.'zones', 3600, fn () => collect($this->paginated('/firewall/zones'))
             ->filter(fn ($zone) => is_array($zone) && isset($zone['id']))
-            ->map(fn (array $zone) => ['id' => (string) $zone['id'], 'name' => (string) ($zone['name'] ?? $zone['id'])])->values()->all();
+            ->map(fn (array $zone) => ['id' => (string) $zone['id'], 'name' => (string) ($zone['name'] ?? $zone['id'])])->values()->all());
     }
 
     public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string
@@ -397,6 +416,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
             'loggingEnabled' => false,
         ]);
         $this->ensureSuccessful($response, 'a firewall rule', writing: true);
+        $this->forgetFirewall();
         $id = (string) ($response->json('id') ?? '');
         if ($id === '') {
             throw new ProviderRequestFailed('UniFi created the firewall rule but did not return its ID. Check Firewall rules in UniFi.');
@@ -411,11 +431,15 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         if ($response->status() !== 404) {
             $this->ensureSuccessful($response, 'deleting the firewall rule', writing: true);
         }
+        $this->forgetFirewall();
     }
 
     public function firewallRulesUsing(string $id): array
     {
-        return collect($this->paginated('/firewall/policies'))
+        // One read of every rule serves all groups for 5 minutes.
+        $policies = Cache::remember(self::FIREWALL_CACHE.'policies', 300, fn () => $this->paginated('/firewall/policies'));
+
+        return collect($policies)
             ->filter(fn ($policy) => is_array($policy) && str_contains((string) json_encode($policy), $id))
             ->map(fn (array $policy) => [
                 'name' => (string) ($policy['name'] ?? $policy['id'] ?? ''),

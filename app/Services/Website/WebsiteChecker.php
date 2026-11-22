@@ -31,6 +31,9 @@ class WebsiteChecker
      * @param  list<array{url: string, hostname: string}>  $targets
      * @return array{checks: list<array{url: string, hostname: string, results: array<string, array<string, mixed>>, duration_ms: int}>, duration_ms: int}
      */
+    /** Long enough for a batch of slow pages with screenshots (probe page timeout plus settling, run in parallel). */
+    private const PROBE_TIMEOUT_SECONDS = 45;
+
     public function checkMany(array $targets, bool $screenshot = true): array
     {
         $profiles = NetworkProfile::query()->where('enabled', true)->orderBy('sort_order')->orderBy('id')->get();
@@ -46,7 +49,7 @@ class WebsiteChecker
             foreach ($profiles as $profile) {
                 $requests[$profile->key] = $pool->as($profile->key)
                     ->withHeaders(['X-Probe-Key' => (string) config('services.probe.key')])
-                    ->connectTimeout(2)->timeout(15)
+                    ->connectTimeout(2)->timeout(self::PROBE_TIMEOUT_SECONDS)
                     ->post(rtrim($profile->probe_url, '/').'/check-batch', [
                         'urls' => $urls,
                         'screenshot' => $screenshot,
@@ -60,8 +63,13 @@ class WebsiteChecker
         foreach ($targets as $targetIndex => $target) {
             $results = [];
             foreach ($profiles as $profile) {
-                $results[$profile->key] = ['profile' => $profile->name, 'audience' => $profile->audience, 'type' => $profile->typeLabel()]
-                    + $this->resultFor($responses[$profile->key] ?? null, $targetIndex);
+                $base = ['profile' => $profile->name, 'audience' => $profile->audience, 'type' => $profile->typeLabel()];
+                // A probe whose setup checklist fails (for example no route to its gateway) would report
+                // every site as "DNS could not resolve"; say the probe is the problem instead.
+                $diagnosis = app(ProbeDiagnostics::class)->cached($profile);
+                $results[$profile->key] = $diagnosis && $diagnosis['state'] === 'fail'
+                    ? $base + ['status' => 'probe_error', 'message' => "This probe is not working ({$diagnosis['summary']}) so its result is not shown. Fix it under Settings → Network profiles, or switch it off.", 'duration_ms' => 0]
+                    : $base + $this->resultFor($responses[$profile->key] ?? null, $targetIndex);
             }
 
             $checks[] = $target + [

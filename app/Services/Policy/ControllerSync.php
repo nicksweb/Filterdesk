@@ -2,6 +2,7 @@
 
 namespace App\Services\Policy;
 
+use App\Jobs\RefreshControllerState;
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
@@ -9,6 +10,7 @@ use App\Models\User;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ProviderRequestFailed;
 use App\Services\Network\ReadsContentFilters;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -62,8 +64,15 @@ class ControllerSync
             Cache::forget(self::CACHE_KEY);
         }
 
+        // Serve the last read straight away; when it is older than CACHE_SECONDS, refresh it in the
+        // background so the next page has it. forget() (before a push) still forces a fresh read.
         $cached = Cache::get(self::CACHE_KEY);
         if (is_array($cached)) {
+            $age = $cached['fetched_at'] ? now()->diffInSeconds(Carbon::parse($cached['fetched_at']), true) : PHP_INT_MAX;
+            if ($age > self::CACHE_SECONDS && ! app()->runningUnitTests()) {
+                RefreshControllerState::dispatch();
+            }
+
             return $cached;
         }
 
@@ -77,7 +86,8 @@ class ControllerSync
             return ['filters' => [], 'networks' => [], 'fetched_at' => null, 'error' => 'The controller could not be reached. Check Settings → Network provider.'];
         }
 
-        Cache::put(self::CACHE_KEY, $state, self::CACHE_SECONDS);
+        // Kept for a day; it is refreshed in the background once older than CACHE_SECONDS.
+        Cache::put(self::CACHE_KEY, $state, 86400);
         $this->rememberNetworks($state['networks']);
         $this->resolveProfileVlans();
 

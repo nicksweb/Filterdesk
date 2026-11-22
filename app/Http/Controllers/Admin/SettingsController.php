@@ -160,7 +160,23 @@ class SettingsController extends Controller
             'timezone' => ['required', 'timezone'],
             'app_url' => ['required', 'url', 'max:255'],
             'schoolbox_origin' => ['nullable', 'url', 'max:255', 'starts_with:https://'],
-        ]);
+            'app_name' => ['nullable', 'string', 'max:60'],
+            'brand_mark' => ['nullable', 'string', 'max:3'],
+            'icon' => ['nullable', 'file', 'max:512', 'mimetypes:image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon,image/vnd.microsoft.icon'],
+            'remove_icon' => ['nullable', 'boolean'],
+        ], ['icon.mimetypes' => 'Use a PNG, JPEG, WebP, SVG or ICO image.', 'icon.max' => 'The icon must be 512 KB or smaller.']);
+
+        $branding = (array) $settings->get('branding', []);
+        $branding['app_name'] = trim((string) ($validated['app_name'] ?? ''));
+        $branding['mark'] = trim((string) ($validated['brand_mark'] ?? ''));
+        if ($request->boolean('remove_icon')) {
+            unset($branding['icon_data'], $branding['icon_mime']);
+        }
+        if ($request->hasFile('icon')) {
+            $branding['icon_data'] = base64_encode((string) file_get_contents($request->file('icon')->getRealPath()));
+            $branding['icon_mime'] = $request->file('icon')->getMimeType();
+        }
+        $settings->set('branding', $branding);
 
         $settings->set('school', [
             'name' => $validated['school_name'],

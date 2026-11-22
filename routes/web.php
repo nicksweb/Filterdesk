@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\ProbeSetupController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BrandIconController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstallController;
@@ -25,6 +26,8 @@ use App\Http\Controllers\WebsiteRequestController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class)->name('health');
+
+Route::get('/brand/icon', BrandIconController::class)->name('brand.icon');
 
 Route::middleware('installation.only')->group(function (): void {
     Route::get('/install/{step?}', [InstallController::class, 'show'])->whereNumber('step')->name('install.show');

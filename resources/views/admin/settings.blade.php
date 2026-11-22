@@ -12,7 +12,16 @@
     </nav>
 
     @if($section === 'general')
-        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'general') }}">@csrf @method('PUT')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'general') }}" enctype="multipart/form-data">@csrf @method('PUT')
+            @php($branding = (array) $settings->get('branding', []))
+            <div class="fields two">
+                <label>Application name <span class="optional">blank: "{{ $settings->get('school.name') }} IT Requests"</span><input name="app_name" maxlength="60" placeholder="uConnect" value="{{ old('app_name', $branding['app_name'] ?? '') }}"><small>Shown in the header, browser tab and emails.</small></label>
+                <label>Initials in the header <span class="optional">up to 3 letters; used when there is no icon</span><input name="brand_mark" maxlength="3" placeholder="IT" value="{{ old('brand_mark', $branding['mark'] ?? '') }}"></label>
+            </div>
+            <div class="fields two">
+                <label>Browser and header icon <span class="optional">PNG, SVG, WebP, JPEG or ICO, square, up to 512 KB</span><input type="file" name="icon" accept="image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon"></label>
+                <div class="icon-preview"><img src="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}" alt="Current icon" width="48" height="48">@if(filled($branding['icon_data'] ?? null))<label class="choice compact"><input type="checkbox" name="remove_icon" value="1"><span>Use the built-in icon again</span></label>@else<small class="hint">Built-in icon</small>@endif</div>
+            </div>
             <label>School or organisation name<input name="school_name" required value="{{ old('school_name', $settings->get('school.name')) }}"></label>
             <div class="fields two">
                 <label>Timezone<select name="timezone">@foreach(timezone_identifiers_list() as $zone)<option @selected(old('timezone', $settings->get('school.timezone', config('app.timezone'))) === $zone)>{{ $zone }}</option>@endforeach</select></label>

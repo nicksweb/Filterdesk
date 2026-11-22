@@ -99,7 +99,8 @@ services:
     <<: *probe
     environment:
       PROBE_SHARED_KEY: ${PROBE_SHARED_KEY}
-      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
+      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-8000}
+      PROBE_SETTLE_MS: ${PROBE_SETTLE_MS:-1500}
       BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
       ALLOWED_PRIVATE_HOSTS: ${STUDENT_ALLOWED_PRIVATE_HOSTS:-}
       PROBE_DNS_SERVERS: ${STUDENT_PROBE_DNS_SERVERS:-}
@@ -110,7 +111,8 @@ services:
     <<: *probe
     environment:
       PROBE_SHARED_KEY: ${PROBE_SHARED_KEY}
-      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-2800}
+      PROBE_TIMEOUT_MS: ${PROBE_TIMEOUT_MS:-8000}
+      PROBE_SETTLE_MS: ${PROBE_SETTLE_MS:-1500}
       BLOCK_PAGE_PATTERN: ${BLOCK_PAGE_PATTERN:-blocked|access denied|not permitted|content filter|unifi}
       ALLOWED_PRIVATE_HOSTS: ${STAFF_ALLOWED_PRIVATE_HOSTS:-}
       PROBE_DNS_SERVERS: ${STAFF_PROBE_DNS_SERVERS:-}

@@ -6,6 +6,7 @@ use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Enums\ListScope;
 use App\Http\Controllers\Controller;
+use App\Jobs\RunManualPush;
 use App\Models\FilterPolicy;
 use App\Models\FirewallList;
 use App\Models\ListSource;
@@ -19,6 +20,7 @@ use App\Services\Policy\FeedParser;
 use App\Services\Policy\FirewallListPusher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -58,6 +60,7 @@ class BlocklistController extends Controller
             'policies' => FilterPolicy::query()->ordered()->get(),
             'groups' => $groups,
             'zones' => $zones,
+            'firewallStatus' => FirewallList::query()->pluck('id')->mapWithKeys(fn (int $id) => [$id => Cache::get(RunManualPush::statusKey('firewall', $id))])->filter()->all(),
             'groupLimit' => $firewall->groupLimit(),
             'groupsError' => $groupsError,
             'canWrite' => $firewall->canWrite(),
@@ -227,9 +230,9 @@ class BlocklistController extends Controller
         if (! $pusher->canWrite()) {
             return back()->with('error', 'Set the network provider to Active to create IP groups in the controller.');
         }
-        $result = $pusher->push($list, request()->user(), force: true);
+        $result = RunManualPush::start('firewall', $list->id, request()->user(), force: true);
 
-        return back()->with($result['ok'] ? 'success' : 'error', $result['message'].($result['ok'] && ($list->refresh()->rules ?? []) === [] ? ' Next, create the blocking rules below.' : ''));
+        return RunManualPush::flash(back(), $result, "Creating the IP group(s) for {$list->name} in UniFi. It runs in the background; refresh in a minute, then create the blocking rules.");
     }
 
     /** Choose the zones whose traffic to these addresses is blocked; the app creates and keeps the rules. */
@@ -245,16 +248,19 @@ class BlocklistController extends Controller
         $zones = array_values(array_intersect($validated['zones'] ?? [], collect(rescue(fn () => $pusher->manager()->firewallZones(), [], false))->pluck('id')->all()));
         $list->forceFill(['rule_zones' => $zones ?: null, 'block_incoming' => $zones !== [] && $request->boolean('block_incoming')])->save();
         $audit->log('firewall.rules_chosen', $list, ['zones' => $zones, 'incoming' => $list->block_incoming]);
-        $result = $pusher->push($list, $request->user(), force: true);
+        $result = RunManualPush::start('firewall', $list->id, $request->user(), force: true);
 
-        return back()->with($result['ok'] ? 'success' : 'error', ($zones ? '' : 'Blocking rules removed. ').$result['message']);
+        return RunManualPush::flash(back(), $result, ($zones ? 'Updating the blocking rules' : 'Removing the blocking rules')." for {$list->name} in UniFi. It runs in the background; refresh in a minute to see the result.");
     }
 
     public function pushFirewallList(Request $request, FirewallList $list, FirewallListPusher $pusher): RedirectResponse
     {
-        $result = $pusher->push($list, $request->user());
+        if (! $pusher->canWrite()) {
+            return back()->with('error', 'Pushing is off. Set the network provider to Active under Settings → Network provider.');
+        }
+        $result = RunManualPush::start('firewall', $list->id, $request->user(), force: true);
 
-        return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+        return RunManualPush::flash(back(), $result, "Pushing {$list->name} to UniFi. It runs in the background; refresh in a minute to see the result.");
     }
 
     public function destroyFirewallList(FirewallList $list, FirewallListPusher $pusher, AuditLogger $audit): RedirectResponse

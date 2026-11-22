@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Http\Controllers\Controller;
+use App\Jobs\RunManualPush;
 use App\Models\ControllerPush;
 use App\Models\FilterPolicy;
 use App\Models\NetworkProfile;
@@ -47,6 +48,7 @@ class FilterPolicyController extends Controller
             'canPush' => $pusher->enabled() && filled($policy->provider_reference),
             'autoPush' => $pusher->automatic(),
             'categories' => $pusher->enabled() && filled($policy->provider_reference) && ! $policy->isLayer() ? $this->categoryOptions($policy, $sync) : null,
+            'pushStatus' => Cache::get(RunManualPush::statusKey('policy', $policy->id)),
             'pushes' => ControllerPush::query()->where('filter_policy_id', $policy->id)->with('user:id,name')->latest('id')->limit(10)->get(),
             'profiles' => NetworkProfile::query()->orderBy('sort_order')->get(),
             'rules' => $engine->rules(),
@@ -219,9 +221,15 @@ class FilterPolicyController extends Controller
     /** Apply this policy's change set to its linked controller filter. */
     public function push(Request $request, FilterPolicy $policy, ControllerPusher $pusher): RedirectResponse
     {
-        $result = $pusher->push($policy, $request->user());
+        if (! $pusher->enabled()) {
+            return back()->with('error', 'Pushing is off. Set the network provider to Active under Settings → Network provider.');
+        }
+        if (blank($policy->provider_reference)) {
+            return back()->with('error', 'Link this policy to a controller filter first.');
+        }
+        $result = RunManualPush::start('policy', $policy->id, $request->user());
 
-        return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+        return RunManualPush::flash(back(), $result, "Pushing {$policy->name}. It runs in the background; the result appears in the push history in a minute or so.");
     }
 
     /** Save the linked filter back unchanged to prove the key may write it. */

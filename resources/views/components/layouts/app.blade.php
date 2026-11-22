@@ -4,7 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $title ?? 'IT Requests' }} · {{ config('app.name') }}</title>
+    <title>{{ $title ?? config('app.product_name', 'IT Requests') }} · {{ config('app.name') }}</title>
+    <link rel="icon" href="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}">
+    <link rel="apple-touch-icon" href="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}">
     <link rel="stylesheet" href="{{ asset('app.css') }}?v={{ config('version.app') }}">
     <link rel="stylesheet" href="{{ asset('ui.css') }}?v={{ config('version.app') }}">
     <script src="{{ asset('app.js') }}?v={{ config('version.app') }}" defer></script>
@@ -12,7 +14,7 @@
 </head>
 <body>
     <header class="topbar">
-        <a class="brand" href="{{ route('dashboard') }}"><span class="brand-mark">IT</span><span>{{ config('app.name') }}</span></a>
+        <a class="brand" href="{{ route('dashboard') }}">@if(filled(app(\App\Services\SettingsRepository::class)->get('branding.icon_data')))<img class="brand-icon" src="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}" alt="">@else<span class="brand-mark">{{ config('app.brand_mark', 'IT') }}</span>@endif<span>{{ config('app.name') }}</span></a>
         @auth
             <nav aria-label="Primary navigation">
                 <a href="{{ route('dashboard') }}" @class(['active' => request()->routeIs('dashboard')])>Overview</a>
@@ -62,7 +64,7 @@
             </nav>
         @endif
         {{ $slot }}
-        <footer class="app-footer">IT Requests {{ config('version.app') }}</footer>
+        <footer class="app-footer">{{ config('app.product_name', 'IT Requests') }} {{ config('version.app') }}</footer>
     </main>
 </body>
 </html>

@@ -101,6 +101,7 @@
             @php($desired = $list->desiredEntries())
             <article class="probe-plan">
                 <h3>{{ $list->name }} <small>{{ strtoupper($list->family) }} · {{ number_format($desired['total']) }} address(es) from {{ count($list->manual_entries ?? []) }} manual + {{ $list->sources_count }} feed(s){{ $list->provider_reference ? ' · controller group '.($list->provider_name ?: $list->provider_reference) : ' · not linked' }}</small></h3>
+                <x-push-status :status="$firewallStatus[$list->id] ?? null" />
                 @if($list->last_pushed_at)<p class="hint"><span class="status status-{{ $list->last_push_status === 'failed' ? 'failed' : ($list->last_push_status === 'truncated' ? 'action_required' : 'ok') }}">{{ ucfirst($list->last_push_status) }}</span> {{ $list->last_pushed_at->diffForHumans() }} · {{ $list->last_push_message }}</p>@endif
                 @if($list->groups)
                     <p class="hint">In UniFi: @foreach($list->groups as $group)<code>{{ $group['name'] }}</code> ({{ number_format($group['count'] ?? 0) }})@if(!$loop->last), @endif @endforeach. UniFi takes up to {{ number_format($groupLimit) }} addresses per group, so longer lists are split across groups automatically.</p>

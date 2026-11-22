@@ -20,6 +20,7 @@
             @endif
         </div>
     </div>
+    <x-push-status :status="$pushStatus ?? null" />
 
     @if($state['error'])
         <div class="alert error"><strong>Live controller data is unavailable.</strong> {{ $state['error'] }} @if($isAdmin)<a href="{{ route('admin.settings.show', 'network') }}">Network provider settings</a>@endif</div>

@@ -8,7 +8,9 @@ import { chromium } from 'playwright';
 
 const port = Number(process.env.PORT || 3000);
 const secret = process.env.PROBE_SHARED_KEY || '';
-const timeout = Math.min(Number(process.env.PROBE_TIMEOUT_MS || 2800), 5000);
+const timeout = Math.min(Number(process.env.PROBE_TIMEOUT_MS || 8000), 20000);
+// After the page has loaded, wait this long for late content (fonts, images, scripts) before the screenshot.
+const settle = Math.min(Number(process.env.PROBE_SETTLE_MS || 1500), 5000);
 const blockPattern = new RegExp(process.env.BLOCK_PAGE_PATTERN || 'blocked|access denied|not permitted|content filter|unifi', 'i');
 const list = value => (value || '').split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
 const allowedPrivateHosts = new Set(list(process.env.ALLOWED_PRIVATE_HOSTS));
@@ -159,6 +161,11 @@ async function inspectAttempt(browser, rawUrl, screenshot, ignoreHTTPSErrors = f
 
   try {
     const response = await page.goto(initial.url.href, { waitUntil: 'domcontentloaded', timeout });
+    if (screenshot) {
+      // Give the page time to finish rendering, but never fail the check because a tracker kept loading.
+      await page.waitForLoadState('load', { timeout: Math.max(1000, timeout / 2) }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: settle }).catch(() => {});
+    }
     const title = (await page.title()).slice(0, 300);
     const excerpt = (await page.locator('body').innerText({ timeout: 400 }).catch(() => '')).slice(0, 4000);
     const finalUrl = page.url();
