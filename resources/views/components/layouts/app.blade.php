@@ -17,15 +17,23 @@
         <a class="brand" href="{{ route('dashboard') }}">@if(filled(app(\App\Services\SettingsRepository::class)->get('branding.icon_data')))<img class="brand-icon" src="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}" alt="">@else<span class="brand-mark">{{ config('app.brand_mark', 'IT') }}</span>@endif<span>{{ config('app.name') }}</span></a>
         @auth
             <nav aria-label="Primary navigation">
-                <a href="{{ route('dashboard') }}" @class(['active' => request()->routeIs('dashboard')])>Overview</a>
-                <a href="{{ route('checks.create') }}" @class(['active' => request()->routeIs('checks.*')])>Check a website</a>
-                <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*')])>Requests</a>
-                @if(auth()->user()->isIt())
-                    <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*')])>Policy lists</a>
-                @endif
-                @if(auth()->user()->isAdmin())
-                    <a href="{{ route('admin.users.index') }}" @class(['active' => request()->routeIs('admin.users.*')])>Users</a>
-                    <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*', 'admin.audit', 'admin.diagnostics')])>Settings</a>
+                @php($navUser = auth()->user())
+                <a href="{{ route('dashboard') }}" @class(['active' => request()->routeIs('dashboard')])>Home</a>
+                @if($navUser->isIt())
+                    @php($inboxCount = \App\Models\WebsiteRequest::query()->whereIn('status', \App\Enums\RequestStatus::open())->count())
+                    @php($changesCount = \App\Models\PolicyEntry::query()->pending()->count() + \App\Models\WebsiteRequest::query()->where('status', \App\Enums\RequestStatus::AwaitingSecondApproval)->count())
+                    <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*')])>Inbox @if($inboxCount)<span class="nav-count" aria-label="{{ $inboxCount }} open">{{ $inboxCount }}</span>@endif</a>
+                    <a href="{{ route('checks.create') }}" @class(['active' => request()->routeIs('checks.*')])>Check a website</a>
+                    <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*') && ! request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.policy.blocklists.*')])>Policies</a>
+                    <a href="{{ route('admin.policy.changes.index') }}" @class(['active' => request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*')])>Changes @if($changesCount)<span class="nav-count" aria-label="{{ $changesCount }} waiting for a second officer">{{ $changesCount }}</span>@endif</a>
+                    @if($navUser->isAdmin())
+                        <a href="{{ route('admin.policy.blocklists.index') }}" @class(['active' => request()->routeIs('admin.policy.blocklists.*')])>Protection</a>
+                        <a href="{{ route('admin.diagnostics') }}" @class(['active' => request()->routeIs('admin.diagnostics')])>Health</a>
+                        <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*', 'admin.audit', 'admin.users.*')])>Admin</a>
+                    @endif
+                @else
+                    <a href="{{ route('checks.create') }}" @class(['active' => request()->routeIs('checks.*')])>Check a website</a>
+                    <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*')])>My requests</a>
                 @endif
             </nav>
             <div class="account">
@@ -48,19 +56,19 @@
         @if($errors->any())
             <div class="alert error" role="alert"><strong>Please check the form.</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
         @endif
-        @if(auth()->check() && auth()->user()->isAdmin() && request()->routeIs('admin.settings.*', 'admin.audit', 'admin.diagnostics'))
+        @if(auth()->check() && auth()->user()->isAdmin() && request()->routeIs('admin.settings.*', 'admin.audit', 'admin.users.*'))
             <nav class="subnav" aria-label="Administration">
                 <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*')])>Settings</a>
+                <a href="{{ route('admin.users.index') }}" @class(['active' => request()->routeIs('admin.users.*')])>Users</a>
                 <a href="{{ route('admin.audit') }}" @class(['active' => request()->routeIs('admin.audit')])>Audit log</a>
-                <a href="{{ route('admin.diagnostics') }}" @class(['active' => request()->routeIs('admin.diagnostics')])>Diagnostics</a>
             </nav>
         @endif
-        @if(auth()->check() && auth()->user()->isIt() && request()->routeIs('admin.policy.*'))
-            <nav class="subnav" aria-label="Web filtering">
+        @if(auth()->check() && auth()->user()->isIt() && request()->routeIs('admin.policy.*') && ! request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.policy.blocklists.*'))
+            <nav class="subnav" aria-label="Policies">
                 <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.index', 'admin.policy.lists.*', 'admin.policy.policies.*')])>Policies &amp; lists</a>
                 <a href="{{ route('admin.policy.networks.index') }}" @class(['active' => request()->routeIs('admin.policy.networks.*')])>Networks &amp; filters</a>
                 <a href="{{ route('admin.policy.scan.show') }}" @class(['active' => request()->routeIs('admin.policy.scan.*')])>Domain scanner</a>
-                @if(auth()->user()->isAdmin())<a href="{{ route('admin.policy.blocklists.index') }}" @class(['active' => request()->routeIs('admin.policy.blocklists.*')])>Blocklists &amp; firewall</a>@endif
+                @if(auth()->user()->isAdmin())<a href="{{ route('admin.policy.setup.show') }}" @class(['active' => request()->routeIs('admin.policy.setup.*')])>Guided setup</a>@endif
             </nav>
         @endif
         {{ $slot }}

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\RequestStatus;
 use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
@@ -64,6 +65,10 @@ class ItRequestActionController extends Controller
             };
         } catch (InvalidRequestTransition $exception) {
             return back()->with('error', $exception->getMessage());
+        }
+
+        if ($validated['action'] === 'approve' && $websiteRequest->refresh()->status === RequestStatus::AwaitingSecondApproval) {
+            return back()->with('success', 'First approval recorded. A second IT officer must confirm it ('.implode('; ', $websiteRequest->first_approval['reasons'] ?? []).'); the other IT officers have been emailed.');
         }
 
         return back()->with('success', match ($validated['action']) {

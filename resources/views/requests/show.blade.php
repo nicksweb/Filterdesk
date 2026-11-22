@@ -40,6 +40,12 @@
             @if($isIt && $status->isOpen())
                 <section class="panel">
                     <div class="panel-heading"><div><h2>{{ $websiteRequest->isBlock() ? 'Approve block' : 'Approve' }}</h2><p>{{ $websiteRequest->isBlock() ? 'Choose the hostnames to block. Third-party hosts are not selected because other sites share them. A block for a network type overrides an older allow at the same level and any site-wide allow.' : 'Choose the hostnames to allow. DNS filtering only sees hostnames, so include the bare domain and every subdomain the site needs.' }}</p></div></div>
+                    @php($first = $websiteRequest->first_approval)
+                    @php($firstScope = $first ? \App\Support\Reach::tryFrom((string) ($first['scope'] ?? '')) : null)
+                    @if($first)
+                        <div class="notice two-person"><strong>Approved by {{ $first['name'] }}</strong> {{ \Illuminate\Support\Carbon::parse($first['at'])->local()->format('j M Y g:i a') }}: {{ implode(', ', $first['domains'] ?? []) }} for {{ $firstScope?->label() }}.
+                            <small>Needs a second IT officer: {{ implode('; ', $first['reasons'] ?? []) }}. The form below shows the first approval; confirm it as it is or adjust it.@if(filled($first['note'] ?? null)) First approver's note: “{{ $first['note'] }}”@endif</small></div>
+                    @endif
                     <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}" class="approve-form">
                         @csrf
                         <input type="hidden" name="action" value="approve">
@@ -57,7 +63,7 @@
                         <div class="recommendations">
                             @foreach($recommendations as $item)
                                 <label class="choice recommendation {{ $item['kind'] }}">
-                                    <input type="checkbox" name="domains[]" value="{{ $item['domain'] }}" @checked($item['selected'])>
+                                    <input type="checkbox" name="domains[]" value="{{ $item['domain'] }}" @checked($first ? in_array($item['domain'], $first['domains'] ?? [], true) : $item['selected'])>
                                     <span><strong>{{ $item['domain'] }}</strong><small><span class="tag">{{ str($item['kind'])->replace('_', ' ')->title() }}</span> {{ $item['reason'] }}</small></span>
                                 </label>
                             @endforeach
@@ -73,15 +79,16 @@
                         @else
                         <fieldset class="window-fields"><legend>Access window <span class="optional">school time · blank end = permanent</span></legend>
                             <div class="fields two">
-                                <label>Allow from<input type="datetime-local" name="access_from" value="{{ old('access_from', $websiteRequest->requested_from?->local()->format('Y-m-d\TH:i')) }}"></label>
-                                <label>Allow until<input type="datetime-local" name="access_until" value="{{ old('access_until', $websiteRequest->requested_until?->local()->format('Y-m-d\TH:i')) }}"></label>
+                                <label>Allow from<input type="datetime-local" name="access_from" value="{{ old('access_from', ($first ? (isset($first['from']) ? \Illuminate\Support\Carbon::parse($first['from']) : null) : $websiteRequest->requested_from)?->local()->format('Y-m-d\TH:i')) }}"></label>
+                                <label>Allow until<input type="datetime-local" name="access_until" value="{{ old('access_until', ($first ? (isset($first['until']) ? \Illuminate\Support\Carbon::parse($first['until']) : null) : $websiteRequest->requested_until)?->local()->format('Y-m-d\TH:i')) }}"></label>
                             </div>
                             <p class="hint">Pre-filled with what was requested; change it to approve a different period. Timed access is put in place {{ $margins['lead'] }} min before the start and taken out {{ $margins['lag'] }} min after the end.</p>
                         </fieldset>
                         @endif
                         <div class="fields two">
                             @php($requestedScope = $websiteRequest->access_scope)
-                            @php($chosenScope = old('scope', $requestedScope?->siteWide ? ['site'] : ($requestedScope?->types ?? [])))
+                            @php($baseScope = $firstScope ?? $requestedScope)
+                            @php($chosenScope = old('scope', $baseScope?->siteWide ? ['site'] : ($baseScope?->types ?? [])))
                             <fieldset class="scope-choice"><legend>Apply to</legend>
                                 @foreach(\App\Models\NetworkType::query()->ordered()->get() as $type)
                                     <label class="choice compact"><input type="checkbox" name="scope[]" value="{{ $type->key }}" @checked(in_array($type->key, (array) $chosenScope, true))><span>{{ $type->name }}{{ $requestedScope?->includes($type->key) && ! $requestedScope->siteWide ? ' (requested)' : '' }}</span></label>
@@ -91,7 +98,11 @@
                             <label>Note to requester <span class="optional">optional</span><input name="message" value="{{ old('action') === 'approve' ? old('message') : '' }}"></label>
                         </div>
                         <ul class="rule-notes">@foreach($rules->notes as $note)<li>{{ $note }}</li>@endforeach</ul>
-                        <div class="form-actions"><button class="button primary">{{ $websiteRequest->isBlock() ? 'Block selected hostnames' : 'Approve selected hostnames' }}</button></div>
+                        @if($first && (int) $first['user_id'] === auth()->id())
+                            <div class="form-actions"><button class="button primary" disabled>Waiting for another IT officer</button></div>
+                        @else
+                            <div class="form-actions"><button class="button primary">{{ $first ? 'Give the second approval' : ($websiteRequest->isBlock() ? 'Block selected hostnames' : 'Approve selected hostnames') }}</button></div>
+                        @endif
                     </form>
                 </section>
             @endif

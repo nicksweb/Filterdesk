@@ -10,6 +10,7 @@ use App\Models\RequestEvent;
 use App\Models\User;
 use App\Models\WebsiteCheck;
 use App\Models\WebsiteRequest;
+use App\Services\Approval\TwoPersonRule;
 use App\Services\AuditLogger;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\NetworkProviderManager;
@@ -19,6 +20,7 @@ use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Website\WebsiteChecker;
 use App\Support\Reach;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -78,9 +80,29 @@ class RequestWorkflow
     public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?Reach $scope = null, ?array $window = null, bool $smart = false): WebsiteRequest
     {
         $this->guard($websiteRequest, RequestStatus::open(), 'Only pending requests can be approved.');
-        $domains = array_values(array_unique($domains ?: $websiteRequest->domains));
+        // A second approver who leaves the form as it is confirms what the first approver chose.
+        $first = $websiteRequest->first_approval;
+        $domains = array_values(array_unique($domains ?: ($first['domains'] ?? null) ?: $websiteRequest->domains));
+        $scope ??= isset($first['scope']) ? Reach::tryFrom((string) $first['scope']) : null;
         $scope ??= $websiteRequest->access_scope;
+        $window ??= $first ? ['from' => isset($first['from']) ? CarbonImmutable::parse($first['from']) : null, 'until' => isset($first['until']) ? CarbonImmutable::parse($first['until']) : null] : null;
         $window ??= ['from' => $websiteRequest->requested_from, 'until' => $websiteRequest->requested_until];
+
+        // Site-wide access and sensitive categories need two IT officers.
+        $rule = app(TwoPersonRule::class);
+        $reasons = $rule->reasonsForRequest($websiteRequest, $scope, $domains);
+        if ($reasons !== []) {
+            if (! $rule->possible()) {
+                $note = trim('Second approval skipped: only one IT officer is enabled ('.implode('; ', $reasons).').'.($note ? "\n\n{$note}" : ''));
+            } elseif (! $first) {
+                return $this->recordFirstApproval($websiteRequest, $actor, $note, $domains, $scope, $window, $smart, $reasons);
+            } elseif ((int) $first['user_id'] === $actor->id) {
+                throw new InvalidRequestTransition('You gave the first approval. A different IT officer must give the second approval ('.implode('; ', $reasons).').');
+            } else {
+                $note = trim('Two-person approval ('.implode('; ', $reasons)."): first approved by {$first['name']}, confirmed by {$actor->name}.".($note ? "\n\n{$note}" : ''));
+                $smart = $smart || (bool) ($first['smart'] ?? false);
+            }
+        }
 
         // Smart approval (access requests only): add allow entries only where something needs overriding.
         $plan = $smart && ! $websiteRequest->isBlock() ? app(AccessPlanner::class)->plan($domains, $scope, timed: $window['until'] !== null) : null;
@@ -407,6 +429,31 @@ class RequestWorkflow
         $this->event($websiteRequest, null, 'expired', $message);
         $this->audit->log('website_request.expired', $websiteRequest);
         $this->notifier->expired($websiteRequest);
+    }
+
+    /**
+     * Keep the first officer's approval and ask another officer to confirm it.
+     *
+     * @param  list<string>  $domains
+     * @param  array{from: ?CarbonInterface, until: ?CarbonInterface}  $window
+     * @param  list<string>  $reasons
+     */
+    private function recordFirstApproval(WebsiteRequest $websiteRequest, User $actor, ?string $note, array $domains, Reach $scope, array $window, bool $smart, array $reasons): WebsiteRequest
+    {
+        $websiteRequest->forceFill([
+            'status' => RequestStatus::AwaitingSecondApproval,
+            'first_approval' => [
+                'user_id' => $actor->id, 'name' => $actor->name, 'at' => now()->toIso8601String(), 'domains' => $domains, 'scope' => $scope->value(),
+                'from' => $window['from']?->toIso8601String(), 'until' => $window['until']?->toIso8601String(), 'smart' => $smart, 'note' => $note, 'reasons' => $reasons,
+            ],
+        ])->save();
+        $this->event($websiteRequest, $actor, 'first_approval', "First approval by {$actor->name}. A second IT officer must confirm it: ".implode('; ', $reasons).'.'.($note ? "\n\n{$note}" : ''), [
+            'domains' => $domains, 'scope' => $scope->value(), 'reasons' => $reasons,
+        ], internal: true);
+        $this->audit->log('website_request.first_approval', $websiteRequest, ['reasons' => $reasons, 'domains' => $domains, 'scope' => $scope->value()]);
+        $this->notifier->secondApprovalNeeded($websiteRequest, $actor, $reasons);
+
+        return $websiteRequest;
     }
 
     /**

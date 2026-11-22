@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PolicyEntry extends Model
 {
-    protected $fillable = ['policy_list_id', 'domain', 'source', 'website_request_id', 'list_source_id', 'note', 'added_by_id', 'starts_at', 'expires_at', 'schedule'];
+    protected $fillable = ['policy_list_id', 'domain', 'source', 'website_request_id', 'list_source_id', 'note', 'added_by_id', 'starts_at', 'expires_at', 'schedule', 'pending_action', 'proposed_by_id', 'proposed_at'];
 
     protected function casts(): array
     {
@@ -20,6 +20,7 @@ class PolicyEntry extends Model
             'starts_at' => 'datetime',
             'schedule' => 'array',
             'expires_at' => 'datetime',
+            'proposed_at' => 'datetime',
         ];
     }
 
@@ -36,6 +37,23 @@ class PolicyEntry extends Model
     public function addedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'added_by_id');
+    }
+
+    public function proposedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'proposed_by_id');
+    }
+
+    /** Waiting for a second IT officer: a proposed addition is not live yet, a proposed removal still is. */
+    public function isPending(): bool
+    {
+        return $this->pending_action !== null;
+    }
+
+    /** @param Builder<self> $query */
+    public function scopePending(Builder $query): void
+    {
+        $query->whereNotNull('pending_action');
     }
 
     /** @param Builder<self> $query */
@@ -60,7 +78,8 @@ class PolicyEntry extends Model
     {
         $at ??= now();
         ['lead' => $lead, 'lag' => $lag] = self::margins();
-        $query->where(fn (Builder $query) => $query->whereNull('starts_at')->orWhere('starts_at', '<=', $at->copy()->addMinutes($lead)))
+        $query->where(fn (Builder $query) => $query->whereNull('pending_action')->orWhere('pending_action', 'remove'))
+            ->where(fn (Builder $query) => $query->whereNull('starts_at')->orWhere('starts_at', '<=', $at->copy()->addMinutes($lead)))
             ->where(fn (Builder $query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', $at->copy()->subMinutes($lag)));
     }
 
@@ -80,7 +99,7 @@ class PolicyEntry extends Model
     {
         $at ??= now();
 
-        return ($this->starts_at === null || $this->effectiveFrom()->lte($at))
+        return $this->pending_action !== 'add' && ($this->starts_at === null || $this->effectiveFrom()->lte($at))
             && ($this->expires_at === null || $this->effectiveUntil()->gt($at));
     }
 

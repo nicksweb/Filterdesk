@@ -6,6 +6,7 @@ use App\Enums\RequestStatus;
 use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
+use App\Services\Approval\TwoPersonRule;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Network\DomainRules;
@@ -158,8 +159,10 @@ class WebsiteRequestController extends Controller
 
         // Auto-approval applies when every chosen network type allows it (by default only Staff).
         $autoTypes = NetworkType::query()->where('auto_approve', true)->pluck('key')->all();
-        $automaticallyApproved = ! $block && array_diff($scope->types, $autoTypes) === []
-            && (bool) $settings->get('approval.auto_approve_staff', false);
+        // Never for site-wide access or a sensitive category: those need two IT officers.
+        $automaticallyApproved = ! $block && ! $scope->siteWide && $scope->types !== [] && array_diff($scope->types, $autoTypes) === []
+            && (bool) $settings->get('approval.auto_approve_staff', false)
+            && app(TwoPersonRule::class)->reasonsForRequest($websiteRequest->refresh(), $scope, $websiteRequest->domains) === [];
 
         if ($automaticallyApproved) {
             $workflow->approve($websiteRequest, $request->user(), 'Automatically approved under the configured staff-only access policy.');

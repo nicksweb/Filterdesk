@@ -50,6 +50,15 @@ class RequestNotifier
         $this->send($assignee, new RequestActivityNotification($request, "Assigned to you by {$actor->name}"));
     }
 
+    /** Ask the other IT officers to confirm a first approval. */
+    public function secondApprovalNeeded(WebsiteRequest $request, User $first, array $reasons): void
+    {
+        $notification = new RequestActivityNotification($request, "Second approval needed ({$first->name} approved)", [
+            'Needs two IT officers: '.implode('; ', $reasons).'.',
+        ]);
+        User::query()->itStaff()->whereKeyNot($first->id)->each(fn (User $user) => $this->send($user, $notification));
+    }
+
     public function decision(WebsiteRequest $request, string $message): void
     {
         $this->send($request->requester, new RequestDecisionNotification($request, $message));

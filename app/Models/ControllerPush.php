@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ControllerPush extends Model
 {
     protected $fillable = [
-        'filter_policy_id', 'user_id', 'provider_reference', 'provider_name', 'trigger', 'status',
+        'policy_release_id', 'filter_policy_id', 'user_id', 'provider_reference', 'provider_name', 'trigger', 'status',
         'before_allow', 'before_block', 'after_allow', 'after_block', 'changes', 'message', 'rollback_of_id',
     ];
 
@@ -25,6 +25,11 @@ class ControllerPush extends Model
     public function filterPolicy(): BelongsTo
     {
         return $this->belongsTo(FilterPolicy::class);
+    }
+
+    public function release(): BelongsTo
+    {
+        return $this->belongsTo(PolicyRelease::class, 'policy_release_id');
     }
 
     public function user(): BelongsTo

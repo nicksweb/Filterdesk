@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BlocklistController;
+use App\Http\Controllers\Admin\ChangesController;
 use App\Http\Controllers\Admin\ControllerSetupController;
 use App\Http\Controllers\Admin\DiagnosticsController;
 use App\Http\Controllers\Admin\DomainScanController;
@@ -77,6 +78,11 @@ Route::middleware('installed')->group(function (): void {
                 Route::post('/policies/{policy}/adopt', [FilterPolicyController::class, 'adopt'])->name('policies.adopt');
                 Route::post('/policies/{policy}/push', [FilterPolicyController::class, 'push'])->middleware('throttle:20,1')->name('policies.push');
                 Route::post('/pushes/{push}/rollback', [FilterPolicyController::class, 'rollback'])->middleware('throttle:10,1')->name('pushes.rollback');
+                Route::get('/changes', [ChangesController::class, 'index'])->name('changes.index');
+                Route::post('/changes/publish', [ChangesController::class, 'publish'])->middleware('throttle:10,1')->name('changes.publish');
+                Route::post('/changes/decide', [ChangesController::class, 'decide'])->name('changes.decide');
+                Route::get('/versions/{release}', [ChangesController::class, 'show'])->name('versions.show');
+                Route::post('/versions/{release}/rollback', [ChangesController::class, 'rollback'])->middleware('throttle:6,1')->name('versions.rollback');
                 Route::post('/networks/push', [NetworkMapController::class, 'pushAll'])->middleware('throttle:10,1')->name('networks.push');
                 Route::post('/networks/check', [NetworkMapController::class, 'checkSync'])->middleware('throttle:10,1')->name('networks.check');
                 Route::post('/policies/{policy}/restore', [FilterPolicyController::class, 'restore'])->name('policies.restore');
