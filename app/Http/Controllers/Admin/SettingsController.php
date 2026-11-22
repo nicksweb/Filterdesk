@@ -581,6 +581,8 @@ class SettingsController extends Controller
             'students_can_request' => ['nullable', 'boolean'],
             'default_temporary_days' => ['required', 'integer', 'min:1', 'max:365'],
             'two_person_site_wide' => ['nullable', 'boolean'],
+            'review_months' => ['nullable', 'integer', 'min:1', 'max:36'],
+            'grace_days' => ['nullable', 'integer', 'min:1', 'max:90'],
             'sensitive_categories' => ['nullable', 'string', 'max:4000'],
             'categories' => ['required', 'string', 'max:2000'],
             'window_lead_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
@@ -615,6 +617,10 @@ class SettingsController extends Controller
             'schedule_margin_minutes' => (int) ($validated['schedule_margin_minutes'] ?? 60),
             'two_person_site_wide' => $request->boolean('two_person_site_wide', true),
             'sensitive_categories' => $this->commaList((string) ($validated['sensitive_categories'] ?? ''), lower: false),
+        ]);
+        $settings->set('governance', [
+            'review_months' => (int) ($validated['review_months'] ?? 12),
+            'grace_days' => (int) ($validated['grace_days'] ?? 14),
         ]);
     }
 

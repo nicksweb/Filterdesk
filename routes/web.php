@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\DiagnosticsController;
 use App\Http\Controllers\Admin\DomainScanController;
 use App\Http\Controllers\Admin\FilterPolicyController;
 use App\Http\Controllers\Admin\ImpersonationController;
+use App\Http\Controllers\Admin\InsightsController;
 use App\Http\Controllers\Admin\NetworkMapController;
 use App\Http\Controllers\Admin\NetworkTypePolicyController;
 use App\Http\Controllers\Admin\PolicyController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BrandIconController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ExceptionReviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstallController;
 use App\Http\Controllers\ItRequestActionController;
@@ -56,9 +58,13 @@ Route::middleware('installed')->group(function (): void {
             ->only(['index', 'create', 'store', 'show']);
         Route::post('/requests/{websiteRequest}/reply', [WebsiteRequestController::class, 'reply'])->name('requests.reply');
         Route::get('/why', [AccessExplorerController::class, 'why'])->middleware('throttle:30,1')->name('why');
+        Route::get('/reviews', [ExceptionReviewController::class, 'index'])->name('reviews.index');
+        Route::post('/reviews/keep', [ExceptionReviewController::class, 'keep'])->name('reviews.keep');
 
         Route::middleware('role:it,admin')->group(function (): void {
             Route::post('/it/requests/{websiteRequest}/action', ItRequestActionController::class)->name('it.requests.action');
+            Route::get('/insights', [InsightsController::class, 'show'])->name('admin.insights');
+            Route::get('/insights/requests.csv', [InsightsController::class, 'csv'])->name('admin.insights.csv');
 
             Route::prefix('admin/policy')->name('admin.policy.')->group(function (): void {
                 Route::get('/', [PolicyController::class, 'index'])->name('index');

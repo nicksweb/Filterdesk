@@ -58,6 +58,8 @@ class RequestWorkflow
             return $websiteRequest;
         });
 
+        PolicyEntry::markSeen($websiteRequest->domains);
+
         // A guide for IT, if website categories are enabled; never blocks submission.
         $categories = rescue(fn () => app(DomainCategorizer::class)->many($websiteRequest->domains), [], false);
         if ($categories !== []) {

@@ -69,6 +69,9 @@
     syncMode();
   }
 
+  // Print buttons (inline handlers are blocked by the content security policy).
+  document.querySelectorAll('[data-print]').forEach(button => button.addEventListener('click', () => window.print()));
+
   // Collapsible panels with data-remember keep the state the user left them in.
   // The key includes a hash of the content, so a panel opens again when it changes.
   document.querySelectorAll('details[data-remember]').forEach(panel => {

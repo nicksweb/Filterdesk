@@ -11,7 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PolicyEntry extends Model
 {
-    protected $fillable = ['policy_list_id', 'domain', 'source', 'website_request_id', 'list_source_id', 'note', 'added_by_id', 'starts_at', 'expires_at', 'schedule', 'pending_action', 'proposed_by_id', 'proposed_at'];
+    protected $fillable = ['policy_list_id', 'domain', 'source', 'website_request_id', 'list_source_id', 'note', 'added_by_id', 'starts_at', 'expires_at', 'schedule', 'pending_action', 'proposed_by_id', 'proposed_at',
+        'owner_id', 'review_at', 'reviewed_at', 'reviewed_by_id', 'review_notified_at', 'last_seen_at'];
 
     protected function casts(): array
     {
@@ -21,6 +22,10 @@ class PolicyEntry extends Model
             'schedule' => 'array',
             'expires_at' => 'datetime',
             'proposed_at' => 'datetime',
+            'review_at' => 'datetime',
+            'reviewed_at' => 'datetime',
+            'review_notified_at' => 'datetime',
+            'last_seen_at' => 'datetime',
         ];
     }
 
@@ -37,6 +42,82 @@ class PolicyEntry extends Model
     public function addedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'added_by_id');
+    }
+
+    /**
+     * Exceptions made on purpose (by IT or from a request) are owned and
+     * reviewed; feed and import entries belong to their list.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $entry): void {
+            if (! in_array($entry->source, [EntrySource::Manual, EntrySource::Request], true)) {
+                return;
+            }
+            $entry->owner_id ??= $entry->website_request_id ? WebsiteRequest::query()->whereKey($entry->website_request_id)->value('requester_id') : $entry->added_by_id;
+            $entry->review_at ??= now()->addMonths(self::reviewMonths());
+        });
+    }
+
+    /** Months between reviews of an exception. */
+    public static function reviewMonths(): int
+    {
+        return max(1, min(36, (int) app(SettingsRepository::class)->get('governance.review_months', 12)));
+    }
+
+    /** Days an exception stays after its review date before it expires unreviewed. */
+    public static function graceDays(): int
+    {
+        return max(1, min(90, (int) app(SettingsRepository::class)->get('governance.grace_days', 14)));
+    }
+
+    public function owner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by_id');
+    }
+
+    /** @param Builder<self> $query */
+    public function scopeReviewable(Builder $query): void
+    {
+        $query->whereIn('source', [EntrySource::Manual->value, EntrySource::Request->value])->whereNotNull('review_at')
+            ->where(fn (Builder $query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()));
+    }
+
+    /** When it expires if nobody reviews it. */
+    public function expiresUnreviewedAt(): ?CarbonInterface
+    {
+        return $this->review_at?->copy()->addDays(self::graceDays());
+    }
+
+    /**
+     * Record that hostnames came up in a check or request, so entries for
+     * them (or a parent domain) are not flagged as stale.
+     *
+     * @param  list<string>  $hosts
+     */
+    public static function markSeen(array $hosts): void
+    {
+        $candidates = [];
+        foreach ($hosts as $host) {
+            $labels = explode('.', strtolower($host));
+            for ($index = 0; $index < count($labels) - 1; $index++) {
+                $candidates[] = implode('.', array_slice($labels, $index));
+            }
+        }
+        if ($candidates !== []) {
+            rescue(fn () => static::query()->whereIn('domain', array_values(array_unique($candidates)))->update(['last_seen_at' => now()]), null, false);
+        }
+    }
+
+    /** Not seen in a check or request for a year. */
+    public function isStale(): bool
+    {
+        return ($this->last_seen_at ?? $this->created_at)?->lt(now()->subYear()) ?? false;
     }
 
     public function proposedBy(): BelongsTo

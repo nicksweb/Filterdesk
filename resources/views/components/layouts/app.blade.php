@@ -22,10 +22,12 @@
                 @if($navUser->isIt())
                     @php($inboxCount = \App\Models\WebsiteRequest::query()->whereIn('status', \App\Enums\RequestStatus::open())->count())
                     @php($changesCount = \App\Models\PolicyEntry::query()->pending()->count() + \App\Models\WebsiteRequest::query()->where('status', \App\Enums\RequestStatus::AwaitingSecondApproval)->count())
-                    <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*')])>Inbox @if($inboxCount)<span class="nav-count" aria-label="{{ $inboxCount }} open">{{ $inboxCount }}</span>@endif</a>
+                    @php($reviewCount = \App\Models\PolicyEntry::query()->reviewable()->whereNull('pending_action')->where('review_at', '<=', now())->count())
+                    <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*', 'reviews.*')])>Inbox @if($inboxCount + $reviewCount)<span class="nav-count" aria-label="{{ $inboxCount }} open requests, {{ $reviewCount }} reviews due">{{ $inboxCount + $reviewCount }}</span>@endif</a>
                     <a href="{{ route('checks.create') }}" @class(['active' => request()->routeIs('checks.*')])>Check a website</a>
                     <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*') && ! request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.policy.blocklists.*')])>Policies</a>
                     <a href="{{ route('admin.policy.changes.index') }}" @class(['active' => request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*')])>Changes @if($changesCount)<span class="nav-count" aria-label="{{ $changesCount }} waiting for a second officer">{{ $changesCount }}</span>@endif</a>
+                    <a href="{{ route('admin.insights') }}" @class(['active' => request()->routeIs('admin.insights*')])>Insights</a>
                     @if($navUser->isAdmin())
                         <a href="{{ route('admin.policy.blocklists.index') }}" @class(['active' => request()->routeIs('admin.policy.blocklists.*')])>Protection</a>
                         <a href="{{ route('admin.diagnostics') }}" @class(['active' => request()->routeIs('admin.diagnostics')])>Health</a>
@@ -62,6 +64,12 @@
                 <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*')])>Settings</a>
                 <a href="{{ route('admin.users.index') }}" @class(['active' => request()->routeIs('admin.users.*')])>Users</a>
                 <a href="{{ route('admin.audit') }}" @class(['active' => request()->routeIs('admin.audit')])>Audit log</a>
+            </nav>
+        @endif
+        @if(auth()->check() && auth()->user()->isIt() && request()->routeIs('requests.index', 'reviews.*'))
+            <nav class="subnav" aria-label="Inbox">
+                <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.index')])>Requests @if($inboxCount ?? 0)<span class="nav-count">{{ $inboxCount }}</span>@endif</a>
+                <a href="{{ route('reviews.index') }}" @class(['active' => request()->routeIs('reviews.*')])>Reviews @if($reviewCount ?? 0)<span class="nav-count">{{ $reviewCount }}</span>@endif</a>
             </nav>
         @endif
         @if(auth()->check() && auth()->user()->isIt() && request()->routeIs('admin.policy.*') && ! request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.policy.blocklists.*'))
