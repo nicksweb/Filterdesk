@@ -4,8 +4,12 @@ namespace App\Services\Network;
 
 use App\Models\IntegrationConfig;
 use App\Models\WebsiteRequest;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -589,6 +593,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
         $code = (string) $response->json('code', '');
         throw new ProviderRequestFailed(match (true) {
+            $response->status() === self::UNREACHABLE => 'The UniFi controller could not be reached ('.str((string) $response->json('message'))->before(' (see')->after(': ')->limit(120).'). Nothing was changed; it is retried automatically.',
             $code === 'device_offline' => 'Site Manager reports this console is offline.',
             $writing && in_array($response->status(), [401, 403], true) => "UniFi refused to save {$what} (HTTP {$response->status()}). The key's owner needs Network admin rights, and some Site Manager keys are read-only.",
             $writing && in_array($response->status(), [404, 405], true) => "This UniFi Network version does not accept {$what} at the expected address (HTTP {$response->status()}). Apply changes by hand.",
@@ -642,7 +647,27 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
             ->withHeader('X-API-Key', (string) (($this->integration->credentials ?? [])['api_key'] ?? ''))
             ->connectTimeout(3)
             ->timeout(8)
-            ->retry(Cache::get(self::DNS_RELOAD_KEY, 0) > time() ? self::RETRY_DELAYS_MS : [1000], when: fn (Throwable $exception) => $exception instanceof ConnectionException, throw: false);
+            // An unreachable controller (DNS failure, refused or timed-out connection) becomes an HTTP 599
+            // response, so every caller gets a ProviderRequestFailed from ensureSuccessful() instead of an
+            // uncaught exception, and it is retried like any connection error.
+            ->withMiddleware(self::unreachableAsResponse())
+            ->retry(Cache::get(self::DNS_RELOAD_KEY, 0) > time() ? self::RETRY_DELAYS_MS : [1000],
+                when: fn (Throwable $exception) => $exception instanceof ConnectionException || ($exception instanceof RequestException && $exception->response->status() === self::UNREACHABLE),
+                throw: false);
+    }
+
+    /** Status used for "the controller could not be reached". */
+    public const UNREACHABLE = 599;
+
+    private static function unreachableAsResponse(): callable
+    {
+        return fn (callable $handler) => fn ($request, array $options) => $handler($request, $options)->then(null, function ($reason) {
+            if ($reason instanceof ConnectException) {
+                return new Psr7Response(self::UNREACHABLE, ['Content-Type' => 'application/json'], (string) json_encode(['message' => $reason->getMessage()]));
+            }
+
+            return Create::rejectionFor($reason);
+        });
     }
 
     /** Paths under the Network application itself (/proxy/network). */

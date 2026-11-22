@@ -141,10 +141,14 @@ class FirewallListPusher
                     $rules = array_values($rules);
 
                     $usedBy = collect($groups)->flatMap(fn (array $group) => $manager->firewallRulesUsing($group['id']))->unique('name')->values()->all();
-                } catch (ProviderRequestFailed $exception) {
+                } catch (Throwable $exception) {
+                    // Keep what was created so far, so the next push carries on from there.
                     $list->forceFill(['groups' => $groups, 'rules' => $rules, 'provider_reference' => $groups[0]['id'] ?? $list->provider_reference])->save();
+                    if (! $exception instanceof ProviderRequestFailed) {
+                        report($exception);
+                    }
 
-                    return $this->record($list, 'failed', $exception->getMessage(), $actor);
+                    return $this->record($list, 'failed', $exception instanceof ProviderRequestFailed ? $exception->getMessage() : 'The controller could not be reached. Nothing more was changed.', $actor);
                 }
 
                 $list->forceFill([
