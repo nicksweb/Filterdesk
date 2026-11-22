@@ -4,7 +4,8 @@
     <form class="panel form-panel" method="post" action="{{ route('requests.store') }}">@csrf<input type="hidden" name="request_type" value="{{ $block ? 'block' : 'allow' }}">
         <label>Domains <span class="optional">up to 25, separated by spaces or commas</span><textarea name="domains" rows="3" required placeholder="example.com&#10;learning.example.org">{{ old('domains', $prefillDomains ?? '') }}</textarea></label>
         @if(!empty($siteCategories))<div class="category-guide">@foreach($siteCategories as $domain => $lookup)<x-site-categories :lookup="$lookup" :domain="$domain" />@endforeach<small class="hint">A guide to what these sites are, from a website category service. Mention anything surprising in the use case.</small></div>@endif
-        @php($chosenTypes = old('network_types', $block ? $networkTypes->reject(fn ($type) => $type->auto_approve)->pluck('key')->take(1)->all() : $networkTypes->pluck('key')->take(1)->all()))
+        @php($ownTypes = array_values(array_intersect((array) auth()->user()->network_types, $networkTypes->pluck('key')->all())))
+        @php($chosenTypes = old('network_types', $ownTypes !== [] && ! $block ? $ownTypes : ($block ? $networkTypes->reject(fn ($type) => $type->auto_approve)->pluck('key')->take(1)->all() : $networkTypes->pluck('key')->take(1)->all())))
         <fieldset><legend>{{ $block ? 'Block it on' : 'Which networks need access?' }}</legend><div class="option-grid">
             @foreach($networkTypes as $type)
                 <label class="choice"><input type="checkbox" name="network_types[]" value="{{ $type->key }}" @checked(in_array($type->key, (array) $chosenTypes, true))><span><strong>{{ $type->name }}</strong><small>{{ $type->description ?: 'Every '.$type->name.' network' }}</small></span></label>

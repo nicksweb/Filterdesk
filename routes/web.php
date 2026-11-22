@@ -5,11 +5,13 @@ use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BlocklistController;
 use App\Http\Controllers\Admin\ChangesController;
 use App\Http\Controllers\Admin\ControllerSetupController;
+use App\Http\Controllers\Admin\CoverageController;
 use App\Http\Controllers\Admin\DiagnosticsController;
 use App\Http\Controllers\Admin\DomainScanController;
 use App\Http\Controllers\Admin\FilterPolicyController;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\InsightsController;
+use App\Http\Controllers\Admin\IntegrationController;
 use App\Http\Controllers\Admin\NetworkMapController;
 use App\Http\Controllers\Admin\NetworkTypePolicyController;
 use App\Http\Controllers\Admin\PolicyController;
@@ -26,6 +28,7 @@ use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstallController;
 use App\Http\Controllers\ItRequestActionController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuickDecisionController;
 use App\Http\Controllers\WebsiteCheckController;
 use App\Http\Controllers\WebsiteRequestController;
 use Illuminate\Support\Facades\Route;
@@ -63,6 +66,8 @@ Route::middleware('installed')->group(function (): void {
 
         Route::middleware('role:it,admin')->group(function (): void {
             Route::post('/it/requests/{websiteRequest}/action', ItRequestActionController::class)->name('it.requests.action');
+            Route::get('/it/requests/{websiteRequest}/quick/{decision}', QuickDecisionController::class)->middleware('signed')->name('it.requests.quick');
+            Route::get('/coverage', CoverageController::class)->name('admin.health');
             Route::get('/insights', [InsightsController::class, 'show'])->name('admin.insights');
             Route::get('/insights/requests.csv', [InsightsController::class, 'csv'])->name('admin.insights.csv');
 
@@ -135,6 +140,12 @@ Route::middleware('installed')->group(function (): void {
 
         Route::prefix('admin')->middleware('role:admin')->name('admin.')->group(function (): void {
             Route::get('/users', [UserController::class, 'index'])->name('users.index');
+            Route::post('/integrations/tokens', [IntegrationController::class, 'storeToken'])->name('integrations.tokens.store');
+            Route::delete('/integrations/tokens/{token}', [IntegrationController::class, 'destroyToken'])->name('integrations.tokens.destroy');
+            Route::post('/integrations/webhooks', [IntegrationController::class, 'storeWebhook'])->name('integrations.webhooks.store');
+            Route::put('/integrations/webhooks/{webhook}', [IntegrationController::class, 'updateWebhook'])->name('integrations.webhooks.update');
+            Route::delete('/integrations/webhooks/{webhook}', [IntegrationController::class, 'destroyWebhook'])->name('integrations.webhooks.destroy');
+            Route::post('/integrations/webhooks/{webhook}/test', [IntegrationController::class, 'testWebhook'])->middleware('throttle:10,1')->name('integrations.webhooks.test');
             Route::post('/users', [UserController::class, 'store'])->name('users.store');
             Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
             Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])->name('users.impersonate');

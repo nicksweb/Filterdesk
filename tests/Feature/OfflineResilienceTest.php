@@ -67,6 +67,9 @@ class OfflineResilienceTest extends TestCase
             route('requests.index'), route('requests.create', ['domains' => 'offline.example.org']), route('requests.show', $request),
             route('admin.settings.show', 'profiles'), route('admin.settings.show', 'network'), route('admin.settings.show', 'categories'),
             route('admin.settings.show', 'templates'), route('admin.settings.show', 'types'), route('brand.icon'),
+            route('admin.policy.changes.index'), route('admin.policy.explorer', ['site' => 'offline.example.org']), route('admin.policy.types.show', 'staff'),
+            route('admin.insights'), route('admin.health'), route('reviews.index'), route('why', ['site' => 'offline.example.org']),
+            route('admin.settings.show', 'calendar'), route('admin.settings.show', 'integrations'),
         ];
 
         foreach ($pages as $page) {
@@ -87,7 +90,7 @@ class OfflineResilienceTest extends TestCase
         foreach ([
             route('admin.policy.policies.push', $policy), route('admin.policy.networks.push'), route('admin.policy.networks.check'),
             route('admin.policy.policies.pull', $policy), route('admin.policy.blocklists.firewall.push', FirewallList::query()->sole()),
-            route('admin.settings.test-network'), route('admin.settings.test-categories'),
+            route('admin.settings.test-network'), route('admin.settings.test-categories'), route('admin.policy.changes.publish'),
         ] as $action) {
             $status = $this->actingAs($this->admin)->post($action, ['domain' => 'offline.example.org'])->status();
             $this->assertLessThan(500, $status, "POST {$action} returned {$status} with everything offline");
@@ -101,7 +104,7 @@ class OfflineResilienceTest extends TestCase
     public function test_scheduled_jobs_finish_when_everything_is_offline(): void
     {
         $this->pendingRequest(['offline.example.org'], Reach::types('staff'));
-        foreach (['policy:push', 'policy:push --boundaries', 'policy:check-sync', 'blocklists:refresh', 'probes:check', 'categories:guard --refresh', 'requests:expire', 'requests:remind', 'policy:digest'] as $command) {
+        foreach (['policy:push', 'policy:push --boundaries', 'policy:check-sync', 'blocklists:refresh', 'probes:check', 'categories:guard --refresh', 'requests:expire', 'requests:remind', 'policy:digest', 'exceptions:review'] as $command) {
             $exit = $this->artisan($command)->run();
             $this->assertContains($exit, [0, 1], "{$command} crashed with everything offline");
         }

@@ -150,6 +150,7 @@ class WebsiteRequestController extends Controller
             'request_type' => $block ? 'block' : 'allow',
             'domains' => $normalizer->many($validated['domains']),
             'access_scope' => $scope,
+            'department' => $request->user()->department,
             'category' => $validated['category'],
             'use_case' => $validated['use_case'] ?? null,
             // Stored in UTC like every other time (Laravel keeps a Carbon's clock time as given).

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AuthenticateApiToken;
 use App\Http\Middleware\ConfigureSchoolboxEmbedding;
 use App\Http\Middleware\EnsureInstalled;
 use App\Http\Middleware\EnsureUserEnabled;
@@ -14,6 +15,7 @@ use Illuminate\Http\Request;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
@@ -23,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'installation.only' => InstallationOnly::class,
             'role' => RequireRole::class,
             'enabled' => EnsureUserEnabled::class,
+            'api.token' => AuthenticateApiToken::class,
         ]);
         $middleware->prependToGroup('web', EnsureInstalled::class);
         $middleware->prependToGroup('web', ConfigureSchoolboxEmbedding::class);

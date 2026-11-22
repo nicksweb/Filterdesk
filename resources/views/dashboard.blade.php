@@ -14,6 +14,20 @@
             @foreach($filtersOutOfSync as $policy)<a href="{{ route('admin.policy.policies.show', $policy) }}">{{ $policy->name }}</a> ({{ $policy->sync_details['summary'] ?? $policy->sync_status }})@if(!$loop->last); @endif @endforeach
         </div>
     @endif
+    @if($myReviews)
+        <div class="alert">You own {{ $myReviews }} website exception(s) due for review. <a href="{{ route('reviews.index') }}">Review them</a> so they are not removed.</div>
+    @endif
+    @if($secondApprovals)
+        <div class="alert">{{ $secondApprovals }} change(s) wait for a second IT officer. <a href="{{ route('admin.policy.changes.index') }}">Open Changes</a></div>
+    @endif
+    @if($coverage)
+        <div class="content-grid home-manager">
+            <x-coverage :coverage="$coverage" compact />
+            <section class="panel"><div class="panel-heading"><div><h2>Suggestions</h2><p>From this term's requests</p></div><a href="{{ route('admin.insights') }}">Insights</a></div>
+                @forelse($insights as $insight)<div class="insight"><strong>{{ $insight['title'] }}</strong>@if($insight['link'])<a href="{{ $insight['link'] }}">{{ $insight['action'] }}</a>@endif</div>@empty<p class="empty">Nothing stands out yet.</p>@endforelse
+            </section>
+        </div>
+    @endif
     <section class="stat-grid">
         @if(auth()->user()->isIt())
             <a class="stat-link" href="{{ route('requests.index', ['status' => 'open']) }}"><article><span>Awaiting decision</span><strong>{{ $pending }}</strong><small>{{ $mine }} assigned to you</small></article></a>
@@ -25,7 +39,10 @@
         <a class="quick-card" href="{{ route('checks.create') }}"><span class="quick-icon">⌕</span><span><strong>Check a website</strong><small>Compare staff and student access in seconds</small></span></a></section>
     <div class="content-grid"><section class="panel"><div class="panel-heading"><div><h2>Recent requests</h2><p>Latest access decisions and progress</p></div><a href="{{ route('requests.index') }}">View all</a></div>
         @forelse($recentRequests as $item)<a class="list-row" href="{{ route('requests.show', $item) }}"><span><strong>{{ implode(', ', array_slice($item->domains, 0, 2)) }}</strong><small>{{ $item->reference }} · {{ $item->requester->name }}</small></span><x-status :status="$item->status" /></a>@empty<p class="empty">No website requests yet.</p>@endforelse
-    </section><section class="panel"><div class="panel-heading"><div><h2>Your recent checks</h2><p>Results are retained for audit only</p></div></div>
+    </section>@if($publishedToday->isNotEmpty())<section class="panel"><div class="panel-heading"><div><h2>Published today</h2><p>Policy versions written to the controller</p></div><a href="{{ route('admin.policy.changes.index') }}">Changes</a></div>
+        @foreach($publishedToday as $release)<a class="list-row" href="{{ route('admin.policy.versions.show', $release) }}"><span><strong>{{ $release->label() }}</strong><small>{{ $release->triggerLabel() }} · {{ $release->summary }}</small></span><span class="duration">{{ $release->created_at->local()->format('g:i a') }}</span></a>@endforeach
+    </section>@else<section class="panel"><div class="panel-heading"><div><h2>Your recent checks</h2><p>Results are retained for audit only</p></div></div>
         @forelse($recentChecks as $check)<div class="list-row static"><span><strong>{{ $check->hostname }}</strong><small>{{ $check->created_at->diffForHumans() }}</small></span><span class="duration">{{ $check->duration_ms }} ms</span></div>@empty<p class="empty">Run your first website check.</p>@endforelse
-    </section></div>
+        @unless(auth()->user()->isIt())<p class="hint">Something will not open? <a href="{{ route('why') }}">Find out why it is blocked</a>.</p>@endunless
+    </section>@endif</div>
 </x-layouts.app>

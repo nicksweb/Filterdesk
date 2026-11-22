@@ -37,6 +37,8 @@
         <section class="panel policy-section">
             <h2>Requests by category</h2>
             <table class="report-table">@forelse($report['by_category'] as $category => $count)<tr><td>{{ $category ?: 'None' }}</td><td>{{ $count }}</td></tr>@empty<tr><td class="empty">No requests.</td></tr>@endforelse</table>
+            @if($report['by_department'])<h2>Requests by department</h2>
+            <table class="report-table">@foreach($report['by_department'] as $department => $count)<tr><td>{{ $department }}</td><td>{{ $count }}</td></tr>@endforeach</table>@endif
             <h2>Approvals by network type</h2>
             <table class="report-table">@forelse($report['by_type'] as $type => $count)<tr><td>{{ $type }}</td><td>{{ $count }}</td></tr>@empty<tr><td class="empty">No approvals.</td></tr>@endforelse</table>
         </section>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\ListScope;
 use App\Http\Controllers\Controller;
+use App\Models\ApiToken;
 use App\Models\BellPeriod;
 use App\Models\CalendarPeriod;
 use App\Models\FilterPolicy;
@@ -12,6 +13,7 @@ use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
 use App\Models\NetworkType;
 use App\Models\PolicyList;
+use App\Models\WebhookEndpoint;
 use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
 use App\Services\Auth\UserProvisioningService;
@@ -55,6 +57,7 @@ class SettingsController extends Controller
         'categories' => 'Website categories',
         'profiles' => 'Network profiles',
         'approval' => 'Approval policy',
+        'integrations' => 'Integrations',
     ];
 
     public function show(Request $request, string $section, SettingsRepository $settings, NetworkProviderManager $providers): View
@@ -72,6 +75,8 @@ class SettingsController extends Controller
             'oidc' => $oidc,
             'oidcHasSecret' => filled($oidc?->credentials['client_secret'] ?? null),
             'roleRules' => UserProvisioningService::formatRules($oidc?->configuration['role_rules'] ?? []),
+            'typeRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['type_rules'] ?? []),
+            'departmentRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['department_rules'] ?? []),
             'smtp' => $smtp,
             'smtpHasPassword' => filled($smtp?->credentials['password'] ?? null),
             'network' => $network,
@@ -80,6 +85,8 @@ class SettingsController extends Controller
             'categoryLookup' => $section === 'categories' ? IntegrationConfig::query()->where('provider', DomainCategorizer::PROVIDER)->first() : null,
             'networkTypes' => $section === 'types' ? NetworkType::query()->ordered()->withCount('filterPolicies')->get() : collect(),
             'examLists' => $section === 'types' ? PolicyList::query()->where('purpose', 'exam')->withCount('entries')->get()->keyBy('audience') : collect(),
+            'apiTokens' => $section === 'integrations' ? ApiToken::query()->with('user')->latest()->get() : collect(),
+            'webhooks' => $section === 'integrations' ? WebhookEndpoint::query()->orderBy('name')->get() : collect(),
             'calendarPeriods' => $section === 'calendar' ? CalendarPeriod::query()->orderBy('start_date')->get() : collect(),
             'bellPeriods' => $section === 'calendar' ? BellPeriod::query()->orderBy('sort_order')->orderBy('starts_at')->get() : collect(),
             'profiles' => $profiles = NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
@@ -104,6 +111,7 @@ class SettingsController extends Controller
             'types' => $this->updateTypes($request, $policy),
             'categories' => $this->updateCategories($request),
             'calendar' => $this->updateCalendar($request),
+            'integrations' => null,
             'templates' => $this->updateTemplates($request, $settings),
             'approval' => $this->updateApproval($request, $settings),
         };
@@ -205,6 +213,8 @@ class SettingsController extends Controller
             'oidc_client_secret' => ['nullable', Rule::requiredIf(fn () => $request->boolean('oidc_enabled') && blank($existing?->credentials['client_secret'] ?? null)), 'string', 'max:1000'],
             'oidc_allowed_domains' => ['nullable', 'string', 'max:1000'],
             'role_rules' => ['nullable', 'string', 'max:5000'],
+            'type_rules' => ['nullable', 'string', 'max:5000'],
+            'department_rules' => ['nullable', 'string', 'max:5000'],
             'default_role' => ['required', 'in:student,teacher,deny'],
             'sync_roles' => ['nullable', 'boolean'],
             'emergency_local_login' => ['nullable', 'boolean'],
@@ -226,6 +236,8 @@ class SettingsController extends Controller
                 'client_id' => $validated['oidc_client_id'] ?? ($oidc->configuration['client_id'] ?? null),
                 'allowed_domains' => $this->commaList($validated['oidc_allowed_domains'] ?? ''),
                 'role_rules' => UserProvisioningService::parseRules($validated['role_rules'] ?? ''),
+                'type_rules' => $this->typeRules($validated['type_rules'] ?? ''),
+                'department_rules' => UserProvisioningService::parseMappingRules($validated['department_rules'] ?? '', 'department_rules'),
                 'default_role' => $validated['default_role'],
                 'sync_roles' => $request->boolean('sync_roles'),
             ],
@@ -622,6 +634,25 @@ class SettingsController extends Controller
             'review_months' => (int) ($validated['review_months'] ?? 12),
             'grace_days' => (int) ($validated['grace_days'] ?? 14),
         ]);
+    }
+
+    /**
+     * Network type rules, each naming existing type keys.
+     *
+     * @return list<array{type: string, value: string, target: string}>
+     */
+    private function typeRules(string $text): array
+    {
+        $rules = UserProvisioningService::parseMappingRules($text, 'type_rules');
+        $keys = NetworkType::keys();
+        foreach ($rules as $rule) {
+            $unknown = array_diff(array_map('trim', explode(',', $rule['target'])), $keys);
+            if ($unknown !== []) {
+                throw ValidationException::withMessages(['type_rules' => 'Unknown network type '.implode(', ', $unknown).'. Use the keys under Settings → Network types: '.implode(', ', $keys).'.']);
+            }
+        }
+
+        return $rules;
     }
 
     /** @return list<string> */

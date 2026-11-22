@@ -54,6 +54,7 @@ class PolicyInsights
             'open' => $requests->filter(fn (WebsiteRequest $request) => $request->status->isOpen())->count(),
             'median_hours' => $hours->isEmpty() ? null : round((float) $hours->get(intdiv($hours->count(), 2)), 1),
             'by_category' => $requests->groupBy('category')->map->count()->sortDesc()->all(),
+            'by_department' => $requests->filter(fn (WebsiteRequest $request) => filled($request->department))->groupBy('department')->map->count()->sortDesc()->all(),
             'by_type' => $types->mapWithKeys(fn (NetworkType $type) => [$type->name => $approved->filter(fn (WebsiteRequest $request) => $request->effectiveScope()->siteWide || $request->effectiveScope()->includes($type->key))->count()])->filter()->all(),
             'decline_reasons' => $requests->where('status', RequestStatus::Rejected)->map(fn (WebsiteRequest $request) => str((string) $request->resolution)->limit(80)->toString())->countBy()->sortDesc()->take(8)->all(),
             'versions' => PolicyRelease::query()->whereNotNull('number')->whereBetween('created_at', [$from, $to])->count(),
@@ -98,6 +99,18 @@ class PolicyInsights
             }
         }
 
+        // One department asking for the same category again and again.
+        foreach ($termRequests->filter(fn (WebsiteRequest $request) => filled($request->department))->groupBy('department') as $department => $items) {
+            foreach ($this->byUnifiCategory($items) as $category => $group) {
+                if ($group->count() >= 5) {
+                    $label = ucfirst(strtolower(str_replace('_', ' ', $category)));
+                    $insights[] = ['title' => "{$group->count()} {$label} requests from {$department} this period",
+                        'detail' => 'Consider a scheduled allow for that department\'s classes (a recurring request that follows the school calendar).',
+                        'link' => route('admin.policy.explorer', ['category' => $category, 'change' => 'unblock']), 'action' => 'See the effect'];
+                }
+            }
+        }
+
         // The same site approved for a limited time again and again.
         $renewed = $requests->filter(fn (WebsiteRequest $request) => $request->approved_at && $request->expires_at)
             ->flatMap(fn (WebsiteRequest $request) => collect($request->domains)->map(fn (string $domain) => [$domain, $request->id]))
@@ -124,11 +137,11 @@ class PolicyInsights
      */
     public function csv(CarbonImmutable $from, CarbonImmutable $to): array
     {
-        $rows = [['Reference', 'Submitted', 'Type', 'Websites', 'Networks', 'Category', 'Status', 'Decided', 'Approved by', 'Window']];
+        $rows = [['Reference', 'Submitted', 'Type', 'Websites', 'Networks', 'Category', 'Department', 'Status', 'Decided', 'Approved by', 'Window']];
         WebsiteRequest::query()->whereBetween('created_at', [$from, $to])->with('approvedBy')->orderBy('created_at')->each(function (WebsiteRequest $request) use (&$rows): void {
             $rows[] = [
                 $request->reference, $request->created_at->local()->format('Y-m-d H:i'), $request->isBlock() ? 'Block' : 'Access', implode(' ', $request->domains),
-                $request->effectiveScope()->label(), (string) $request->category, $request->status->label(),
+                $request->effectiveScope()->label(), (string) $request->category, (string) $request->department, $request->status->label(),
                 ($request->approved_at ?? $request->resolved_at)?->local()->format('Y-m-d H:i') ?? '', $request->approvedBy?->name ?? '', $request->approved_at ? $request->windowLabel() : '',
             ];
         });

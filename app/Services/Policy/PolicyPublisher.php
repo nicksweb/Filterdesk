@@ -10,6 +10,7 @@ use App\Models\PolicyRelease;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\AuditLogger;
+use App\Services\Integrations\Webhooks;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -208,5 +209,8 @@ class PolicyPublisher
                 'number' => $succeeded > 0 ? ((int) PolicyRelease::query()->max('number')) + 1 : null,
             ])->save();
         });
+        if ($release->number) {
+            app(Webhooks::class)->published($release);
+        }
     }
 }

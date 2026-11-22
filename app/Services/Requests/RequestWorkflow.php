@@ -13,6 +13,7 @@ use App\Models\WebsiteRequest;
 use App\Services\Approval\TwoPersonRule;
 use App\Services\AuditLogger;
 use App\Services\Domains\DomainCategorizer;
+use App\Services\Integrations\Webhooks;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\UnsupportedProviderOperation;
 use App\Services\Policy\AccessPlanner;
@@ -69,6 +70,7 @@ class RequestWorkflow
         $this->audit->log('website_request.created', $websiteRequest, ['scope' => $websiteRequest->access_scope->value(), 'domains' => $websiteRequest->domains]);
         $this->notifier->submitted($websiteRequest);
         $this->notifier->received($websiteRequest);
+        app(Webhooks::class)->request('request.submitted', $websiteRequest);
 
         return $websiteRequest;
     }
@@ -170,6 +172,7 @@ class RequestWorkflow
         if ($websiteRequest->status === RequestStatus::ActionRequired && $this->pusher()->automatic()) {
             $this->pushAfter($websiteRequest, $actor, $scope, 'approval');
         }
+        app(Webhooks::class)->request('request.approved', $websiteRequest);
 
         return $websiteRequest->refresh();
     }
@@ -294,6 +297,7 @@ class RequestWorkflow
         $this->event($websiteRequest, $actor, 'rejected', $reason);
         $this->audit->log('website_request.rejected', $websiteRequest);
         $this->notifier->decision($websiteRequest, $reason);
+        app(Webhooks::class)->request('request.declined', $websiteRequest);
 
         return $websiteRequest;
     }
@@ -454,6 +458,7 @@ class RequestWorkflow
         ], internal: true);
         $this->audit->log('website_request.first_approval', $websiteRequest, ['reasons' => $reasons, 'domains' => $domains, 'scope' => $scope->value()]);
         $this->notifier->secondApprovalNeeded($websiteRequest, $actor, $reasons);
+        app(Webhooks::class)->request('request.awaiting_second', $websiteRequest);
 
         return $websiteRequest;
     }

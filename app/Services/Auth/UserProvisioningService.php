@@ -47,6 +47,15 @@ class UserProvisioningService
         $user ??= new User(['email' => $claims['email'], 'role' => $mapped, 'password' => str()->random(64)]);
         $user->fill(['name' => $claims['name'], 'email' => $claims['email'], 'oidc_subject' => $claims['sub'], 'last_login_at' => now(), 'auth_source' => 'oidc']);
 
+        // Identity mapping: network types and department from the same claims, refreshed at every sign-in.
+        $identity = $this->identityFor($claims, $configuration);
+        if ($identity['types'] !== []) {
+            $user->network_types = $identity['types'];
+        }
+        if ($identity['department'] !== null) {
+            $user->department = $identity['department'];
+        }
+
         if (! $isNew && $mapped !== null && ($configuration['sync_roles'] ?? false) && ! $user->isIt() && $user->role !== $mapped) {
             $this->audit->log('user.role_synced', $user, ['from' => $user->role, 'to' => $mapped]);
             $user->role = $mapped;
@@ -95,6 +104,64 @@ class UserProvisioningService
         $default = $configuration['default_role'] ?? 'teacher';
 
         return $default === 'deny' ? null : (in_array($default, self::ROLES, true) ? $default : 'teacher');
+    }
+
+    /**
+     * Network types (every matching rule adds its types) and department
+     * (first match) from the sign-in claims.
+     *
+     * @param  array{email: string, groups?: list<string>}  $claims
+     * @param  array<string, mixed>  $configuration
+     * @return array{types: list<string>, department: ?string}
+     */
+    public function identityFor(array $claims, array $configuration): array
+    {
+        $domain = str($claims['email'])->afterLast('@')->lower()->toString();
+        $groups = array_map('strtolower', $claims['groups'] ?? []);
+        $matches = fn (array $rule) => match ($rule['type'] ?? null) {
+            'email_domain' => $domain === $rule['value'] || str_ends_with($domain, '.'.$rule['value']),
+            'group' => in_array($rule['value'], $groups, true),
+            default => false,
+        };
+
+        $types = [];
+        foreach ($configuration['type_rules'] ?? [] as $rule) {
+            if ($matches($rule)) {
+                $types = [...$types, ...array_map('trim', explode(',', (string) $rule['target']))];
+            }
+        }
+        $department = collect($configuration['department_rules'] ?? [])->first(fn (array $rule) => $matches($rule))['target'] ?? null;
+
+        return ['types' => array_values(array_unique(array_filter($types))), 'department' => $department];
+    }
+
+    /**
+     * Parse "group:year-9=student" (network types, comma separated) or
+     * "group:science-faculty=Science" (department) lines.
+     *
+     * @return list<array{type: string, value: string, target: string}>
+     */
+    public static function parseMappingRules(string $text, string $field): array
+    {
+        $rules = [];
+        foreach (preg_split('/\r?\n/', $text) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+            if (! preg_match('/^(email_domain|domain|group):\s*([^=]+?)\s*=\s*(.+)$/i', $line, $matches)) {
+                throw ValidationException::withMessages([$field => "Invalid rule: {$line}"]);
+            }
+            $rules[] = ['type' => strtolower($matches[1]) === 'group' ? 'group' : 'email_domain', 'value' => strtolower(trim($matches[2])), 'target' => trim($matches[3])];
+        }
+
+        return $rules;
+    }
+
+    /** @param list<array{type: string, value: string, target: string}> $rules */
+    public static function formatMappingRules(array $rules): string
+    {
+        return collect($rules)->map(fn (array $rule) => "{$rule['type']}:{$rule['value']}={$rule['target']}")->implode("\n");
     }
 
     /**

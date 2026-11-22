@@ -28,9 +28,9 @@
                     <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*') && ! request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.policy.blocklists.*')])>Policies</a>
                     <a href="{{ route('admin.policy.changes.index') }}" @class(['active' => request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*')])>Changes @if($changesCount)<span class="nav-count" aria-label="{{ $changesCount }} waiting for a second officer">{{ $changesCount }}</span>@endif</a>
                     <a href="{{ route('admin.insights') }}" @class(['active' => request()->routeIs('admin.insights*')])>Insights</a>
+                    <a href="{{ route('admin.health') }}" @class(['active' => request()->routeIs('admin.health', 'admin.diagnostics')])>Health</a>
                     @if($navUser->isAdmin())
                         <a href="{{ route('admin.policy.blocklists.index') }}" @class(['active' => request()->routeIs('admin.policy.blocklists.*')])>Protection</a>
-                        <a href="{{ route('admin.diagnostics') }}" @class(['active' => request()->routeIs('admin.diagnostics')])>Health</a>
                         <a href="{{ route('admin.settings.show') }}" @class(['active' => request()->routeIs('admin.settings.*', 'admin.audit', 'admin.users.*')])>Admin</a>
                     @endif
                 @else

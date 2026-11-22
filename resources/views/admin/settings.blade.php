@@ -46,6 +46,14 @@
                 <small><code>email_domain:</code> matches the address domain and its subdomains. <code>group:</code> matches a value in the <code>groups</code> or <code>roles</code> claim (Entra: add a groups claim or app roles to the token).</small>
             </label>
             <div class="fields two">
+                <label>Network type rules <span class="optional">one per line · every match adds its types</span>
+                    <textarea name="type_rules" rows="4" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:staff=staff&#10;group:boarding=student,boarding">{{ old('type_rules', $typeRules) }}</textarea>
+                    <small>The networks a person uses, by type key. New requests choose these networks by default.</small></label>
+                <label>Department rules <span class="optional">one per line · first match wins</span>
+                    <textarea name="department_rules" rows="4" class="mono" placeholder="group:science-faculty=Science&#10;group:english-faculty=English">{{ old('department_rules', $departmentRules) }}</textarea>
+                    <small>Shown on requests and used to group them in Insights.</small></label>
+            </div>
+            <div class="fields two">
                 <label>Default role for unmatched users<select name="default_role">@foreach(['teacher' => 'Teacher', 'student' => 'Student', 'deny' => 'Refuse sign-in'] as $value => $label)<option value="{{ $value }}" @selected(old('default_role', $oidc?->configuration['default_role'] ?? 'teacher') === $value)>{{ $label }}</option>@endforeach</select></label>
                 <label class="choice compact"><input type="hidden" name="sync_roles" value="0"><input type="checkbox" name="sync_roles" value="1" @checked(old('sync_roles', $oidc?->configuration['sync_roles'] ?? false))><span><strong>Re-apply rules at every sign-in</strong><small>Never removes IT or administrator access granted by hand.</small></span></label>
             </div>
@@ -267,6 +275,64 @@
             <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policy lists) or a probe (Network profiles).</p>
             <div class="form-actions"><button class="button primary">Save network types</button></div>
         </form>
+
+    @elseif($section === 'integrations')
+        <section class="panel">
+            <h2>API tokens</h2>
+            <p class="section-copy">For scripts, ticketing systems and dashboards: <code>{{ url('/api/v1') }}</code> with <code>Authorization: Bearer &lt;token&gt;</code>. A token acts as the IT officer who created it, so its actions are recorded against them and the usual rules apply (two-person approval included). Endpoints: <code>GET /requests</code>, <code>GET /requests/{reference}</code>, <code>POST /requests</code>, <code>POST /requests/{reference}/decision</code>, <code>GET /versions</code>, <code>GET /explain?site=&amp;type=</code>. See docs/API.md.</p>
+            @if(session('new_token'))<div class="alert success"><strong>New token</strong> (shown once): <code class="select-all">{{ session('new_token') }}</code></div>@endif
+            <div class="table-wrap"><table>
+                <thead><tr><th>Name</th><th>Acts as</th><th>Can</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+                <tbody>
+                    @forelse($apiTokens as $token)
+                        <tr><td>{{ $token->name }}</td><td>{{ $token->user?->name }}</td><td>{{ implode(', ', $token->abilities) }}</td><td>{{ $token->last_used_at?->diffForHumans() ?? 'Never' }}</td><td>{{ $token->expires_at?->local()->format('j M Y') ?? 'Never' }}</td>
+                            <td><form method="post" action="{{ route('admin.integrations.tokens.destroy', $token) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Revoke {{ $token->name }}? Anything using it stops working.">Revoke</button></form></td></tr>
+                    @empty
+                        <tr><td colspan="6" class="empty">No tokens.</td></tr>
+                    @endforelse
+                </tbody>
+            </table></div>
+            <form method="post" action="{{ route('admin.integrations.tokens.store') }}" class="fields three">@csrf
+                <label>Name<input name="name" required maxlength="80" placeholder="Service desk"></label>
+                <fieldset><legend>Can</legend>@foreach(\App\Models\ApiToken::ABILITIES as $ability => $label)<label class="choice compact"><input type="checkbox" name="abilities[]" value="{{ $ability }}" @checked($ability === 'read')><span>{{ $label }}</span></label>@endforeach</fieldset>
+                <label>Expires after (days) <span class="optional">blank = never</span><input type="number" name="expires_days" min="1" max="730" value="365"></label>
+                <div class="form-actions"><button class="button primary">Create token</button></div>
+            </form>
+        </section>
+        <section class="panel" style="margin-top:20px">
+            <h2>Webhooks</h2>
+            <p class="section-copy">Send request and policy events to another system: a JSON receiver (a ticketing system, an automation) or a Microsoft Teams channel (an incoming webhook or a Workflows URL). Teams cards for new requests have Approve and Decline buttons that open a confirmation page here. JSON bodies are signed with HMAC-SHA256 of the raw body in <code>X-ITRequests-Signature: sha256=…</code> when a secret is set.</p>
+            @foreach($webhooks as $webhook)
+                <form method="post" action="{{ route('admin.integrations.webhooks.update', $webhook) }}" class="probe-plan">@csrf @method('PUT')
+                    <div class="fields three">
+                        <label>Name<input name="name" value="{{ $webhook->name }}" required maxlength="80"></label>
+                        <label>URL<input name="url" value="{{ $webhook->url }}" required></label>
+                        <label>Format<select name="format">@foreach(\App\Models\WebhookEndpoint::FORMATS as $format => $label)<option value="{{ $format }}" @selected($webhook->format === $format)>{{ $label }}</option>@endforeach</select></label>
+                    </div>
+                    <div class="category-grid">@foreach(\App\Models\WebhookEndpoint::EVENTS as $event => $label)<label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked(in_array($event, $webhook->events ?? [], true))><span>{{ $label }}</span></label>@endforeach</div>
+                    <div class="fields two">
+                        <label>Secret <span class="optional">{{ filled($webhook->secret) ? 'stored · blank keeps it' : 'optional' }}</span><input name="secret" type="password" autocomplete="new-password"></label>
+                        <label class="choice compact"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($webhook->enabled)><span>Enabled<small>Last delivery: {{ $webhook->last_status ?? 'none yet' }}{{ $webhook->last_delivered_at ? ' · '.$webhook->last_delivered_at->diffForHumans() : '' }}</small></span></label>
+                    </div>
+                    <div class="button-row"><button class="button secondary">Save</button></div>
+                </form>
+                <div class="button-row webhook-actions">
+                    <form method="post" action="{{ route('admin.integrations.webhooks.test', $webhook) }}">@csrf<button class="button small secondary">Send a test</button></form>
+                    <form method="post" action="{{ route('admin.integrations.webhooks.destroy', $webhook) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Remove {{ $webhook->name }}?">Remove</button></form>
+                </div>
+            @endforeach
+            <h3>Add a webhook</h3>
+            <form method="post" action="{{ route('admin.integrations.webhooks.store') }}">@csrf
+                <div class="fields three">
+                    <label>Name<input name="name" required maxlength="80" placeholder="IT Teams channel"></label>
+                    <label>URL<input name="url" required placeholder="https://…"></label>
+                    <label>Format<select name="format">@foreach(\App\Models\WebhookEndpoint::FORMATS as $format => $label)<option value="{{ $format }}">{{ $label }}</option>@endforeach</select></label>
+                </div>
+                <div class="category-grid">@foreach(\App\Models\WebhookEndpoint::EVENTS as $event => $label)<label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked(in_array($event, ['request.submitted', 'request.awaiting_second'], true))><span>{{ $label }}</span></label>@endforeach</div>
+                <label>Secret <span class="optional">optional · JSON only</span><input name="secret" type="password" autocomplete="new-password"></label>
+                <div class="form-actions"><button class="button primary">Add webhook</button></div>
+            </form>
+        </section>
 
     @elseif($section === 'calendar')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'calendar') }}">@csrf @method('PUT')
