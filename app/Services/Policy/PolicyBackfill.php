@@ -41,7 +41,7 @@ class PolicyBackfill
     }
 
     /**
-     * Before 0.2.0, temporary windows were saved as the school's wall-clock
+     * Before 2026.11.0 (formerly 0.2.0), temporary windows were saved as the school's wall-clock
      * time in a UTC column. Convert them once, then mirror onto policy entries.
      */
     private function convertLegacyRequestWindows(): int

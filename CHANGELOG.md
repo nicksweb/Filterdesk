@@ -1,8 +1,10 @@
 # Changelog
 
-All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
+All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
-## 0.2.0
+## 2026.11.0
+
+The release previously planned as 0.2.0, shipped under the new calendar versioning.
 
 ### Added
 - Blocklists & firewall: subscribe to hagezi presets or any URL (hosts, adblock, wildcard, plain); domain feeds fill their own allow/block list, IP feeds and manual addresses keep a UniFi IP group in step through the official API, with firewall-rule usage shown; hourly refresh (`blocklists:refresh`).

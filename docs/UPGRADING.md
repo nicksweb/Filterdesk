@@ -33,7 +33,11 @@ The one-shot `migrate` service runs `php artisan itrequests:upgrade`, which:
 docker compose run --rm migrate
 ```
 
-## 0.1.x → 0.2.0
+## Version numbers
+
+From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
+
+## 0.1.x → 2026.11.0 (formerly 0.2.0)
 
 - **Policy model.** The single master allow/block lists become *Site-wide allow/block*. Requests already approved are placed into the Staff/Student allow lists according to their scope. Paste each UniFi content filter into its policy page to start reconciling.
 - **Timezone.** Temporary windows saved by 0.1.x were stored as the school's wall-clock time. They are converted to UTC once. Dates now display in the school's timezone (*Settings → School*).
