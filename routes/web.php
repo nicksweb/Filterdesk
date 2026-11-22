@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AccessExplorerController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BlocklistController;
 use App\Http\Controllers\Admin\ChangesController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Admin\DomainScanController;
 use App\Http\Controllers\Admin\FilterPolicyController;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\NetworkMapController;
+use App\Http\Controllers\Admin\NetworkTypePolicyController;
 use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\PolicyLayerController;
 use App\Http\Controllers\Admin\PolicyListController;
@@ -53,6 +55,7 @@ Route::middleware('installed')->group(function (): void {
             ->parameters(['requests' => 'websiteRequest'])
             ->only(['index', 'create', 'store', 'show']);
         Route::post('/requests/{websiteRequest}/reply', [WebsiteRequestController::class, 'reply'])->name('requests.reply');
+        Route::get('/why', [AccessExplorerController::class, 'why'])->middleware('throttle:30,1')->name('why');
 
         Route::middleware('role:it,admin')->group(function (): void {
             Route::post('/it/requests/{websiteRequest}/action', ItRequestActionController::class)->name('it.requests.action');
@@ -78,6 +81,8 @@ Route::middleware('installed')->group(function (): void {
                 Route::post('/policies/{policy}/adopt', [FilterPolicyController::class, 'adopt'])->name('policies.adopt');
                 Route::post('/policies/{policy}/push', [FilterPolicyController::class, 'push'])->middleware('throttle:20,1')->name('policies.push');
                 Route::post('/pushes/{push}/rollback', [FilterPolicyController::class, 'rollback'])->middleware('throttle:10,1')->name('pushes.rollback');
+                Route::get('/explorer', [AccessExplorerController::class, 'show'])->middleware('throttle:60,1')->name('explorer');
+                Route::get('/types/{type:key}', [NetworkTypePolicyController::class, 'show'])->name('types.show');
                 Route::get('/changes', [ChangesController::class, 'index'])->name('changes.index');
                 Route::post('/changes/publish', [ChangesController::class, 'publish'])->middleware('throttle:10,1')->name('changes.publish');
                 Route::post('/changes/decide', [ChangesController::class, 'decide'])->name('changes.decide');

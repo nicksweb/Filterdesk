@@ -10,6 +10,7 @@ use App\Services\Approval\TwoPersonRule;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Network\DomainRules;
+use App\Services\Policy\AccessExplorer;
 use App\Services\Policy\AccessPlanner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
@@ -197,10 +198,29 @@ class WebsiteRequestController extends Controller
                     ? rescue(fn () => app(AccessPlanner::class)->plan($websiteRequest->domains, $websiteRequest->access_scope, timed: $websiteRequest->requested_until !== null), null, false)
                     : null,
                 'entries' => $websiteRequest->policyEntries()->with('policyList')->get(),
+                // Why each requested site is (or is not) reachable now, for the networks it was requested for.
+                'explained' => $websiteRequest->status->isOpen() ? rescue(fn () => $this->explainNow($websiteRequest), [], false) : [],
             ];
         }
 
         return view('requests.show', $data);
+    }
+
+    /** @return list<array{domain: string, type: string, verdict: string, reason: string}> */
+    private function explainNow(WebsiteRequest $websiteRequest): array
+    {
+        $explorer = app(AccessExplorer::class);
+        $scope = $websiteRequest->access_scope;
+        $types = NetworkType::query()->ordered()->get()->filter(fn (NetworkType $type) => $scope->siteWide ? $type->requestable : $scope->includes($type->key));
+        $rows = [];
+        foreach (array_slice($websiteRequest->domains, 0, 3) as $domain) {
+            foreach ($types as $type) {
+                $explained = $explorer->explain($domain, $type);
+                $rows[] = ['domain' => $domain, 'type' => $type->name, 'verdict' => $explained['verdict'], 'reason' => $explained['reason']];
+            }
+        }
+
+        return $rows;
     }
 
     /**

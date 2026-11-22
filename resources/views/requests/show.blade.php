@@ -40,6 +40,12 @@
             @if($isIt && $status->isOpen())
                 <section class="panel">
                     <div class="panel-heading"><div><h2>{{ $websiteRequest->isBlock() ? 'Approve block' : 'Approve' }}</h2><p>{{ $websiteRequest->isBlock() ? 'Choose the hostnames to block. Third-party hosts are not selected because other sites share them. A block for a network type overrides an older allow at the same level and any site-wide allow.' : 'Choose the hostnames to allow. DNS filtering only sees hostnames, so include the bare domain and every subdomain the site needs.' }}</p></div></div>
+                    @if(!empty($explained))
+                        <div class="explained-now"><strong>Right now</strong>
+                            <ul class="plain-list">@foreach($explained as $row)<li><code>{{ $row['domain'] }}</code> on {{ $row['type'] }}: <span class="verdict verdict-{{ $row['verdict'] }}">{{ ucfirst($row['verdict']) }}</span><small>{{ $row['reason'] }}</small></li>@endforeach</ul>
+                            <a href="{{ route('admin.policy.explorer', ['site' => $websiteRequest->domains[0]]) }}">Full trace in the access explorer</a>
+                        </div>
+                    @endif
                     @php($first = $websiteRequest->first_approval)
                     @php($firstScope = $first ? \App\Support\Reach::tryFrom((string) ($first['scope'] ?? '')) : null)
                     @if($first)
