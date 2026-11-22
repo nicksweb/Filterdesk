@@ -1,0 +1,14 @@
+name: Bug
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: textarea
+    attributes: {label: What happened, description: "What you did, what you expected and what you saw. Leave out school names, addresses and credentials."}
+    validations: {required: true}
+  - type: input
+    attributes: {label: Version, description: "Shown at the foot of every page, for example 2026.12.0"}
+    validations: {required: true}
+  - type: input
+    attributes: {label: UniFi Network version, description: "If it involves the controller"}
+  - type: textarea
+    attributes: {label: Logs, description: "docker compose logs app queue --tail 100 (check for secrets first)", render: text}

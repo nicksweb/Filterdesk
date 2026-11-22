@@ -37,6 +37,14 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.11.0 → 2026.12.0
+
+- **Two-person approval is on by default.** With two or more enabled IT officers, approving site-wide access or a sensitive category, and adding or removing entries in a site-wide list by hand, waits for a second officer (Policy → Changes). Turn it off, or change the sensitive categories, under Settings → Approval policy.
+- **Exception reviews.** Existing entries made by IT or from requests get an owner and a review date a year after they were made, but never sooner than four weeks after the upgrade, so nothing is removed because of the upgrade. Owners are emailed when entries fall due; unreviewed ones are removed 14 days after their review date. Change both periods under Settings → Approval policy.
+- **Versions.** Every write to the controller now appears under Policy → Changes as a numbered version. Push history on each policy page still works.
+- Optional: add the school calendar (Settings → School calendar), identity rules (Settings → Authentication) and integrations (Settings → Integrations).
+- Back up with `bin/backup` before upgrading.
+
 ## 0.1.x → 2026.11.0 (formerly 0.2.0)
 
 - **Policy model.** The single master allow/block lists become *Site-wide allow/block*. Requests already approved are placed into the Staff/Student allow lists according to their scope. Paste each UniFi content filter into its policy page to start reconciling.

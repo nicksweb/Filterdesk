@@ -180,6 +180,12 @@ Approval records the decision, adds the hostnames to the managed policy lists an
 
 ## Compatibility procedure
 
+`php artisan unifi:compat` checks, read-only, that the controller still answers every call this app uses in the shape it expects: networks, content filters and categories (outside the official API), IP groups, firewall zones and firewall rules. It exits non-zero if any fails. Run it on a test console before upgrading UniFi Network, or straight after an upgrade; `--json` prints the result for monitoring.
+
+| UniFi Network | Result |
+| --- | --- |
+| 10.x, 11.0 | All checks pass (content filters through the v2 endpoints, zones, rules and rule ordering through the integration API). |
+
 UniFi local API documentation is version-specific. Open **Network → Control Plane → Integrations** on the target controller, compare its resources with this adapter, then use the read-only connection test. Test all write behavior in a non-production site before active mode.
 
 The cloud connector exposes the same integration API as the local endpoint. It does not add content-filter access.

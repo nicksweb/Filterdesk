@@ -274,13 +274,20 @@ Still in read-only mode:
 4. Optional: turn on **Settings → Website categories** (a free Cloudflare API token with Radar read access). Website checks and requests then show what kind of site each domain is, the UniFi category it probably falls in and which filters already block that category, which helps choose between a category block and a list of hostnames. It sends looked-up domains to Cloudflare; see [hardening](SECURITY_HARDENING.md#data).
 5. Optional: add blocklists under Policy lists → Blocklists & firewall. Give a policy a layer first if you add large domain feeds.
 6. Harden the install: [SECURITY_HARDENING.md](SECURITY_HARDENING.md).
+7. Policy settings worth a look before go-live:
+   - **Settings → Approval policy:** two-person approval for site-wide changes (on by default), the sensitive categories that need two IT officers, and how often exceptions are reviewed (12 months) and how long an unreviewed one stays (14 days).
+   - **Settings → School calendar:** terms, holidays, exam periods and bell times, for recurring requests that follow the calendar and for exam mode (Settings → Network types).
+   - **Settings → Authentication:** network type and department rules from sign-in groups.
+   - **Settings → Integrations:** API tokens, and webhooks to a Teams channel or a service desk ([API.md](API.md)).
+   - Publish waiting changes, and roll versions back, under **Changes**. Check **Health** for the coverage score.
 
 ## 12. Ongoing operation
 
 | Task | How |
 | --- | --- |
-| Back up | Daily `pg_dump` and the storage volume, plus `.env`, kept separately; see [DEPLOYMENT.md](DEPLOYMENT.md#backups). Test a restore. |
+| Back up | `bin/backup` (a `pg_dump` and a copy of `.env`, kept 14 days in `backups/`); schedule it daily with cron and copy `backups/` off the host. See [DEPLOYMENT.md](DEPLOYMENT.md#backups). Test a restore. |
 | Update | `git pull --ff-only`, then `docker compose … build --pull` and `docker compose … up -d`. Read [CHANGELOG.md](../CHANGELOG.md) and [UPGRADING.md](UPGRADING.md) first. Rebuild monthly even without a release, for PHP, Chromium and OS patches. |
-| Health | Settings → Diagnostics; `docker compose ps`; the dashboard warns when a filter drifts from UniFi. |
+| Health | **Health** (coverage score), Settings → Diagnostics, `docker compose ps`; `GET /api/v1/metrics` for Prometheus. The dashboard warns when a filter drifts from UniFi. |
+| Before a UniFi upgrade | `docker compose exec app php artisan unifi:compat` on a test console (or straight after upgrading): it checks, read-only, that every call the app uses still answers as expected. |
 | Locked out | `docker compose exec app php artisan itrequests:admin-password <email> --enable-local-login` |
 | Start again | See [Starting again in the README](../README.md#starting-again). |

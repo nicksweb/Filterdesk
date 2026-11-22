@@ -110,4 +110,20 @@ class IntegrationsTest extends TestCase
 
         Queue::assertPushed(DeliverWebhook::class, fn (DeliverWebhook $job) => $job->event === 'policy.published');
     }
+
+    public function test_metrics_need_a_token_and_report_prometheus_gauges(): void
+    {
+        [, $read] = ApiToken::issue($this->it, 'Monitoring', ['read']);
+        $this->pendingRequest(['open.example.org'], Reach::types('staff'));
+
+        $this->get('/api/v1/metrics')->assertUnauthorized();
+        $body = $this->withToken($read)->get('/api/v1/metrics')->assertOk()->getContent();
+        $this->assertStringContainsString('itrequests_requests_open 1', $body);
+        $this->assertStringContainsString('# TYPE itrequests_reviews_overdue gauge', $body);
+    }
+
+    public function test_the_compatibility_check_reads_every_call_the_app_uses(): void
+    {
+        $this->artisan('unifi:compat')->expectsOutputToContain('Content filters')->expectsOutputToContain('Firewall zones')->assertSuccessful();
+    }
 }

@@ -8,6 +8,18 @@ The application is school-neutral: branding, identity, network profiles, policy 
 
 ## Current capabilities
 
+**Policy platform (2026.12)**
+
+- **Changes and versions:** see exactly what publishing would write to the controller, publish it as one numbered policy version, and roll a version back as a whole. Every automatic push is a version too.
+- **Two-person approval:** site-wide changes and sensitive categories need two IT officers.
+- **Access explorer:** "can this network reach this site at this time, and why", traced step by step, with what-if for category changes and a plain *Why is this blocked?* page for staff and students.
+- **School calendar:** terms, holidays, exam periods and bell times; recurring access that follows them, and exam mode per network type.
+- **Exception reviews:** every exception has an owner and a review date; unreviewed ones are removed after a grace period.
+- **Insights and Health:** a termly report with suggestions drawn from requests, and a coverage score with links to each fix.
+- **Integrations:** API, signed webhooks, Microsoft Teams cards and one-click decision links; sign-in groups set network types and departments.
+
+**Foundations**
+
 - OpenID Connect sign-in (including Microsoft Entra ID) with just-in-time users
 - Administrator-created local test users and passwordless OIDC placeholders
 - Student, teacher, IT and administrator roles

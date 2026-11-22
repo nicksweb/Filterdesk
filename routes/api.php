@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\ApiController;
+use App\Http\Controllers\Api\MetricsController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,6 +14,7 @@ Route::prefix('v1')->middleware(['installed', 'throttle:120,1'])->group(function
         Route::get('/requests/{reference}', [ApiController::class, 'show']);
         Route::get('/versions', [ApiController::class, 'versions']);
         Route::get('/explain', [ApiController::class, 'explain']);
+        Route::get('/metrics', MetricsController::class);
     });
     Route::post('/requests', [ApiController::class, 'store'])->middleware('api.token:requests');
     Route::post('/requests/{reference}/decision', [ApiController::class, 'decide'])->middleware('api.token:decide');
