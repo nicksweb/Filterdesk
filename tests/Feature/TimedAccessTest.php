@@ -88,7 +88,7 @@ class TimedAccessTest extends TestCase
         $request = $this->pendingRequest(['film.example.org'], Reach::types('staff', 'student'));
 
         $this->actingAs($it)->post(route('it.requests.action', $request), [
-            'action' => 'approve', 'access_from' => now()->addDay()->setTime(9, 0)->format('Y-m-d\TH:i'), 'access_until' => now()->addDay()->setTime(10, 0)->format('Y-m-d\TH:i'),
+            'action' => 'approve', 'access_from' => now()->addDays(2)->setTime(9, 0)->format('Y-m-d\TH:i'), 'access_until' => now()->addDays(2)->setTime(10, 0)->format('Y-m-d\TH:i'),
         ])->assertSessionHas('success');
 
         $request->refresh();
