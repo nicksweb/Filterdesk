@@ -9,7 +9,7 @@ RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-in
 COPY . .
 RUN composer dump-autoload --optimize --no-dev --classmap-authoritative
 
-FROM php:8.5-fpm-alpine AS runtime
+FROM php:8.6-fpm-alpine AS runtime
 RUN apk add --no-cache icu-libs libpq libzip oniguruma \
     && apk add --no-cache --virtual .build-deps icu-dev postgresql-dev libzip-dev oniguruma-dev $PHPIZE_DEPS \
     && docker-php-ext-install -j$(nproc) pdo_pgsql bcmath intl zip pcntl \
