@@ -25,7 +25,7 @@ The one-shot `migrate` service runs `php artisan itrequests:upgrade`, which:
 3. backfills defaults added by the release (filter policies, lists, entries for already-approved requests);
 4. clears compiled caches;
 5. restarts queue workers;
-6. records the installed version (see *Settings → Diagnostics*).
+6. records the installed version (see *Health → Diagnostics*).
 
 `app`, `queue` and `scheduler` start only after it succeeds. It is safe to re-run:
 

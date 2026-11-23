@@ -102,7 +102,7 @@ class ProbeDiagnostics
         $checks[] = $network
             ? $this->check('network', 'Network chosen', 'ok', "{$network->name} ({$vlanText}).")
             : $this->check('network', 'Network chosen', 'fail', $profile->unifi_network_id ? 'The network set on this profile is not one UniFi reports.' : 'No network is set for this probe.', [
-                'Set the UniFi network (or VLAN number) for this profile below, or plan it under Policy lists → Guided setup → Probe containers.',
+                'Set the UniFi network (or VLAN number) for this profile below, or plan it under Policies → Guided setup → Probe containers.',
             ]);
 
         // 2. The container answers.
@@ -175,7 +175,7 @@ class ProbeDiagnostics
             $checks[] = $policy
                 ? $this->check('filtered', 'Network is filtered', 'ok', "{$network->name} is managed by {$policy->name} (".$policy->typeLabel().').')
                 : $this->check('filtered', 'Network is filtered', 'warn', "No policy covers {$network->name}, so this probe shows sites unfiltered. That is fine for comparison, but it does not stand for any policy.", [
-                    'Choose a network a content filter covers (see Policy lists → Networks & filters), or map this one to a policy there.',
+                    'Choose a network a content filter covers (see Policies → Networks & filters), or map this one to a policy there.',
                 ]);
         }
 

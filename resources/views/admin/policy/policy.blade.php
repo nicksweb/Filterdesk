@@ -3,7 +3,7 @@
 
     <div class="page-heading">
         <div>
-            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policy lists</a> · {{ $policy->typeLabel() }}@if($policy->layerOf) · layer of <a href="{{ route('admin.policy.policies.show', $policy->layerOf) }}">{{ $policy->layerOf->name }}</a>@endif</p>
+            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policies</a> · {{ $policy->typeLabel() }}@if($policy->layerOf) · layer of <a href="{{ route('admin.policy.policies.show', $policy->layerOf) }}">{{ $policy->layerOf->name }}</a>@endif</p>
             <h1>{{ $policy->name }}</h1>
             <p>{{ $policy->description ?: 'Content filter policy' }}{{ $policy->provider_reference ? ' · Controller filter: '.$policy->provider_reference : '' }}</p>
         </div>

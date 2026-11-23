@@ -45,7 +45,7 @@
     <section class="stat-grid">
         @if(auth()->user()->isIt())
             <a class="stat-link" href="{{ route('requests.index', ['status' => 'open']) }}"><article><span>Awaiting decision</span><strong>{{ $pending }}</strong><small>{{ $mine }} assigned to you</small></article></a>
-            <a class="stat-link" href="{{ route('requests.index', ['status' => 'action_required']) }}"><article><span>Approved, to apply</span><strong>{{ $actionRequired }}</strong><small>Copy into the controller from Policy lists</small></article></a>
+            <a class="stat-link" href="{{ route('requests.index', ['status' => 'action_required']) }}"><article><span>Approved, to apply</span><strong>{{ $actionRequired }}</strong><small>Publish them under Changes</small></article></a>
         @else
             <article><span>Open requests</span><strong>{{ $pending }}</strong><small>Waiting on a person or action</small></article>
             <article><span>Active allowances</span><strong>{{ $active }}</strong><small>Approved website access</small></article>

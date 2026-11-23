@@ -3,7 +3,7 @@
 
     <div class="page-heading">
         <div>
-            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policy lists</a> · {{ $list->scopeLabel() }}</p>
+            <p class="eyebrow"><a href="{{ route('admin.policy.index') }}">Policies</a> · {{ $list->scopeLabel() }}</p>
             <h1>{{ $list->name }}</h1>
             <p>{{ $list->kind->label() }} · applies to {{ $policies->pluck('name')->join(', ') ?: 'no enabled policy yet' }}</p>
         </div>

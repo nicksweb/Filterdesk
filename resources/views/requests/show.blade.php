@@ -35,6 +35,11 @@
                     <div class="chip-list">@foreach($websiteRequest->approved_domains as $domain)<span class="chip">{{ $domain }}</span>@endforeach</div>
                 @endif
                 @if($websiteRequest->resolution)<h3>Resolution</h3><p class="prose">{{ $websiteRequest->resolution }}</p>@endif
+                @php($accessGuide = app(\App\Services\Requests\AccessGuide::class))
+                @if(! $isIt && $accessGuide->appliesTo($websiteRequest, auth()->user()))
+                    <div class="notice access-guide"><strong>Site still looks blocked?</strong> {{ $accessGuide->settings()['intro'] }}
+                        <ol>@foreach($accessGuide->steps() as $step)<li>{{ $step }}</li>@endforeach</ol></div>
+                @endif
             </section>
 
             @if($isIt && $status->isOpen())
@@ -124,7 +129,7 @@
 
             @if($isIt && $entries->isNotEmpty())
                 <section class="panel">
-                    <div class="panel-heading"><div><h2>Policy entries</h2><p>Where this request's hostnames sit in the managed lists.</p></div><a href="{{ route('admin.policy.index') }}">Policy lists</a></div>
+                    <div class="panel-heading"><div><h2>Policy entries</h2><p>Where this request's hostnames sit in the managed lists.</p></div><a href="{{ route('admin.policy.index') }}">Policies</a></div>
                     <div class="table-wrap compact"><table><thead><tr><th>Hostname</th><th>List</th><th>Window</th></tr></thead><tbody>
                         @foreach($entries as $entry)
                             <tr><td><strong>{{ $entry->domain }}</strong></td><td>{{ $entry->policyList->name }}<small>{{ $entry->policyList->scopeLabel() }}</small></td><td>{{ $entry->starts_at?->local()->format('j M g:i a') ?? 'Now' }} → {{ $entry->expires_at?->local()->format('j M Y g:i a') ?? 'Permanent' }}</td></tr>

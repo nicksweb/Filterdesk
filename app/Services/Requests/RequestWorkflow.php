@@ -175,8 +175,10 @@ class RequestWorkflow
         $opens = $websiteRequest->accessFrom()?->isFuture() ? ' Access opens '.$websiteRequest->accessFrom()->local()->format('j M Y \a\t g:i a').'.' : '';
         $verb = $websiteRequest->isBlock() ? 'Blocked' : 'Allowed';
         $opens = $opens && $websiteRequest->isBlock() ? str_replace('Access opens', 'The block starts', $opens) : $opens;
+        $guide = app(AccessGuide::class);
+        $tips = $guide->appliesTo($websiteRequest) ? "\n\n".$guide->settings()['intro']."\n\n".collect($guide->steps())->map(fn (string $step, int $index) => ($index + 1).'. '.$step)->join("\n") : '';
         $this->notifier->decision($websiteRequest, trim(($note ? "{$note}\n\n" : 'Your request was approved. ')."{$verb}: ".implode(', ', $domains).'.'.$opens
-            .($websiteRequest->windowChanged() ? ' IT set the access window to '.$websiteRequest->windowLabel().'.' : '')));
+            .($websiteRequest->windowChanged() ? ' IT set the access window to '.$websiteRequest->windowLabel().'.' : '').$tips));
 
         if ($websiteRequest->status === RequestStatus::ActionRequired && $this->pusher()->automatic()) {
             $this->pushAfter($websiteRequest, $actor, $scope, 'approval');

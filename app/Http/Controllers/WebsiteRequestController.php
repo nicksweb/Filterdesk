@@ -15,6 +15,7 @@ use App\Services\Policy\AccessPlanner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Requests\AccessGuide;
 use App\Services\Requests\InvalidRequestTransition;
 use App\Services\Requests\RequestFormSettings;
 use App\Services\Requests\RequestWorkflow;
@@ -170,10 +171,27 @@ class WebsiteRequestController extends Controller
             $workflow->approve($websiteRequest, $request->user(), 'Automatically approved under the configured staff-only access policy.');
         }
 
+        // Approved straight away: show staff what to do while the change reaches the network.
+        if ($automaticallyApproved && app(AccessGuide::class)->appliesTo($websiteRequest->refresh(), $request->user())) {
+            return redirect()->route('requests.ready', $websiteRequest);
+        }
+
         return redirect()->route('requests.show', $websiteRequest)->with(
             'success',
             $automaticallyApproved ? 'Staff-only request approved under the configured policy.' : ($block ? 'Block request submitted to IT.' : 'Request submitted to IT.')
         );
+    }
+
+    /** "Your access is on its way": what to do while the change reaches the network. */
+    public function ready(Request $request, WebsiteRequest $websiteRequest, AccessGuide $guide): View|RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user->isIt() || $websiteRequest->requester_id === $user->id, 403);
+        if (! $guide->appliesTo($websiteRequest, $user->isIt() ? $websiteRequest->requester : $user)) {
+            return redirect()->route('requests.show', $websiteRequest);
+        }
+
+        return view('requests.ready', ['websiteRequest' => $websiteRequest, 'guide' => $guide->settings(), 'steps' => $guide->steps()]);
     }
 
     public function show(Request $request, WebsiteRequest $websiteRequest, PolicyEngine $policy, DomainRecommender $recommender): View

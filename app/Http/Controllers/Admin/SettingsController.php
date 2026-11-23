@@ -186,6 +186,7 @@ class SettingsController extends Controller
         $branding = (array) $settings->get('branding', []);
         $branding['app_name'] = trim((string) ($validated['app_name'] ?? ''));
         $branding['mark'] = trim((string) ($validated['brand_mark'] ?? ''));
+        $branding['project_link'] = $request->boolean('project_link', true);
         if ($request->boolean('remove_icon')) {
             unset($branding['icon_data'], $branding['icon_mime']);
         }
@@ -594,6 +595,11 @@ class SettingsController extends Controller
             'default_temporary_days' => ['required', 'integer', 'min:1', 'max:365'],
             'two_person_site_wide' => ['nullable', 'boolean'],
             'two_person_override' => ['nullable', 'boolean'],
+            'guide.enabled' => ['nullable', 'boolean'],
+            'guide.students' => ['nullable', 'boolean'],
+            'guide.title' => ['nullable', 'string', 'max:120'],
+            'guide.intro' => ['nullable', 'string', 'max:600'],
+            'guide.steps' => ['nullable', 'string', 'max:3000'],
             'review_months' => ['nullable', 'integer', 'min:1', 'max:36'],
             'grace_days' => ['nullable', 'integer', 'min:1', 'max:90'],
             'sensitive_categories' => ['nullable', 'string', 'max:4000'],
@@ -631,6 +637,13 @@ class SettingsController extends Controller
             'two_person_site_wide' => $request->boolean('two_person_site_wide', true),
             'two_person_override' => $request->boolean('two_person_override', true),
             'sensitive_categories' => $this->commaList((string) ($validated['sensitive_categories'] ?? ''), lower: false),
+        ]);
+        $settings->set('access_guide', [
+            'enabled' => $request->boolean('guide.enabled', true),
+            'students' => $request->boolean('guide.students'),
+            'title' => trim((string) ($validated['guide']['title'] ?? '')),
+            'intro' => trim((string) ($validated['guide']['intro'] ?? '')),
+            'steps' => trim((string) ($validated['guide']['steps'] ?? '')),
         ]);
         $settings->set('governance', [
             'review_months' => (int) ($validated['review_months'] ?? 12),

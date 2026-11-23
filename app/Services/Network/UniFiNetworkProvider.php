@@ -664,7 +664,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
     public function apply(WebsiteRequest $request): array
     {
         throw new UnsupportedProviderOperation(
-            'This UniFi Network version does not expose a supported domain allowlist operation. Copy the change from Policy lists into UniFi, then mark the request applied.'
+            'This UniFi Network version does not expose a supported domain allowlist operation. Copy the change from the policy page into UniFi, then mark the request applied.'
         );
     }
 

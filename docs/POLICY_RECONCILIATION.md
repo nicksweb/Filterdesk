@@ -35,7 +35,7 @@ On a new install these are created automatically:
 - `Site-wide allow` / `Site-wide block`
 - an allow and a block list for each type that is used or requestable
 
-Add more policies under **Policy lists → Add a filter policy**, or let Guided
+Add more policies under **Policies → Add a filter policy**, or let Guided
 setup create one per UniFi filter. A new type's lists are created as soon as
 the type is.
 
@@ -54,7 +54,7 @@ changes, so renaming is always safe.
 | Source | How it gets there | When it leaves |
 | --- | --- | --- |
 | **Approved request** | Approval adds the chosen hostnames to the default allow list (or, for a block request, block list) of each network type the request is for: *Staff* → Staff allow; *Staff and Students* → both; *Site-wide* → Site-wide allow. IT can change the types when approving. | Automatically when a temporary window ends or the request is revoked. |
-| **Added by IT** | *Policy lists → Add hostnames*, with no request needed. Adding to **Site-wide allow** reaches every policy, students included. | When removed, or at its expiry if one was set. |
+| **Added by IT** | *Policies → Add hostnames*, with no request needed. Adding to **Site-wide allow** reaches every policy, students included. | When removed, or at its expiry if one was set. |
 | **Imported** | Bulk paste into a list (merge or replace). Request entries are never replaced. | When removed. |
 
 ### Recurring requests
@@ -103,7 +103,7 @@ UniFi content filtering works at the DNS level. The rules:
 
 ## Daily workflow
 
-1. Open **Policy lists** and choose a policy (for example *Students*).
+1. Open **Policies** and choose a policy (for example *Students*).
 2. Copy that content filter's current allow and block lists from UniFi and paste them into **step 1**. Escaped dots (`www\.example.org`), schemes, paths and wildcard prefixes are normalised.
 3. Review the **change set**:
    - *Add to allow list*: desired, missing from the controller.

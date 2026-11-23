@@ -61,6 +61,7 @@ Route::middleware('installed')->group(function (): void {
             ->parameters(['requests' => 'websiteRequest'])
             ->only(['index', 'create', 'store', 'show']);
         Route::post('/requests/{websiteRequest}/reply', [WebsiteRequestController::class, 'reply'])->name('requests.reply');
+        Route::get('/requests/{websiteRequest}/ready', [WebsiteRequestController::class, 'ready'])->name('requests.ready');
         Route::get('/why', [AccessExplorerController::class, 'why'])->middleware('throttle:30,1')->name('why');
         Route::get('/reviews', [ExceptionReviewController::class, 'index'])->name('reviews.index');
         Route::post('/reviews/keep', [ExceptionReviewController::class, 'keep'])->name('reviews.keep');

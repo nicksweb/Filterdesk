@@ -37,4 +37,17 @@ class BrandingTest extends TestCase
             'icon' => UploadedFile::fake()->create('bad.exe', 10, 'application/octet-stream'),
         ])->assertSessionHasErrors('icon');
     }
+
+    public function test_the_footer_links_to_the_project_unless_turned_off(): void
+    {
+        $this->installWithPolicies();
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin)->get(route('dashboard'))->assertSee('open source on GitHub')->assertSee(config('app.project_url'));
+
+        $this->actingAs($admin)->put(route('admin.settings.update', 'general'), [
+            'school_name' => 'Example College', 'timezone' => 'Australia/Brisbane', 'app_url' => 'http://localhost', 'project_link' => '0',
+        ])->assertSessionHas('success');
+
+        $this->actingAs($admin)->get(route('dashboard'))->assertDontSee('open source on GitHub');
+    }
 }

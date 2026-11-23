@@ -1,10 +1,10 @@
-<x-layouts.app title="Blocklists & firewall">
+<x-layouts.app title="Protection">
     <x-slot:head><link rel="stylesheet" href="{{ asset('admin.css') }}"></x-slot:head>
 
     <div class="page-heading">
         <div>
             <p class="eyebrow">Web filtering</p>
-            <h1>Blocklists &amp; firewall</h1>
+            <h1>Protection: blocklists &amp; firewall</h1>
             <p>Subscribe to third-party lists. Domain lists feed the content filters like any other list; IP lists keep a controller IP group up to date for a firewall rule to block.</p>
         </div>
     </div>

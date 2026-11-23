@@ -83,7 +83,7 @@
             </nav>
         @endif
         {{ $slot }}
-        <footer class="app-footer">{{ config('app.product_name', 'IT Requests') }} {{ config('version.app') }}</footer>
+        <footer class="app-footer">{{ config('app.product_name', 'IT Requests') }} {{ config('version.app') }}@if(app(\App\Services\SettingsRepository::class)->get('branding.project_link', true)) · <a href="{{ config('app.project_url') }}" target="_blank" rel="noopener">Built with IT Requests, open source on GitHub</a>@endif</footer>
     </main>
 </body>
 </html>

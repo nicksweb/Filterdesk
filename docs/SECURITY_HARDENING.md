@@ -70,7 +70,7 @@ The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a rest
 
 ### Monitoring and audit
 
-- [ ] Check **Settings → Diagnostics** after every change, and watch the dashboard for *Web filters need attention* (drift from UniFi).
+- [ ] Check **Health → Diagnostics** after every change, and watch the dashboard for *Web filters need attention* (drift from UniFi).
 - [ ] Review the **Audit log** regularly. It records sign-ins, lockouts, approvals, every push and rollback, setting changes and imports from UniFi.
 - [ ] Forward container logs to your log system (`docker compose logs`, or a Docker logging driver), and alert on repeated `controller_push_refused` or sign-in lockouts.
 - [ ] Make sure the IT notification address is a monitored shared mailbox, since sync alerts and lockouts go there.

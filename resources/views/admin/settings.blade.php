@@ -17,6 +17,7 @@
             <div class="fields two">
                 <label>Application name <span class="optional">blank: "{{ $settings->get('school.name') }} IT Requests"</span><input name="app_name" maxlength="60" placeholder="uConnect" value="{{ old('app_name', $branding['app_name'] ?? '') }}"><small>Shown in the header, browser tab and emails.</small></label>
                 <label>Initials in the header <span class="optional">up to 3 letters; used when there is no icon</span><input name="brand_mark" maxlength="3" placeholder="IT" value="{{ old('brand_mark', $branding['mark'] ?? '') }}"></label>
+                <label class="choice compact"><input type="hidden" name="project_link" value="0"><input type="checkbox" name="project_link" value="1" @checked(old('project_link', $branding['project_link'] ?? true))><span><strong>Link to the open-source project in the footer</strong><small>Shows "Built with IT Requests" with a link to the project on GitHub at the foot of every page.</small></span></label>
             </div>
             <div class="fields two">
                 <label>Browser and header icon <span class="optional">PNG, SVG, WebP, JPEG or ICO, square, up to 512 KB</span><input type="file" name="icon" accept="image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon"></label>
@@ -110,7 +111,7 @@
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'network') }}">@csrf @method('PUT')
             <div class="fields two">
                 <label>Provider<select name="provider"><option value="unifi" @selected(($network?->provider ?? 'unifi') === 'unifi')>Ubiquiti UniFi Network</option><option value="mock" @selected($network?->provider === 'mock')>Simulation (testing only)</option></select></label>
-                <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: push list changes to linked content filters</option></select><small>Active lets IT push allow and block list changes to the content filters linked under Policy lists → Networks &amp; filters. Each push only changes those lists, is read back, recorded and can be rolled back.</small></label>
+                <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: push list changes to linked content filters</option></select><small>Active lets IT push allow and block list changes to the content filters linked under Policies → Networks &amp; filters. Each push only changes those lists, is read back, recorded and can be rolled back.</small></label>
             </div>
             @php($connection = old('connection', $network?->configuration['connection'] ?? 'local'))
             <label>Connection
@@ -272,7 +273,7 @@
                 <label>Name<input name="new[name]" maxlength="80" placeholder="Exam rooms"></label>
                 <label>Description <span class="optional">optional</span><input name="new[description]" maxlength="255" placeholder="Locked down during exams"></label>
             </div>
-            <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policy lists) or a probe (Network profiles).</p>
+            <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policies) or a probe (Network profiles).</p>
             <div class="form-actions"><button class="button primary">Save network types</button></div>
         </form>
 
@@ -441,6 +442,15 @@
             <label class="choice"><input type="hidden" name="two_person_site_wide" value="0"><input type="checkbox" name="two_person_site_wide" value="1" @checked($settings->get('approval.two_person_site_wide', true))><span><strong>Site-wide changes need two IT officers</strong><small>Approving site-wide access or a block, and adding or removing entries in a site-wide list by hand, waits until a second IT officer confirms it (Policy → Changes). The officer who made the change cannot confirm it. Skipped while only one IT officer is enabled.</small></span></label>
             <label class="choice"><input type="hidden" name="two_person_override" value="0"><input type="checkbox" name="two_person_override" value="1" @checked($settings->get('approval.two_person_override', true))><span><strong>Allow approving alone when no other IT officer is available</strong><small>The officer ticks a box and gives a reason. The other IT officers (and the IT address) are emailed to review it, and it is recorded in the audit log and the Insights report.</small></span></label>
             <label>Sensitive categories <span class="optional">comma or line separated · requests in these need two IT officers</span><textarea name="sensitive_categories" rows="4">{{ implode("\n", $settings->get('approval.sensitive_categories', \App\Services\Approval\TwoPersonRule::DEFAULT_SENSITIVE)) }}</textarea><small>Matched against the website category service (Cloudflare) and UniFi category names, for example Gambling or Adult Themes. Needs Settings → Website categories. Leave empty to turn this off.</small></label>
+            @php($guide = app(\App\Services\Requests\AccessGuide::class)->settings())
+            <h3>After access is approved</h3>
+            <label class="choice"><input type="hidden" name="guide[enabled]" value="0"><input type="checkbox" name="guide[enabled]" value="1" @checked($guide['enabled'])><span><strong>Show what to do next</strong><small>Staff whose request is approved straight away go to this page, and it appears on approved requests and in the approval email. Filtering works on website names, so a computer can keep the old answer for a few minutes.</small></span></label>
+            <label class="choice compact"><input type="hidden" name="guide[students]" value="0"><input type="checkbox" name="guide[students]" value="1" @checked($guide['students'])><span>Show it to students too</span></label>
+            <div class="fields two">
+                <label>Heading<input name="guide[title]" maxlength="120" value="{{ $guide['title'] }}"></label>
+                <label>Introduction<textarea name="guide[intro]" rows="3" maxlength="600">{{ $guide['intro'] }}</textarea></label>
+            </div>
+            <label>Steps <span class="optional">one per line · blank restores the defaults</span><textarea name="guide[steps]" rows="5" maxlength="3000">{{ $guide['steps'] }}</textarea></label>
             <h3>Exception reviews</h3>
             <div class="fields two">
                 <label>Review exceptions every (months)<input name="review_months" type="number" min="1" max="36" value="{{ $settings->get('governance.review_months', 12) }}"><small>Allow and block entries made by IT or from requests get a review date this far ahead. Owners and IT are emailed when one is due.</small></label>

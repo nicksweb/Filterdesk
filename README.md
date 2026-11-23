@@ -104,7 +104,7 @@ Open `APP_URL`. The wizard locks itself once finished.
 
 ### 5. Bring UniFi in
 
-The dashboard points you to **Policy lists → Guided setup**. **Bring everything in** reads every UniFi content filter and sets the tool up to match it: a policy per filter (the default Students and Staff policies are reused), every allow and block entry imported, networks mapped, categories kept, probe profiles prepared. Nothing changes in UniFi, and each policy's change set should be empty afterwards.
+The dashboard points you to **Policies → Guided setup**. **Bring everything in** reads every UniFi content filter and sets the tool up to match it: a policy per filter (the default Students and Staff policies are reused), every allow and block entry imported, networks mapped, categories kept, probe profiles prepared. Nothing changes in UniFi, and each policy's change set should be empty afterwards.
 
 ### 6. Put the probes on the VLANs
 
@@ -123,7 +123,7 @@ Details: [probe containers on the VLANs](docs/DEPLOYMENT.md#probe-containers-on-
 
 ### 7. Try it, then go live
 
-Check a few websites, raise a request, approve it, and compare the policy page with UniFi. When it behaves, set *Settings → Network provider* to **Active** (and optionally **Push automatically**) so the app pushes changes to UniFi. Report problems with the steps, the UniFi Network version and what *Settings → Diagnostics* shows.
+Check a few websites, raise a request, approve it, and compare the policy page with UniFi. When it behaves, set *Settings → Network provider* to **Active** (and optionally **Push automatically**) so the app pushes changes to UniFi. Report problems with the steps, the UniFi Network version and what *Health → Diagnostics* shows.
 
 Keep PostgreSQL, PHP-FPM and the probes off the internet; the Compose file only publishes Nginx on `127.0.0.1`.
 
@@ -185,7 +185,7 @@ Do not open public issues containing vulnerabilities, credentials, school names,
 
 ## Third-party blocklists
 
-The optional blocklist presets (Policy lists → Blocklists & firewall) point to [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists), maintained by hagezi and contributors and published under GPL-3.0. IT Requests does not include any list content: lists are downloaded from the publisher when an administrator subscribes and on each scheduled refresh. Review a list's description in that repository before using it, and report false positives to the publisher.
+The optional blocklist presets (Protection) point to [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists), maintained by hagezi and contributors and published under GPL-3.0. IT Requests does not include any list content: lists are downloaded from the publisher when an administrator subscribes and on each scheduled refresh. Review a list's description in that repository before using it, and report false positives to the publisher.
 
 ## Licence
 

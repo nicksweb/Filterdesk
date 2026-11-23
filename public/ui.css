@@ -244,3 +244,7 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .setup-items li{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #edf0f3}
 .setup-items li small{display:block;color:var(--muted)}.setup-items li.done{opacity:.6}.setup-items .check-icon{background:#eef2f6;color:#42536a}
 .setup-items .check-icon.ok{background:#e1f5ed;color:#08715d}.setup-checklist .link-button{color:var(--blue)}
+.ready-page{display:grid;place-items:center;min-height:calc(100vh - 260px)}.ready-card{max-width:720px;width:100%}
+.ready-card h1{margin:4px 0 10px;font-size:1.9rem;letter-spacing:-.02em}.ready-status{font-size:1.02rem;background:#e9f8f2;border-radius:10px;padding:12px 14px;color:#086854}
+.ready-steps{padding-left:22px;margin:14px 0}.ready-steps li{padding:7px 0;font-size:.98rem}
+.access-guide{margin-top:16px}.access-guide ol{padding-left:20px;margin:8px 0 0}.access-guide li{padding:3px 0}

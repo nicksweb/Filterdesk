@@ -13,6 +13,9 @@ return [
     |
     */
 
+    /** The open-source project, linked from the footer (Settings → School). */
+    'project_url' => 'https://github.com/nicksweb/it-edu-selfservice',
+
     'name' => env('APP_NAME', 'Laravel'),
 
     /*
