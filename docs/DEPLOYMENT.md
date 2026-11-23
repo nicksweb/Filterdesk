@@ -7,10 +7,10 @@ When Nginx Proxy Manager runs in Docker, copy `compose.proxy.example.yml` to
 named `frontend`, and include the override whenever the stack is started:
 
 ```bash
-docker compose -f compose.yml -f compose.proxy.yml up -d --build
+docker compose -f compose.yml -f compose.proxy.yml up -d
 ```
 
-Configure the proxy upstream as `http://filterdesk-web-1:8080`. The
+Configure the proxy upstream as `http://filterdesk-web:8080` (a fixed alias on the shared network; `filterdesk-web-1` also works but depends on the project name). The
 override keeps the shared network attachment across container recreations while
 the PHP upstream remains isolated behind the unique `filterdesk-php` alias.
 
@@ -43,7 +43,7 @@ location / {
 }
 ```
 
-For Nginx Proxy Manager, create a Proxy Host to the Docker host on port 8088, enable Websockets, request a certificate, force SSL, and put the NPM Docker subnet in `TRUSTED_PROXIES`. Caddy and Traefik work with their normal reverse-proxy configuration if the same headers are supplied.
+For Nginx Proxy Manager in Docker (with `compose.proxy.yml`), create a Proxy Host with scheme `http`, hostname `filterdesk-web` and port **8080**, the port inside the container. Do not use 8088: that is `APP_PORT`, published only on the host's 127.0.0.1, and another container cannot reach it. Enable Websockets, request a certificate, force SSL, and put the shared network's subnet in `TRUSTED_PROXIES`. Caddy and Traefik work with their normal reverse-proxy configuration if the same headers are supplied.
 
 The app emits HSTS for HTTPS requests, CSP, `nosniff`, a restrictive Permissions Policy and a Schoolbox-aware `frame-ancestors`. Enter the exact Schoolbox origin in the installer if embedding is required.
 

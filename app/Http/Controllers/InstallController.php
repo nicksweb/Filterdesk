@@ -154,7 +154,16 @@ class InstallController extends Controller
     {
         $forwardedHttps = strtolower((string) $request->server('HTTP_X_FORWARDED_PROTO')) === 'https';
         if ($forwardedHttps && ! $request->isSecure()) {
-            return ['ok' => false, 'message' => 'Your reverse proxy at '.$request->server('REMOTE_ADDR').' is not trusted, so pages link to http:// stylesheets that browsers block. Set TRUSTED_PROXIES='.$request->server('REMOTE_ADDR').' in .env and recreate the containers (docker compose up -d --force-recreate).'];
+            $address = (string) $request->server('REMOTE_ADDR');
+            // A proxy in Docker connects from its network's address range; suggest that, as the docs do.
+            $subnet = filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && ! filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)
+                ? implode('.', array_slice(explode('.', $address), 0, 2)).'.0.0/16' : null;
+
+            return ['ok' => false, 'message' => "Your reverse proxy at {$address} is not trusted, so pages link to http:// stylesheets that browsers block. "
+                .($subnet
+                    ? "Set TRUSTED_PROXIES={$subnet} in .env if the proxy runs in Docker (its network's subnet; check with docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' <network>), or TRUSTED_PROXIES={$address} for that one address"
+                    : "Set TRUSTED_PROXIES={$address} in .env")
+                .', then recreate the containers (docker compose up -d --force-recreate). Also check the proxy forwards to port 8080 (http://filterdesk-web:8080), not 8088.'];
         }
 
         return ['ok' => true, 'message' => $request->isSecure() ? 'HTTPS reverse proxy is trusted.' : 'Plain HTTP (fine locally; use HTTPS behind a reverse proxy in production).'];

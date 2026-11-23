@@ -34,7 +34,7 @@ The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a rest
 ### HTTPS and the reverse proxy
 
 - [ ] Serve only over HTTPS, with **Force SSL** and **HSTS** on at the proxy.
-- [ ] `TRUSTED_PROXIES` is exactly the proxy's address. Never use `*` while port 8088 is reachable by anything else, or clients can spoof their IP and defeat the sign-in rate limits.
+- [ ] `TRUSTED_PROXIES` is the proxy's address, or for a proxy in Docker the shared network's subnet (and that network holds only containers you trust). Never use `*` while port 8088 is reachable by anything else, or clients can spoof their IP and defeat the sign-in rate limits.
 - [ ] `SESSION_SECURE_COOKIE=true`.
 - [ ] If the app is staff-only, restrict it at the proxy to school networks or VPN (an access list in Nginx Proxy Manager). At minimum, restrict `/login`, which is password sign-in, to IT networks.
 

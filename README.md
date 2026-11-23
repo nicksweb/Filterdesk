@@ -69,7 +69,7 @@ Edit `.env`:
 | Setting | Set it to |
 | --- | --- |
 | `APP_URL` | The address people will use, for example `https://filterdesk.example.edu.au` (or `http://127.0.0.1:8088` locally, with `SESSION_SECURE_COOKIE=false`). |
-| `TRUSTED_PROXIES` | The **reverse proxy's IP address** as the app sees it. If it is wrong, pages load **without styling** (the app links `http://` stylesheets from an `https://` page). For Nginx Proxy Manager in Docker: `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' <npm-container>`. The wizard's first page tells you if it is wrong and which address to use. |
+| `TRUSTED_PROXIES` | The address the reverse proxy connects **from**. Proxy on the host: `127.0.0.1`. Proxy in Docker: the shared network's subnet, `docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' frontend` (for example `172.18.0.0/16`). If it is wrong, pages load **without styling**. The wizard's first page shows the address it sees. |
 | `APP_TIMEZONE` | Your timezone, for example `Australia/Brisbane`. |
 
 ### 3. Start it
@@ -88,7 +88,7 @@ docker compose -f compose.yml -f compose.proxy.yml pull
 docker compose -f compose.yml -f compose.proxy.yml up -d
 ```
 
-and point the proxy host at `http://filterdesk-web-1:8080`. The images come from `ghcr.io/nicksweb/filterdesk-*`; the first pull takes a few minutes. To build from source instead, see [docs/SETUP.md](docs/SETUP.md#5-start-the-stack). `docker compose ps` should show `db`, `web` and both probes healthy.
+and point the proxy host at `http://filterdesk-web:8080` (port **8080**, not 8088; see [SETUP step 6](docs/SETUP.md#6-set-up-the-reverse-proxy)). The images come from `ghcr.io/nicksweb/filterdesk-*`; the first pull takes a few minutes. To build from source instead, see [docs/SETUP.md](docs/SETUP.md#5-start-the-stack). `docker compose ps` should show `db`, `web` and both probes healthy.
 
 ### 4. Run the installation wizard
 

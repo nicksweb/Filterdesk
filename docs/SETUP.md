@@ -230,10 +230,14 @@ Point the proxy at the app:
 | Proxy | Upstream |
 | --- | --- |
 | On the host (Nginx, Caddy) | `http://127.0.0.1:8088` |
-| Nginx Proxy Manager or Traefik in Docker, with `compose.proxy.yml` | `http://filterdesk-web-1:8080` |
+| Nginx Proxy Manager or Traefik in Docker, with `compose.proxy.yml` | `http://filterdesk-web:8080` |
 | A proxy on **another machine** (for example an existing Nginx Proxy Manager or NPMplus host) | `http://<this host's address>:8088`, after setting `APP_BIND=0.0.0.0` in `.env` and running `docker compose up -d`. Don't use `compose.proxy.yml`. Firewall port 8088 so only the proxy can reach it. |
 
-In Nginx Proxy Manager: add a proxy host for your hostname with that upstream, request a certificate, and turn on **Force SSL**, **HTTP/2** and **HSTS**. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-For`, which all of the proxies above do by default. A plain Nginx example is in [DEPLOYMENT.md](DEPLOYMENT.md#reverse-proxy).
+> **8080, not 8088.** `8088` (`APP_PORT`) is published only on the host's loopback, for a proxy running on the host. A proxy in another container must use port `8080`. Use 8088 there and you get *502 Bad Gateway* (*connection refused* in the proxy's error log).
+> Use the full name `filterdesk-web`, not `web`: other stacks on a shared network often have a `web` service too, and the proxy may reach the wrong one.
+> Start the stack with `compose.proxy.yml` every time, or put `COMPOSE_FILE=compose.yml:compose.proxy.yml` in `.env` so a plain `docker compose up -d` includes it.
+
+In Nginx Proxy Manager: add a proxy host for your hostname with that upstream (scheme `http`), request a certificate, and turn on **Force SSL**, **HTTP/2** and **HSTS**. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-For`, which all of the proxies above do by default. A plain Nginx example is in [DEPLOYMENT.md](DEPLOYMENT.md#reverse-proxy).
 
 Then set `TRUSTED_PROXIES` to the proxy's address:
 
@@ -241,11 +245,18 @@ Then set `TRUSTED_PROXIES` to the proxy's address:
 - Proxy on another machine: that machine's address, for example `10.0.0.5`.
 - Proxy in Docker: the shared network's subnet, for example `172.18.0.0/16`, from
   `docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' <shared-network>`.
-  Use the subnet rather than the proxy's own address: Docker can give the proxy a new address when it is recreated, and pages then load without styles.
+  Use the subnet rather than the proxy's own address: a proxy on several networks has several addresses, and Docker can give it a new one when it is recreated; pages then load without styles.
+  Trusting the subnet means any container on that network could send forwarded headers. That is acceptable because the app's port is published only on 127.0.0.1 and the network holds only containers you run, but keep other stacks off it if you don't trust them.
 
 Apply it with `docker compose … up -d --force-recreate`.
 
-**Check:** opening `https://<hostname>` shows a styled installer page. If it is unstyled, `TRUSTED_PROXIES` is wrong; the installer's first page names the address it sees.
+**Check:** opening `https://<hostname>` shows a styled installer page. If not, these three checks each separate one cause (`<proxy>` is the proxy container, for example `npmplus`):
+
+| Check | Command | Expected |
+| --- | --- | --- |
+| The proxy can reach the app | `docker exec <proxy> wget -qO- -S http://filterdesk-web:8080/up 2>&1 \| head -1` (or, where the proxy has `curl` instead: `docker exec <proxy> curl -s -o /dev/null -w '%{http_code}' http://filterdesk-web:8080/up`) | `HTTP/1.1 200 OK` (or `200`). *Connection refused* = wrong port. *Bad address* = wrong name, or the stack was started without `compose.proxy.yml`. |
+| The proxy host uses the right upstream (Nginx Proxy Manager) | `docker exec <proxy> grep -rA3 '^upstream\|proxy_pass\|set \$server\|set \$port' /data/nginx/proxy_host/ \| grep -i filterdesk` | `filterdesk-web` and `8080` |
+| The app trusts the proxy | `curl -s https://<hostname>/install/1 \| grep -o 'href="[^"]*\.css"'` | Starts with `https://`. If it shows `http://`, `TRUSTED_PROXIES` is wrong; the installer's first page names the address and subnet it sees. |
 
 ## 7. Run the installation wizard
 

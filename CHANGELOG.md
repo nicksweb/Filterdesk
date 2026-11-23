@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.4
+
+### Fixed
+- **Reverse proxy setup**: the docs gave different answers for the upstream port and `TRUSTED_PROXIES`; they now all say `http://filterdesk-web:8080` (the port inside the container, not 8088) and the shared network's subnet. `compose.proxy.example.yml` gives the web container the fixed alias `filterdesk-web`, so the upstream no longer depends on the project or folder name or clashes with other stacks' `web` services. SETUP step 6 has three checks that each separate one cause.
+- The installer's proxy check suggests the network subnet as well as the single address, and reminds you to use port 8080.
+- `APP_BIND` lets the web port listen beyond this host, for a reverse proxy on another machine.
+- Installer: completed steps showed their tick below the circle instead of inside it.
+
 ## 2026.12.3
 
 ### Changed

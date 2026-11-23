@@ -87,7 +87,7 @@ IT Requests is now **Filterdesk**, and releases are published as container image
    done
    ```
 
-   Point your reverse proxy at `filterdesk-web-1:8080`, or keep it unchanged by giving the web container the old name as an alias in `compose.proxy.yml` (`networks: reverse_proxy: aliases: [it-edu-selfservice-web-1]`). Remove the old `it-edu-selfservice_*` volumes once you are sure everything is there.
+   Point your reverse proxy at `filterdesk-web:8080` (with the alias from `compose.proxy.example.yml`), or keep it unchanged by giving the web container the old name as an alias in `compose.proxy.yml` (`networks: reverse_proxy: aliases: [it-edu-selfservice-web-1]`). Remove the old `it-edu-selfservice_*` volumes once you are sure everything is there.
 6. Changed names: commands are `filterdesk:upgrade` and `filterdesk:admin-password` (the old `itrequests:` names still work); webhook headers are `X-Filterdesk-Signature` and `X-Filterdesk-Event` (update any receiver that checks the signature); metrics start `filterdesk_`; new API tokens start `fd_` (existing tokens keep working); `bin/backup` writes `filterdesk-*.dump`.
 
 ## 2026.11.0 → 2026.12.0

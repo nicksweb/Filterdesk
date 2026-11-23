@@ -1,9 +1,19 @@
+# Joins the web container to your reverse proxy's Docker network (for example
+# Nginx Proxy Manager or NPMplus on the same host). Copy to compose.proxy.yml and
+# include it every time (or set COMPOSE_FILE=compose.yml:compose.proxy.yml in .env).
+#
+# In the proxy, forward to http://filterdesk-web:8080 — port 8080, the port
+# inside the container. Not 8088: that is APP_PORT, published only on this
+# host's 127.0.0.1, which another container cannot reach.
+# The alias filterdesk-web does not depend on the Compose project or folder
+# name. Don't use plain "web": other stacks on a shared network often have one.
 services:
   web:
     networks:
-      - app
-      - frontend
-      - reverse_proxy
+      app: {}
+      frontend: {}
+      reverse_proxy:
+        aliases: [filterdesk-web]
 
 networks:
   reverse_proxy:
