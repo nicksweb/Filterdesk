@@ -161,4 +161,41 @@ class OidcProviderTest extends TestCase
         $message = session('errors')->first('oidc_issuer');
         $this->assertStringContainsString('https://wrong.example-idp.test/.well-known/openid-configuration: it answered HTTP 404.', $message);
     }
+
+    public function test_directory_style_groups_map_to_roles_and_show_under_users(): void
+    {
+        $this->configure(['userinfo_endpoint' => self::ISSUER.'/userinfo', 'token_endpoint_auth_methods_supported' => ['client_secret_post']], [
+            'group_claims' => ['groups'], 'sync_roles' => true,
+            'role_rules' => UserProvisioningService::parseRules("group:itstaff=admin\ngroup:admin-staff=teacher\ngroup:students=student"),
+            'type_rules' => UserProvisioningService::parseMappingRules('group:byod-staff-allowed=staff', 'type_rules'),
+        ]);
+        Http::fake([
+            self::ISSUER.'/oauth/token' => Http::response(['access_token' => 'at', 'token_type' => 'Bearer', 'expires_in' => 3600, 'id_token' => $this->jwt(['sub' => 'd-1'])]),
+            self::ISSUER.'/userinfo' => Http::response(['sub' => 'd-1', 'email' => 'it@school.example', 'groups' => [
+                'CN=Admin-staff,OU=User Groups,DC=school,DC=example', 'CN=ITStaff,OU=User Groups,DC=school,DC=example', 'byod-staff-allowed@school.example',
+            ]]),
+        ]);
+
+        [, $query] = $this->startSignIn();
+        $this->get(route('auth.oidc.callback', ['code' => 'abc', 'state' => $query['state']]))->assertRedirect(route('dashboard'));
+
+        $user = User::query()->where('oidc_subject', 'd-1')->sole();
+        $this->assertSame('admin', $user->role, 'group:itstaff matches CN=ITStaff,… and comes first');
+        $this->assertSame(['staff'], $user->network_types, 'group:byod-staff-allowed matches the group email');
+        $this->assertCount(3, $user->sso_groups);
+
+        $this->actingAs($user)->get(route('admin.users.index'))->assertSee('ITStaff')->assertSee('Admin-staff')->assertSee('byod-staff-allowed');
+    }
+
+    public function test_the_rules_can_be_tried_before_anyone_signs_in(): void
+    {
+        $this->configure([], ['role_rules' => UserProvisioningService::parseRules("group:itstaff=it\nemail_domain:students.school.example=student")]);
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->post(route('admin.settings.try-rules'), ['try_email' => 'a@school.example', 'try_groups' => "CN=ITStaff,OU=User Groups,DC=school,DC=example\nbackedupbycirrus@school.example"])
+            ->assertSessionHas('rule_result', fn (array $result) => $result['role'] === 'it' && str_contains($result['names'], 'itstaff') && str_contains($result['names'], 'backedupbycirrus'));
+        $this->actingAs($admin)->post(route('admin.settings.try-rules'), ['try_email' => 'kid@students.school.example', 'try_groups' => ''])
+            ->assertSessionHas('rule_result', fn (array $result) => $result['role'] === 'student');
+        $this->actingAs($admin)->get(route('admin.settings.show', 'authentication'))->assertSee('Try the rules');
+    }
 }

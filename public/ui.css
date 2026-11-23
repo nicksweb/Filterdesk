@@ -249,3 +249,4 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .ready-steps{padding-left:22px;margin:14px 0}.ready-steps li{padding:7px 0;font-size:.98rem}
 .access-guide{margin-top:16px}.access-guide ol{padding-left:20px;margin:8px 0 0}.access-guide li{padding:3px 0}
 .claim-list{list-style:none;padding:0;margin:6px 0;columns:2}.claim-list li{font-size:.8rem;padding:2px 0}
+.group-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.group-chips .chip{font-size:.7rem;padding:1px 6px}

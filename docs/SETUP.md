@@ -287,6 +287,17 @@ Any standard OpenID Connect provider works. The **redirect URI** to register is 
 | CloudWork ID | `https://<school>-id.cloudworkengine.net`, as shown under Single Sign On → Manage OpenID Connect Apps → Identity Provider | Create the app under Single Sign On → Manage OpenID Connect Apps → Add New Service, with the redirect URI above (not `/auth/callback`). CloudWork sends `email`, `given_name`, `family_name` and `preferred_username`; for its custom claims (such as SIS ID) add the extra scope `https://scopes.cloudwork.id/profile` under Settings → Authentication → Provider details. |
 | Google Workspace | `https://accounts.google.com` | Restrict sign-in with *Allowed email domains*. |
 
+**Roles from groups.** Rules under Settings → Authentication give each person a role, network types and a department from their groups, at every sign-in when *Re-apply rules at every sign-in* is on. A `group:` rule matches the whole value, the CN of a directory path, or the name before @ of a group email, ignoring case, so all of these match `group:itstaff`: `ITStaff`, `CN=ITStaff,OU=User Groups,DC=school,DC=example` and `itstaff@school.example`. Put the most powerful rules first (first match wins):
+
+```text
+group:itstaff=admin
+group:it-staff-security-group=it
+group:admin-staff=teacher
+email_domain:students.school.example=student
+```
+
+Set *Claims holding groups or roles* to the claim your provider uses (for example `groups`, `roles` or `memberOf`). *Try the rules* on the same page shows what a set of groups would give someone, and Users shows the groups each person's last sign-in carried.
+
 If sign-in fails, Settings → Authentication → *Provider details* shows the provider's reason (for example a redirect URI that is not registered) and, after a successful sign-in, the claims it sends, for writing role rules.
 
 ## 8. Bring UniFi in

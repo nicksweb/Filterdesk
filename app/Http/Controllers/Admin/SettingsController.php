@@ -127,6 +127,28 @@ class SettingsController extends Controller
         return redirect()->route('admin.settings.show', $section)->with('success', self::SECTIONS[$section].' settings saved.');
     }
 
+    /**
+     * Show what the saved sign-in rules would give someone: role, network
+     * types and department, from an email address and a list of groups.
+     */
+    public function tryRules(Request $request, UserProvisioningService $users): RedirectResponse
+    {
+        $validated = $request->validate(['try_email' => ['required', 'email'], 'try_groups' => ['nullable', 'string', 'max:5000']]);
+        $configuration = IntegrationConfig::query()->where('provider', 'oidc')->first()?->configuration ?? [];
+        $claims = ['email' => $validated['try_email'], 'groups' => array_values(array_filter(array_map('trim', preg_split('/\R/', (string) ($validated['try_groups'] ?? '')) ?: [])))];
+
+        $role = $users->roleFor($claims, $configuration);
+        $identity = $users->identityFor($claims, $configuration);
+        $names = UserProvisioningService::groupNames($claims['groups']);
+
+        return back()->withInput()->with('rule_result', [
+            'role' => $role ?? 'refused (no rule matched and the default is to refuse sign-in)',
+            'types' => $identity['types'] ? implode(', ', array_map(fn (string $key) => NetworkType::labelFor($key), $identity['types'])) : 'none (requests start with no network chosen)',
+            'department' => $identity['department'] ?? 'none',
+            'names' => implode(', ', $names) ?: 'none',
+        ]);
+    }
+
     public function testEmail(Request $request, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validate(['address' => ['required', 'email']]);

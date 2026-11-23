@@ -88,10 +88,13 @@ class OidcClient
         }
 
         $claimNames = (array) ($this->integration()->configuration['group_claims'] ?? ['groups', 'roles']);
+        // Groups may come as a list, a single string, a ";"- or newline-separated string, or objects with a name.
         $groups = collect($claimNames)->map(fn ($name) => trim((string) $name))->filter()
             ->flatMap(fn (string $name) => [$owner[$name] ?? null, $idToken[$name] ?? null])
-            ->flatten()->filter(fn ($value) => is_string($value) && $value !== '' || is_int($value))
-            ->map(fn ($value) => strtolower((string) $value))->unique()->values()->all();
+            ->flatMap(fn ($value) => is_array($value) ? $value : [$value])
+            ->map(fn ($value) => is_array($value) ? ($value['name'] ?? $value['displayName'] ?? $value['email'] ?? $value['id'] ?? null) : $value)
+            ->flatMap(fn ($value) => is_string($value) ? preg_split('/\s*[;\n]\s*/', $value) : (is_int($value) ? [(string) $value] : []))
+            ->map(fn ($value) => trim((string) $value))->filter()->unique(fn (string $value) => strtolower($value))->values()->all();
 
         // What the provider sends, for writing role rules: every claim name, and the values of non-personal ones (role, type, group…).
         Cache::put(self::LAST_CLAIMS_KEY, ['at' => now()->toIso8601String(), 'claims' => collect($claims)->map(fn ($value, $key) => in_array(strtolower((string) $key), self::PRIVATE_CLAIMS, true)

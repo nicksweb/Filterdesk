@@ -47,6 +47,9 @@ class UserProvisioningService
         $user ??= new User(['email' => $claims['email'], 'role' => $mapped, 'password' => str()->random(64)]);
         $user->fill(['name' => $claims['name'], 'email' => $claims['email'], 'oidc_subject' => $claims['sub'], 'last_login_at' => now(), 'auth_source' => 'oidc']);
 
+        // The groups this sign-in carried, shown under Users.
+        $user->sso_groups = array_values(array_unique(array_filter(array_map('strval', $claims['groups'] ?? [])))) ?: null;
+
         // Identity mapping: network types and department from the same claims, refreshed at every sign-in.
         $identity = $this->identityFor($claims, $configuration);
         if ($identity['types'] !== []) {
@@ -81,7 +84,7 @@ class UserProvisioningService
     public function roleFor(array $claims, array $configuration): ?string
     {
         $domain = str($claims['email'])->afterLast('@')->lower()->toString();
-        $groups = array_map('strtolower', $claims['groups'] ?? []);
+        $groups = self::groupNames($claims['groups'] ?? []);
 
         foreach ($configuration['role_rules'] ?? [] as $rule) {
             $value = strtolower(trim((string) ($rule['value'] ?? '')));
@@ -107,6 +110,46 @@ class UserProvisioningService
     }
 
     /**
+     * Every name a group can be matched by, lower case: the value as sent,
+     * the CN of a directory path ("CN=ITStaff,OU=User Groups,DC=…" → "itstaff")
+     * and the part before @ of a group email ("itstaff@school.example" →
+     * "itstaff"). So a rule can say group:itstaff however the provider sends it.
+     *
+     * @param  list<string>  $groups
+     * @return list<string>
+     */
+    public static function groupNames(array $groups): array
+    {
+        $names = [];
+        foreach ($groups as $group) {
+            $value = strtolower(trim((string) $group));
+            if ($value === '') {
+                continue;
+            }
+            $names[] = $value;
+            if (preg_match('/^cn=([^,]+)/', $value, $match)) {
+                $names[] = trim($match[1]);
+            }
+            if (str_contains($value, '@') && ! str_contains($value, ',')) {
+                $names[] = strstr($value, '@', true);
+            }
+        }
+
+        return array_values(array_unique(array_filter($names, fn (string $name) => $name !== '')));
+    }
+
+    /** A short label for a group: its CN, or the name before @, or the value. */
+    public static function groupLabel(string $group): string
+    {
+        $value = trim($group);
+        if (preg_match('/^cn=([^,]+)/i', $value, $match)) {
+            return trim($match[1]);
+        }
+
+        return str_contains($value, '@') && ! str_contains($value, ',') ? (string) strstr($value, '@', true) : $value;
+    }
+
+    /**
      * Network types (every matching rule adds its types) and department
      * (first match) from the sign-in claims.
      *
@@ -117,7 +160,7 @@ class UserProvisioningService
     public function identityFor(array $claims, array $configuration): array
     {
         $domain = str($claims['email'])->afterLast('@')->lower()->toString();
-        $groups = array_map('strtolower', $claims['groups'] ?? []);
+        $groups = self::groupNames($claims['groups'] ?? []);
         $matches = fn (array $rule) => match ($rule['type'] ?? null) {
             'email_domain' => $domain === $rule['value'] || str_ends_with($domain, '.'.$rule['value']),
             'group' => in_array($rule['value'], $groups, true),

@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.7
+
+### Added
+- **Roles from directory groups**: `group:` rules match a group however the provider sends it: the whole value, the CN of a directory path (`CN=ITStaff,OU=…` matches `group:itstaff`) or the name before @ of a group email. Group claims can be lists, delimited strings or objects.
+- **Users** shows the groups each person's last single sign-on carried.
+- **Try the rules** (Settings → Authentication): paste an email and groups to see the role, network types and department the saved rules give.
+
 ## 2026.12.6
 
 ### Fixed

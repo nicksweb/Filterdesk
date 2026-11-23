@@ -77,6 +77,22 @@
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
 
+        <section class="panel form-panel try-rules" style="margin-top:20px">
+            <h2>Try the rules</h2>
+            <p class="hint">See what the saved rules give someone before they sign in. Paste their groups one per line, as the provider sends them or as you see them in your directory. <code>group:</code> rules match the whole value, the CN of a directory path (<code>CN=ITStaff,OU=…</code> matches <code>group:itstaff</code>) or the name before @ of a group email (<code>itstaff@school.example</code> matches <code>group:itstaff</code>), ignoring case.</p>
+            <form method="post" action="{{ route('admin.settings.try-rules') }}">@csrf
+                <div class="fields two">
+                    <label>Email<input name="try_email" type="email" required value="{{ old('try_email', auth()->user()->email) }}"></label>
+                    <label>Groups <span class="optional">one per line</span><textarea name="try_groups" rows="4" class="mono" placeholder="CN=ITStaff,OU=User Groups,DC=school,DC=example&#10;itstaff@school.example">{{ old('try_groups') }}</textarea></label>
+                </div>
+                <div class="form-actions"><button class="button secondary">Try</button></div>
+            </form>
+            @if(session('rule_result'))
+                @php($result = session('rule_result'))
+                <dl class="details"><div><dt>Role</dt><dd>{{ $result['role'] }}</dd></div><div><dt>Network types</dt><dd>{{ $result['types'] }}</dd></div><div><dt>Department</dt><dd>{{ $result['department'] }}</dd></div><div class="wide"><dt>Group names the rules can match</dt><dd><code>{{ $result['names'] }}</code></dd></div></dl>
+            @endif
+        </section>
+
     @elseif($section === 'email')
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'email') }}">@csrf @method('PUT')
             <h2>SMTP</h2>

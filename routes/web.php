@@ -155,6 +155,7 @@ Route::middleware('installed')->group(function (): void {
             Route::get('/settings/{section?}', [SettingsController::class, 'show'])->defaults('section', 'general')->name('settings.show');
             Route::put('/settings/{section}', [SettingsController::class, 'update'])->name('settings.update');
             Route::post('/settings/email/test', [SettingsController::class, 'testEmail'])->middleware('throttle:6,1')->name('settings.test-email');
+            Route::post('/settings/authentication/try', [SettingsController::class, 'tryRules'])->middleware('throttle:30,1')->name('settings.try-rules');
             Route::post('/settings/network/test', [SettingsController::class, 'testNetwork'])->middleware('throttle:10,1')->name('settings.test-network');
             Route::post('/settings/categories/test', [SettingsController::class, 'testCategories'])->middleware('throttle:10,1')->name('settings.test-categories');
             Route::post('/settings/network/discover', [SettingsController::class, 'discover'])->middleware('throttle:10,1')->name('settings.discover');
