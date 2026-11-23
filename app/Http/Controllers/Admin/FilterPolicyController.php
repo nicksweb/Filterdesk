@@ -16,6 +16,7 @@ use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\PolicyListParser;
+use App\Services\Policy\PolicyMerger;
 use App\Services\Policy\SyncChecker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use InvalidArgumentException;
 use Throwable;
 
 /**
@@ -72,6 +74,21 @@ class FilterPolicyController extends Controller
         $audit->log('policy.updated', $policy);
 
         return back()->with('success', 'Policy updated.');
+    }
+
+    /** Merge this (duplicate) policy into another, then delete it. */
+    public function merge(Request $request, FilterPolicy $policy, PolicyMerger $merger): RedirectResponse
+    {
+        $validated = $request->validate(['into_id' => ['required', 'integer', 'exists:filter_policies,id']]);
+        $into = FilterPolicy::query()->findOrFail($validated['into_id']);
+        try {
+            $result = $merger->merge($policy, $into, $request->user());
+        } catch (InvalidArgumentException $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        return redirect()->route('admin.policy.policies.show', $into)->with('success', "{$policy->name} was merged into {$into->name}: "
+            .number_format($result['entries']).' entries and '.$result['lists'].' list(s) moved, '.$result['networks'].' network(s) remapped. Nothing changed in UniFi.');
     }
 
     public function destroy(FilterPolicy $policy, AuditLogger $audit): RedirectResponse

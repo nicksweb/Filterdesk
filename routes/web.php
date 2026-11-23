@@ -139,6 +139,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/policies', [FilterPolicyController::class, 'store'])->name('policies.store');
                     Route::put('/policies/{policy}', [FilterPolicyController::class, 'update'])->name('policies.update');
                     Route::delete('/policies/{policy}', [FilterPolicyController::class, 'destroy'])->name('policies.destroy');
+                    Route::post('/policies/{policy}/merge', [FilterPolicyController::class, 'merge'])->name('policies.merge');
                 });
             });
         });

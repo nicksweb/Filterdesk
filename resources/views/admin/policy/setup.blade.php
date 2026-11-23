@@ -125,6 +125,9 @@
                     </form>
                 </details>
 
+                @foreach($duplicates as $group)
+                    <p class="network-status warn">{{ $group->count() }} policies are called {{ $group->first()->name }}: @foreach($group as $duplicate)<a href="{{ route('admin.policy.policies.show', $duplicate) }}">{{ $duplicate->slug }}</a>{{ $duplicate->provider_name ? ' (UniFi: '.$duplicate->provider_name.')' : ' (not linked)' }}{{ $loop->last ? '' : ', ' }}@endforeach. Open the extra one and use <em>Merge into another policy</em> to combine them.</p>
+                @endforeach
                 @if($linkedCount)
                     <p class="hint">{{ $mapped }} of {{ $networkCount }} networks are covered by a policy. Networks with no filter get baseline filtering; review them under <a href="{{ route('admin.policy.networks.index') }}#baseline">Networks &amp; filters</a>.</p>
                 @endif

@@ -65,9 +65,10 @@ class ControllerImporter
                 continue;
             }
 
-            // Reuse an unlinked policy with the same network type, such as the default Students and Staff.
-            $spare = $policies->first(fn (FilterPolicy $policy) => ! $policy->isLayer() && blank($policy->provider_reference)
-                && $policy->audience === $audience && ! in_array($policy->id, array_column($suggestions, 'policy_id'), true));
+            // Reuse an unlinked policy: one with the same name first (made by the installer or an
+            // earlier import), then one with the same network type, such as the default Students and Staff.
+            $spare = $this->spare($filter['name'], $audience, array_column($suggestions, 'policy_id'), $policies);
+            $audience = $spare?->audience ?? $audience;
             $suggestions[$filter['id']] = $spare
                 ? ['action' => 'link', 'policy_id' => $spare->id, 'audience' => $audience, 'import' => true, 'parent' => null]
                 : ['action' => 'create', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => null];
@@ -112,6 +113,14 @@ class ControllerImporter
                 ]);
             } elseif ($action === 'link' && filled($choice['policy_id'] ?? null)) {
                 $policy = FilterPolicy::query()->findOrFail($choice['policy_id']);
+            } elseif ($existing = $this->spare($filter['name'], null, array_map(fn (FilterPolicy $policy) => $policy->id, $policyFor))) {
+                // Never a second policy of the same name: an unlinked one is linked instead, with the chosen type.
+                $policy = $existing;
+                $audience = NetworkType::byKey((string) ($choice['audience'] ?? ''))?->key;
+                if ($audience && $audience !== $policy->audience) {
+                    $policy->update(['audience' => $audience]);
+                    $this->engine->ensureAudienceLists($audience);
+                }
             } else {
                 $audience = NetworkType::byKey((string) ($choice['audience'] ?? ''))?->key ?? 'other';
                 $policy = FilterPolicy::query()->create([
@@ -130,6 +139,24 @@ class ControllerImporter
         $this->sync->forget();
 
         return $done;
+    }
+
+    /**
+     * An unlinked main policy to reuse for a controller filter: the one with
+     * the same name (ignoring case and punctuation), else, when a network
+     * type is given, the first of that type.
+     *
+     * @param  list<int|null>  $taken  policy ids already chosen for other filters
+     * @param  Collection<int, FilterPolicy>|null  $policies
+     */
+    public function spare(string $name, ?string $audience, array $taken = [], ?Collection $policies = null): ?FilterPolicy
+    {
+        $free = ($policies ?? FilterPolicy::query()->ordered()->get())
+            ->filter(fn (FilterPolicy $policy) => ! $policy->isLayer() && blank($policy->provider_reference) && ! in_array($policy->id, $taken, true));
+        $key = fn (string $value): string => Str::slug($value);
+
+        return $free->first(fn (FilterPolicy $policy) => $key($policy->name) === $key($name))
+            ?? ($audience !== null ? $free->first(fn (FilterPolicy $policy) => $policy->audience === $audience) : null);
     }
 
     /**

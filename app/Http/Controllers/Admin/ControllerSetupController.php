@@ -14,6 +14,7 @@ use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -54,6 +55,8 @@ class ControllerSetupController extends Controller
 
         return view('admin.policy.setup', [
             'steps' => $steps,
+            // Main policies sharing a name (made by repeated imports): offer to merge them.
+            'duplicates' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->groupBy(fn (FilterPolicy $policy) => Str::slug($policy->name))->filter(fn ($group) => $group->count() > 1)->values(),
             'current' => array_search(false, $steps, true) ?: 'done',
             'composeLine' => $planner->composeFileLine($proxy),
             'behindProxy' => $proxy,
@@ -240,8 +243,22 @@ class ControllerSetupController extends Controller
         ]);
         $audit->log('policy.probe_interfaces_saved', null, ['trunk' => $validated['trunk'], 'interfaces' => count(array_filter($validated['interfaces'] ?? []))]);
 
-        // Profiles follow the plan straight away, so step 4 can list them.
+        // Profiles follow the plan straight away, so step 4 can list them. A network given
+        // "No probe" loses the profile Guided setup made for it (the built-in Students and
+        // Staff profiles are switched off instead), so its checklist does not ask for a probe.
         $this->prepareProfiles($planner, null, null);
+        $removed = [];
+        foreach (NetworkProfile::query()->whereIn('unifi_network_id', $validated['skip'] ?? [])->get() as $profile) {
+            if (in_array($profile->key, ['student', 'staff'], true)) {
+                $profile->update(['enabled' => false]);
+            } else {
+                $removed[] = $profile->name;
+                $profile->delete();
+            }
+        }
+        if ($removed !== []) {
+            $audit->log('policy.probe_profiles_removed', null, ['profiles' => $removed]);
+        }
 
         return redirect()->route('admin.policy.setup.show')->withFragment('host')->with('success', 'Saved. Now run the steps on the Docker host below. If you changed an address, remove that probe\'s Docker network first (docker network rm) and create it again.');
     }

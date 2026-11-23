@@ -109,6 +109,21 @@ class ProbeDiagnostics
         // 2. The container answers.
         $report = $prefetched ?? $this->fetch($profile);
         if (! $report['ok']) {
+            // Guided setup was told to leave this network without a probe, or plans none for this profile.
+            if ($network && in_array($network->provider_network_id, $this->planner->saved()['skip'], true)) {
+                $checks[] = $this->check('running', 'Probe container running', 'fail', "No probe was chosen for {$network->name} in Guided setup, so compose.vlan.yml has none.", [
+                    'Switch this profile off or delete it below, or untick No probe for it in Guided setup, step 3.',
+                ]);
+
+                return $this->summarise($checks, null);
+            }
+            if (! $this->planner->probes()->contains(fn (array $plan) => rtrim($plan['probe_url'], '/') === rtrim((string) $profile->probe_url, '/'))) {
+                $checks[] = $this->check('running', 'Probe container running', 'fail', 'No probe in the generated compose.vlan.yml matches this profile ('.$profile->probe_url.'), so there is nothing to start.', [
+                    'Delete this profile if you no longer need it, or set its network so Guided setup plans a probe for it.',
+                ]);
+
+                return $this->summarise($checks, null);
+            }
             $checks[] = $this->check('running', 'Probe container running', 'fail', $report['message'], [
                 "Check it is running on the Docker host: {$compose} ps",
                 'If it is missing, regenerate compose.vlan.yml (Guided setup, step 3), check .env has COMPOSE_FILE=…:compose.vlan.yml, then docker compose up -d.',
@@ -163,8 +178,14 @@ class ProbeDiagnostics
         }
 
         // 6. Internet.
+        $intercepted = collect((array) ($report['intercepted'] ?? []))->filter(fn ($item) => is_array($item) && filled($item['host'] ?? null));
         $checks[] = ($report['internet_ok'] ?? false)
-            ? $this->check('internet', 'Internet access', 'ok', 'It can load web pages.')
+            ? ($intercepted->isEmpty()
+                ? $this->check('internet', 'Internet access', 'ok', 'It can load web pages.')
+                : $this->check('internet', 'Internet access', 'warn', 'Internet works, but HTTPS to '.$intercepted->map(fn ($item) => $item['host'].' is intercepted by the gateway (certificate from '.($item['issuer'] ?? 'unknown').')')->join('; ').'. A content filter, SafeSearch, ad blocking or a traffic rule is inspecting or blocking it on '.($network?->name ?? 'this network').'.', [
+                    'In UniFi, look at what acts on '.$intercepted->pluck('host')->join(', ').' for this network: the content filter categories and SafeSearch, ad blocking, and traffic rules. Users there get the same certificate warning.',
+                    'If that is intended, mark this reviewed.',
+                ]))
             : $this->check('internet', 'Internet access', 'fail', 'It cannot load a web page ('.($report['internet_error'] ?? 'no answer').'), so every check from it fails.', [
                 'Fix the steps above first if any failed.',
                 "Otherwise {$network?->name} probably blocks internet access (common for IoT and camera networks). In UniFi, allow {$address} out on ports 80 and 443, or test from a network that reflects real users.",

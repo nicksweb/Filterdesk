@@ -239,6 +239,18 @@
                         <label class="choice compact"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($policy->enabled)><span><strong>Enabled</strong></span></label></div>
                     <div class="form-actions"><button class="button primary">Save</button></div>
                 </form>
+                @php($mergeTargets = \App\Models\FilterPolicy::query()->main()->whereKeyNot($policy->id)->ordered()->get())
+                @if(!$policy->isLayer() && $mergeTargets->isNotEmpty())
+                    <details class="merge-policy"><summary class="link-button">Merge into another policy…</summary>
+                        <form method="post" action="{{ route('admin.policy.policies.merge', $policy) }}" class="search-line">@csrf
+                            <label>Keep this policy, and move {{ $policy->name }}'s entries, networks{{ $policy->provider_reference ? ', UniFi link' : '' }} and probe into it
+                                <select name="into_id">@foreach($mergeTargets as $target)<option value="{{ $target->id }}" @selected(\Illuminate\Support\Str::slug($target->name) === \Illuminate\Support\Str::slug($policy->name))>{{ $target->name }} ({{ $target->typeLabel() }}{{ $target->provider_name ? ' · '.$target->provider_name : '' }})</option>@endforeach</select>
+                            </label>
+                            <button class="button secondary" data-confirm="Merge {{ $policy->name }} into the chosen policy and delete {{ $policy->name }}? Nothing changes in UniFi.">Merge</button>
+                        </form>
+                        <p class="hint">For duplicates, such as a second policy of the same name made by an earlier import. Entries already in the other policy are not doubled.</p>
+                    </details>
+                @endif
                 <form method="post" action="{{ route('admin.policy.policies.destroy', $policy) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Delete this policy and its own lists?">Delete policy</button></form>
             </section>
         @endif

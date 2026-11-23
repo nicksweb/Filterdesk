@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.12
+
+### Fixed
+- **Internet check no longer fails because one host is intercepted**: the probe tries four unrelated endpoints (gstatic, Cloudflare, example.com, Google) and passes if any loads. A certificate error is reported with its issuer as its own warning, for example *HTTPS to www.google.com is intercepted by the gateway (certificate from UniFi SSL Certificate Authority)*, pointing at the content filter, SafeSearch, ad blocking or a traffic rule. Needs the new probe image.
+- **"No probe" removes the profile** Guided setup made for that network (the built-in Students and Staff profiles are switched off instead), so its checklist no longer asks for a container. A profile with no probe in the generated file says so instead of *container not running*.
+- **Importing again never makes a second policy of the same name**: an unlinked policy with the filter's name (from the installer or an earlier import) is linked instead, even if its network type differs. This caused `-2` policies, probe names and unlinked profiles.
+
+### Added
+- **Merge into another policy** (policy page): moves a duplicate's entries (without doubling), lists, networks, layer, UniFi link and probe profile into the policy that stays, then deletes it. Guided setup lists policies that share a name.
+- compose.vlan.yml: each `docker network create` skips a network that already exists, and the file lists networks an earlier file created that are no longer used, with the `docker network rm` command.
+
 ## 2026.12.11
 
 ### Added

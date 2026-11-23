@@ -64,6 +64,18 @@ class ProbeDiagnosticsTest extends TestCase
             ->assertSee('Probes need finishing')->assertSee('Student Access');
     }
 
+    public function test_a_host_the_gateway_intercepts_is_not_reported_as_no_internet(): void
+    {
+        Http::fake([
+            'probe-student:3000/diagnose' => Http::response($this->report('10.0.20.1', '10.0.20.241/24', ['intercepted' => [['host' => 'www.google.com', 'issuer' => 'UniFi SSL Certificate Authority, Ubiquiti Inc.', 'error' => 'SELF_SIGNED_CERT_IN_CHAIN']]])),
+            'probe-staff:3000/diagnose' => Http::response($this->report('10.0.80.1', '10.0.80.241/24')),
+        ]);
+
+        $this->actingAs(User::factory()->admin()->create())->get(route('admin.settings.show', 'profiles'))->assertOk()
+            ->assertSee('Internet works, but HTTPS to www.google.com is intercepted by the gateway (certificate from UniFi SSL Certificate Authority, Ubiquiti Inc.)', false)
+            ->assertDontSee('It cannot load a web page');
+    }
+
     public function test_a_probe_on_dockers_own_network_is_told_to_use_compose_vlan(): void
     {
         Http::fake([

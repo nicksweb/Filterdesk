@@ -6,6 +6,7 @@ use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
+use App\Models\PolicyList;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Notifications\FilterSyncAlertNotification;
@@ -13,6 +14,7 @@ use App\Services\Auth\UserProvisioningService;
 use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\BaselineGuard;
 use App\Services\Policy\ControllerSync;
+use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
 use App\Services\SettingsRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -215,5 +217,43 @@ class SetupFlowTest extends TestCase
         $staffFilters = collect(app(MockNetworkProvider::class)->contentFilters())->filter(fn (array $filter) => in_array('sim-staff', $filter['network_ids'], true))->pluck('name')->all();
         $this->assertSame(['Staff'], $staffFilters, 'A paused network is not moved to Students automatically');
         $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Staff is paused in UniFi')->assertSee('the filter is paused in UniFi');
+    }
+
+    public function test_no_probe_removes_the_profile_setup_made_and_the_file_says_what_to_remove(): void
+    {
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.probes'), ['trunk' => 'ens18', 'extra' => ['sim-guest']]);
+        $this->actingAs($this->admin)->get(route('admin.policy.setup.compose'));
+        $guest = NetworkProfile::query()->where('unifi_network_id', 'sim-guest')->sole();
+
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.probes'), ['trunk' => 'ens18', 'extra' => ['sim-guest'], 'skip' => ['sim-guest', 'sim-staff']])->assertSessionHas('success');
+
+        $this->assertModelMissing($guest);
+        $this->assertFalse(NetworkProfile::query()->where('key', 'staff')->value('enabled'), 'Built-in profiles are switched off, not deleted');
+        $file = $this->actingAs($this->admin)->get(route('admin.policy.setup.compose'))->getContent();
+        $this->assertStringContainsString('docker network rm itr_staff_vlan', $file);
+        $this->assertStringContainsString('docker network inspect itr_student_vlan >/dev/null 2>&1 || docker network create', $file, 'Safe to run again');
+    }
+
+    public function test_importing_reuses_a_policy_of_the_same_name_and_duplicates_can_be_merged(): void
+    {
+        // A Staff policy whose type no longer matches (as after the installer), and a stray duplicate.
+        FilterPolicy::query()->where('audience', 'staff')->update(['audience' => 'other']);
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        $this->assertSame(1, FilterPolicy::query()->where('name', 'Staff')->count(), 'Linked by name, not created again');
+        $staff = FilterPolicy::query()->where('name', 'Staff')->sole();
+        $this->assertSame('sim-filter-staff', $staff->provider_reference);
+
+        $engine = app(PolicyEngine::class);
+        $duplicate = FilterPolicy::query()->create(['name' => 'Staff', 'slug' => 'staff-2', 'audience' => 'staff']);
+        $extra = PolicyList::query()->create(['name' => 'Staff allow', 'kind' => 'allow', 'scope' => 'policy', 'filter_policy_id' => $duplicate->id, 'is_default' => true]);
+        $engine->upsertEntry($extra, 'dupe-only.example.org', ['source' => 'manual']);
+        $this->actingAs($this->admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('2 policies are called Staff');
+
+        $this->actingAs($this->admin)->post(route('admin.policy.policies.merge', $duplicate), ['into_id' => $staff->id])->assertSessionHas('success');
+
+        $this->assertModelMissing($duplicate);
+        $this->assertContains('dupe-only.example.org', $engine->desired($staff->refresh())['allow']);
+        $this->assertSame('sim-filter-staff', $staff->provider_reference);
     }
 }

@@ -3,6 +3,7 @@ import dns from 'node:dns/promises';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import os from 'node:os';
+import tls from 'node:tls';
 import { readFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 
@@ -351,6 +352,36 @@ function tcpReachable(host, port, ms) {
   });
 }
 
+const CERT_ERRORS = new Set(['SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'CERT_UNTRUSTED', 'ERR_TLS_CERT_ALTNAME_INVALID']);
+
+async function tryEndpoint(url) {
+  const host = new URL(url).hostname;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const page = await fetch(url, { method: 'GET', redirect: 'manual', signal: controller.signal });
+    return { host, ok: page.status > 0 && page.status < 500, status: page.status, error: null, issuer: null };
+  } catch (error) {
+    const code = String(error.cause?.code || error.name || error.message).slice(0, 80);
+    return { host, ok: false, status: null, error: code, issuer: CERT_ERRORS.has(code) ? await certificateIssuer(host) : null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Who issued the certificate a host presents, read without trusting it (only to name it). */
+function certificateIssuer(host) {
+  return new Promise(resolve => {
+    const socket = tls.connect({ host, port: 443, servername: host, rejectUnauthorized: false, timeout: 4000 }, () => {
+      const issuer = socket.getPeerCertificate()?.issuer || {};
+      socket.end();
+      resolve([issuer.CN, issuer.O].filter(Boolean).join(', ').slice(0, 120) || 'unknown');
+    });
+    socket.on('timeout', () => { socket.destroy(); resolve('unknown'); });
+    socket.on('error', () => resolve('unknown'));
+  });
+}
+
 /**
  * Self-test for setup: can the probe reach its gateway (ARP), resolve through
  * its DNS server, and load a page on the internet? Each step is independent so
@@ -370,16 +401,15 @@ async function diagnose() {
     result.dns_ok = false;
     result.dns_error = String(error.code || error.message).slice(0, 80);
   }
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    const page = await fetch('https://www.google.com/generate_204', { method: 'GET', redirect: 'manual', signal: controller.signal });
-    clearTimeout(timer);
-    result.internet_ok = page.status > 0 && page.status < 500;
-  } catch (error) {
-    result.internet_ok = false;
-    result.internet_error = String(error.cause?.code || error.name || error.message).slice(0, 80);
-  }
+  // Several unrelated endpoints, so one host a filter acts on (UniFi intercepting
+  // www.google.com for SafeSearch, say) does not read as "no internet". A
+  // certificate failure is reported with the issuer: a gateway CA there means
+  // the filter is inspecting or blocking that host, not that the network is down.
+  const endpoints = ['https://www.gstatic.com/generate_204', 'https://cp.cloudflare.com/', 'https://example.com/', 'https://www.google.com/generate_204'];
+  result.internet_results = await Promise.all(endpoints.map(url => tryEndpoint(url)));
+  result.internet_ok = result.internet_results.some(item => item.ok);
+  result.internet_error = result.internet_ok ? null : (result.internet_results[0]?.error ?? 'no answer');
+  result.intercepted = result.internet_results.filter(item => item.issuer).map(item => ({ host: item.host, issuer: item.issuer, error: item.error }));
   return result;
 }
 
