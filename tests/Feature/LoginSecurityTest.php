@@ -25,7 +25,7 @@ class LoginSecurityTest extends TestCase
         $this->admin = User::factory()->admin()->create(['email' => 'admin@example.test', 'password' => 'correct horse battery staple']);
     }
 
-    private function attempt(string $password, string $ip = '203.0.113.5')
+    private function attemptLogin(string $password, string $ip = '203.0.113.5')
     {
         return $this->withServerVariables(['REMOTE_ADDR' => $ip])->post(route('auth.local'), ['email' => 'admin@example.test', 'password' => $password]);
     }
@@ -33,17 +33,17 @@ class LoginSecurityTest extends TestCase
     public function test_an_account_locks_after_five_failures_from_any_address_and_alerts_the_owner(): void
     {
         foreach (range(1, 5) as $index) {
-            $this->attempt('wrong', "203.0.113.{$index}")->assertSessionHasErrors('email');
+            $this->attemptLogin('wrong', "203.0.113.{$index}")->assertSessionHasErrors('email');
         }
 
         Notification::assertSentTo($this->admin, AccountLockedNotification::class);
-        $this->attempt('correct horse battery staple', '198.51.100.7')->assertSessionHasErrors('email');
+        $this->attemptLogin('correct horse battery staple', '198.51.100.7')->assertSessionHasErrors('email');
         $this->assertGuest();
         $this->assertSame(5, AuditEvent::query()->whereIn('action', ['auth.login_failed', 'auth.account_locked'])->count());
         $this->assertTrue(AuditEvent::query()->where('action', 'auth.login_blocked')->exists());
 
         $this->travel(16)->minutes();
-        $this->attempt('correct horse battery staple')->assertRedirect(route('dashboard'));
+        $this->attemptLogin('correct horse battery staple')->assertRedirect(route('dashboard'));
         $this->assertAuthenticatedAs($this->admin);
     }
 
@@ -51,7 +51,7 @@ class LoginSecurityTest extends TestCase
     {
         $this->admin->update(['password_login_enabled' => false]);
 
-        $this->attempt('correct horse battery staple')->assertSessionHasErrors('email');
+        $this->attemptLogin('correct horse battery staple')->assertSessionHasErrors('email');
         $this->assertGuest();
     }
 

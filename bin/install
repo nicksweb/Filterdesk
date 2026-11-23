@@ -1,7 +1,12 @@
 #!/bin/sh
 set -eu
 
+# Works in a git checkout (bin/install) and in a plain install folder holding
+# compose.yml and .env.example (sh install).
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ ! -f "$project_dir/.env.example" ] && [ -f "$PWD/.env.example" ]; then
+    project_dir=$PWD
+fi
 env_file="$project_dir/.env"
 
 if [ ! -f "$env_file" ]; then
@@ -24,8 +29,9 @@ if grep -q '^PROBE_SHARED_KEY=$' "$env_file"; then
 fi
 chmod 600 "$env_file"
 
-echo "Configuration created at $env_file"
-echo "Review APP_URL and TRUSTED_PROXIES, then run: docker compose up -d --build"
-echo "Behind a reverse proxy, TRUSTED_PROXIES must be the proxy's address (for Nginx Proxy Manager in Docker:"
-echo "  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' <npm container>)"
+mkdir -p "$project_dir/data"
+echo "Configuration created at $env_file; data will be kept in $project_dir/data"
+echo "Review APP_URL, TRUSTED_PROXIES and FILTERDESK_VERSION, then run: docker compose pull && docker compose up -d"
+echo "Behind a reverse proxy in Docker, set TRUSTED_PROXIES to the shared network's subnet:"
+echo "  docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' <proxy network>"
 echo "or pages link to http:// stylesheets and appear unstyled. The wizard's first page checks this."

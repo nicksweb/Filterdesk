@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.2
+
+### Changed
+- **Data in `./data` (bind mounts)**: the database (`data/postgres`) and storage (`data/storage`) live in the install folder instead of Docker volumes, so they are easy to see, back up and move. A one-off `storage-init` step prepares `data/storage` for the app's user. Existing installs move their data with `bin/move-to-bind-mounts` (docs/UPGRADING.md).
+- **Install without git**: `compose.yml` runs entirely from the published images, so an install needs only `compose.yml`, `.env.example` and the `install` script (docs/SETUP.md, step 3, option B).
+- Probe: Playwright 1.65.1, with a matching base image; CI fails if the two ever differ. Dependabot now watches the app and web base images. PHPUnit 13 and actions/checkout 7 (development only).
+
+### Security
+- `data/` is excluded from image builds and from git.
+
 ## 2026.12.1
 
 ### Changed

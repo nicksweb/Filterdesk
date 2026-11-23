@@ -10,7 +10,9 @@
 # Restore: see docs/UPGRADING.md (Rollback). Keep backups somewhere other than
 # this host, and protect them: they contain the encrypted credentials and .env.
 set -eu
-cd "$(dirname "$0")/.."
+# Works from bin/ in a git checkout, or next to compose.yml in a plain install folder.
+cd "$(dirname "$0")"
+[ -f compose.yml ] || cd ..
 COMPOSE=${COMPOSE:-"docker compose"}
 KEEP_DAYS=${KEEP_DAYS:-14}
 STAMP=$(date +%Y-%m-%d-%H%M)
@@ -18,6 +20,10 @@ mkdir -p backups
 chmod 700 backups
 umask 077
 $COMPOSE exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "backups/filterdesk-$STAMP.dump"
+# Uploads and screenshots (data/storage is owned by the app's user, so this may need sudo).
+if [ -d "${FILTERDESK_DATA:-./data}/storage" ]; then
+  tar -czf "backups/storage-$STAMP.tgz" -C "${FILTERDESK_DATA:-./data}" storage 2>/dev/null || echo "Storage not copied (run with sudo to include data/storage)."
+fi
 cp .env "backups/env-$STAMP"
-find backups -type f \( -name 'filterdesk-*.dump' -o -name 'itrequests-*.dump' -o -name 'env-*' \) -mtime +"$KEEP_DAYS" -delete
+find backups -type f \( -name 'filterdesk-*.dump' -o -name 'itrequests-*.dump' -o -name 'storage-*.tgz' -o -name 'env-*' \) -mtime +"$KEEP_DAYS" -delete
 echo "Backed up to backups/filterdesk-$STAMP.dump and backups/env-$STAMP"

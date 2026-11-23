@@ -62,13 +62,29 @@ If the host already has a `/etc/docker/daemon.json`, add the `"live-restore": tr
 
 **Check:** `docker run --rm hello-world` prints its greeting.
 
-## 3. Get the code and create .env
+## 3. Get Filterdesk and create .env
+
+**Option A: clone the repository** (recommended; you also get `bin/backup`, `bin/probe-interfaces` and the docs):
 
 ```bash
 git clone https://github.com/nicksweb/Filterdesk.git filterdesk
 cd filterdesk
 ./bin/install
 ```
+
+**Option B: just the files needed to run it** (no git; the published images contain everything else):
+
+```bash
+mkdir filterdesk && cd filterdesk
+base=https://raw.githubusercontent.com/nicksweb/Filterdesk/main
+curl -fsSLO $base/compose.yml -O $base/.env.example -O $base/compose.proxy.example.yml
+curl -fsSL $base/bin/install -o install && curl -fsSL $base/bin/backup -o backup && chmod +x install backup
+./install
+```
+
+Read a script before running it if you prefer: both are short shell scripts.
+
+Either way, Filterdesk keeps its data in the install folder: `data/postgres` (the database) and `data/storage` (uploads, screenshots and logs). Back up that folder and `.env`; `bin/backup` does both.
 
 `bin/install` copies `.env.example` to `.env`, fills in a random `APP_KEY`, database password and probe key, and makes the file readable only by you (`chmod 600`). It never overwrites values you have already set, so it is safe to run again.
 
@@ -100,7 +116,8 @@ Most settings (school, sign-in, UniFi, email, approvals) are entered in the wiza
 | `TRUSTED_PROXIES` | `127.0.0.1` | The IP address (or comma-separated list, or CIDR) of the reverse proxy *as the app sees it*. If wrong, the app thinks every request is plain HTTP: **pages load without styling** and secure cookies fail. The wizard's first page tells you the address to use. Never use `*` if the port is reachable by anyone other than the proxy. |
 | `APP_PORT` | `8088` | Port the web container publishes, on `127.0.0.1` only. Change it if 8088 is taken. |
 | `FILTERDESK_VERSION` | `latest` | Which published release to run: `latest`, a month such as `2026.12`, or an exact release such as `2026.12.1` (recommended, so upgrades happen when you choose). `local` when building from source with `compose.build.yml`. |
-| `COMPOSE_PROJECT_NAME` | — | Only for installs from before the rename: `it-edu-selfservice`, so the database volume and containers keep their names. |
+| `FILTERDESK_DATA` | `./data` | Where the database and storage are kept (bind mounts). |
+| `COMPOSE_PROJECT_NAME` | — | Only for installs from before the rename that keep their old container names: `it-edu-selfservice`. |
 
 ### Logging
 
@@ -117,7 +134,7 @@ Most settings (school, sign-in, UniFi, email, approvals) are entered in the wiza
 | `DB_CONNECTION` | `pgsql` | Leave. |
 | `DB_HOST` / `DB_PORT` | `db` / `5432` | The bundled PostgreSQL container. Change only for an external server. |
 | `DB_DATABASE` / `DB_USERNAME` | `filterdesk` | Leave. |
-| `DB_PASSWORD` | *generated* | Set once, before the first start. The database volume keeps the password it was created with, so changing it later locks the app out. |
+| `DB_PASSWORD` | *generated* | Set once, before the first start. The database in `data/postgres` keeps the password it was created with, so changing it later locks the app out. |
 
 ### Sessions, queue and cache
 

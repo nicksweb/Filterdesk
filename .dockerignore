@@ -60,3 +60,6 @@ CLAUDE.md
 boost.json
 .ai
 .mcp.json
+
+# Bind-mounted data (database and storage)
+data

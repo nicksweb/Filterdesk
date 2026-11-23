@@ -1,6 +1,6 @@
 # Upgrading
 
-Configuration lives in PostgreSQL and the `app_storage` volume, outside the
+Configuration lives in PostgreSQL and the storage folder (`data/` from 2026.12.2), outside the
 image, so upgrades keep settings and data.
 
 ## Standard upgrade
@@ -41,6 +41,22 @@ docker compose run --rm migrate
 ## Version numbers
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
+
+## 2026.12.1 → 2026.12.2: data in ./data (bind mounts)
+
+Data now lives in the install folder: `data/postgres` and `data/storage`, instead of Docker volumes. Existing installs must move their data **before** starting 2026.12.2, or it starts as a new, empty install (the old volumes are not touched, so nothing is lost, but you would see the installer).
+
+```bash
+bin/backup                                        # 1. back up
+docker compose … down                             # 2. stop (keeps the volumes)
+git pull --ff-only                                # 3. get compose.yml and bin/move-to-bind-mounts
+bin/move-to-bind-mounts                           # 4. copies <project>_db_data and _app_storage into ./data
+docker compose … pull && docker compose … up -d   # 5. start
+```
+
+`bin/move-to-bind-mounts` finds the volumes of a `filterdesk` or `it-edu-selfservice` project (or name the project as its argument), refuses to run while the database is up or if `data/postgres` already has data, and leaves the volumes in place. Once everything is there, remove them with `docker volume rm <project>_db_data <project>_app_storage`.
+
+The `data/` folder is owned by the containers' users (PostgreSQL: 70, the app: 82); a one-off `storage-init` step sets up `data/storage` on every start. Use `sudo` to read it from the host.
 
 ## 2026.12.0 → 2026.12.1: the rename to Filterdesk
 

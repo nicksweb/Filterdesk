@@ -140,8 +140,7 @@ Retain `.env` (especially `APP_KEY`) separately:
 
 ```bash
 docker compose exec -T db pg_dump -U filterdesk -d filterdesk -Fc > filterdesk.dump
-docker run --rm -v filterdesk_app_storage:/data -v "$PWD:/backup" alpine \
-  tar -czf /backup/filterdesk-storage.tgz -C /data .
+sudo tar -czf filterdesk-storage.tgz -C data storage      # uploads, screenshots, logs
 ```
 
 Restore into a clean deployment:

@@ -1,0 +1,38 @@
+#!/usr/bin/env sh
+# Move an install's data from Docker volumes into ./data (bind mounts), as
+# used from Filterdesk 2026.12.2. Run it with the stack stopped:
+#
+#   docker compose … down          # keeps the volumes
+#   bin/move-to-bind-mounts        # copies <project>_db_data and <project>_app_storage
+#   docker compose … up -d
+#
+# The project is taken from COMPOSE_PROJECT_NAME, or the first argument, or
+# found automatically (filterdesk, then it-edu-selfservice). The volumes are
+# left in place; remove them once the install works from ./data.
+set -eu
+cd "$(dirname "$0")/.."
+DATA=${FILTERDESK_DATA:-./data}
+
+project=${1:-${COMPOSE_PROJECT_NAME:-}}
+if [ -z "$project" ]; then
+  for candidate in filterdesk it-edu-selfservice; do
+    if docker volume inspect "${candidate}_db_data" >/dev/null 2>&1; then project=$candidate; break; fi
+  done
+fi
+[ -n "$project" ] || { echo "No <project>_db_data volume found. Name the project: bin/move-to-bind-mounts <project>"; exit 1; }
+
+if docker ps --format '{{.Names}}' | grep -q "^${project}-db-"; then
+  echo "Stop the stack first (docker compose … down). The database must not be running while it is copied."; exit 1
+fi
+if [ -n "$(ls -A "$DATA/postgres" 2>/dev/null)" ]; then
+  echo "$DATA/postgres already holds data; nothing copied."; exit 1
+fi
+
+mkdir -p "$DATA/postgres" "$DATA/storage"
+for pair in "db_data:postgres" "app_storage:storage"; do
+  volume="${project}_${pair%%:*}"; target="$DATA/${pair##*:}"
+  docker volume inspect "$volume" >/dev/null 2>&1 || { echo "Volume $volume not found."; exit 1; }
+  docker run --rm -v "$volume:/from:ro" -v "$(cd "$target" && pwd):/to" alpine sh -c 'cp -a /from/. /to/'
+  echo "Copied $volume to $target ($(du -sh "$target" 2>/dev/null | cut -f1 || echo '?'))"
+done
+echo "Done. Start the stack; once it works, remove the old volumes: docker volume rm ${project}_db_data ${project}_app_storage"

@@ -2,8 +2,9 @@
 # set FILTERDESK_VERSION in .env to pin a release (for example 2026.12.1).
 # To build from source instead, add compose.build.yml:
 #   docker compose -f compose.yml -f compose.build.yml up -d --build
-# Installs from before the rename keep their project name (and volumes) with
-# COMPOSE_PROJECT_NAME=it-edu-selfservice in .env.
+# Data is kept in ./data (FILTERDESK_DATA): data/postgres (the database) and
+# data/storage (uploads, logs). Back it up with bin/backup.
+# Installs from before 2026.12.2 used Docker volumes: see docs/UPGRADING.md.
 name: filterdesk
 
 x-app: &app
@@ -15,7 +16,7 @@ x-app: &app
   restart: unless-stopped
   networks: [app, outbound]
   volumes:
-    - app_storage:/var/www/html/storage
+    - ${FILTERDESK_DATA:-./data}/storage:/var/www/html/storage
 
 x-probe: &probe
   image: ${FILTERDESK_IMAGE_PREFIX:-ghcr.io/nicksweb/filterdesk}-probe:${FILTERDESK_VERSION:-latest}
@@ -38,7 +39,7 @@ services:
       POSTGRES_DB: ${DB_DATABASE}
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes: [db_data:/var/lib/postgresql/data]
+    volumes: ["${FILTERDESK_DATA:-./data}/postgres:/var/lib/postgresql/data"]
     networks: [app]
     restart: unless-stopped
     healthcheck:
@@ -47,12 +48,23 @@ services:
       timeout: 5s
       retries: 20
 
+  # Creates data/storage and gives it to the app's user (www-data, 82), so a
+  # fresh bind mount works without a manual chown. Runs once, then exits.
+  storage-init:
+    <<: *app
+    restart: "no"
+    user: "0"
+    entrypoint: ["sh", "-c"]
+    command: ["mkdir -p storage/app/private storage/app/public storage/framework/cache storage/framework/sessions storage/framework/views storage/logs && chown -R 82:82 storage"]
+    networks: []
+
   migrate:
     <<: *app
     restart: "no"
     command: ["php", "artisan", "filterdesk:upgrade"]
     depends_on:
       db: { condition: service_healthy }
+      storage-init: { condition: service_completed_successfully }
 
   app:
     <<: *app
@@ -122,6 +134,3 @@ networks:
   probe_control: { internal: true }
   probe_egress: {}
 
-volumes:
-  db_data: {}
-  app_storage: {}

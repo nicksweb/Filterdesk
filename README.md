@@ -157,11 +157,12 @@ Sites, networks and firewall IP groups use the official integration API. Content
 
 ## Updating
 
-Configuration is stored in PostgreSQL and named volumes, outside the image. Back up first, then:
+Configuration and data are stored in `data/` (the database and storage, as bind mounts), outside the images. Back up first, then:
 
 ```bash
-git pull --ff-only
-docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml build --pull
+git pull --ff-only                       # newer compose.yml, docs and scripts
+# set FILTERDESK_VERSION in .env to the new release, then:
+docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml pull
 docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
 ```
 
