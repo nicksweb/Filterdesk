@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.8
+
+### Fixed
+- **Group and role claims are found automatically**: with *Claims holding groups or roles* left blank (or on the old default), every claim whose name ends in groups, role or roles is used, so CloudWork ID's `https://cloudwork.id/claims/groups` and `…/role` work without configuration. Before, CloudWork users matched no `group:` rule and got the default role.
+
 ## 2026.12.7
 
 ### Added

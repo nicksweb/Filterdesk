@@ -296,7 +296,7 @@ group:admin-staff=teacher
 email_domain:students.school.example=student
 ```
 
-Set *Claims holding groups or roles* to the claim your provider uses (for example `groups`, `roles` or `memberOf`). *Try the rules* on the same page shows what a set of groups would give someone, and Users shows the groups each person's last sign-in carried.
+*Claims holding groups or roles* can stay blank: Filterdesk then uses every claim whose name ends in groups, role or roles (Entra's `groups` and `roles`, CloudWork ID's `https://cloudwork.id/claims/groups` and `https://cloudwork.id/claims/role`, whose value is for example `faculty`, so `group:faculty=teacher` works). Name the claims only if yours are called something else, such as `memberOf`. *Try the rules* on the same page shows what a set of groups would give someone, and Users shows the groups each person's last sign-in carried.
 
 If sign-in fails, Settings → Authentication → *Provider details* shows the provider's reason (for example a redirect URI that is not registered) and, after a successful sign-in, the claims it sends, for writing role rules.
 

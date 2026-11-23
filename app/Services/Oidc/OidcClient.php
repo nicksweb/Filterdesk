@@ -87,7 +87,14 @@ class OidcClient
             throw new RuntimeException('The ID token subject does not match the userinfo subject.');
         }
 
-        $claimNames = (array) ($this->integration()->configuration['group_claims'] ?? ['groups', 'roles']);
+        // Configured claim names, or (left blank) every claim whose name ends in groups, role or roles,
+        // which covers Entra ("groups", "roles") and namespaced ones such as CloudWork's
+        // "https://cloudwork.id/claims/groups" and ".../role".
+        $claimNames = array_values(array_filter((array) ($this->integration()->configuration['group_claims'] ?? [])));
+        // ["groups", "roles"] was the stored default before automatic detection; automatic covers both.
+        if ($claimNames === [] || $claimNames === ['groups', 'roles']) {
+            $claimNames = array_values(array_filter(array_keys($claims), fn ($name) => (bool) preg_match('#(^|[/:._-])(groups?|roles?)$#i', (string) $name)));
+        }
         // Groups may come as a list, a single string, a ";"- or newline-separated string, or objects with a name.
         $groups = collect($claimNames)->map(fn ($name) => trim((string) $name))->filter()
             ->flatMap(fn (string $name) => [$owner[$name] ?? null, $idToken[$name] ?? null])

@@ -267,7 +267,8 @@ class SettingsController extends Controller
                 'issuer' => filled($validated['oidc_issuer'] ?? null) ? OidcDiscoveryService::normalise($validated['oidc_issuer']) : ($oidc->configuration['issuer'] ?? null),
                 // Extra scopes (for example CloudWork's https://scopes.cloudwork.id/profile) and the claims that carry groups or roles.
                 'scopes' => array_values(array_filter(preg_split('/[\s,]+/', (string) ($validated['oidc_scopes'] ?? '')) ?: [])),
-                'group_claims' => array_values(array_filter(preg_split('/[\s,]+/', (string) ($validated['oidc_group_claims'] ?? 'groups roles')) ?: [])) ?: ['groups', 'roles'],
+                // Blank: found automatically (any claim named …groups, …role or …roles).
+                'group_claims' => array_values(array_filter(preg_split('/[\s,]+/', (string) ($validated['oidc_group_claims'] ?? '')) ?: [])),
                 'token_auth' => $validated['oidc_token_auth'] ?? 'auto',
                 'client_id' => $validated['oidc_client_id'] ?? ($oidc->configuration['client_id'] ?? null),
                 'allowed_domains' => $this->commaList($validated['oidc_allowed_domains'] ?? ''),

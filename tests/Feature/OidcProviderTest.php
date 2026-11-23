@@ -198,4 +198,26 @@ class OidcProviderTest extends TestCase
             ->assertSessionHas('rule_result', fn (array $result) => $result['role'] === 'student');
         $this->actingAs($admin)->get(route('admin.settings.show', 'authentication'))->assertSee('Try the rules');
     }
+
+    public function test_cloudwork_group_and_role_claims_are_found_without_configuration(): void
+    {
+        $this->configure(['userinfo_endpoint' => self::ISSUER.'/userinfo', 'token_endpoint_auth_methods_supported' => ['client_secret_post']], [
+            // As saved by 2026.12.6 with the field left blank.
+            'group_claims' => ['groups', 'roles'],
+            'role_rules' => UserProvisioningService::parseRules("group:itstaff=admin\ngroup:student=student\ngroup:faculty=teacher"),
+        ]);
+        Http::fake([
+            self::ISSUER.'/oauth/token' => Http::response(['access_token' => 'at', 'token_type' => 'Bearer', 'expires_in' => 3600, 'id_token' => $this->jwt(['sub' => 'cw-7'])]),
+            self::ISSUER.'/userinfo' => Http::response(['sub' => 'cw-7', 'email' => 'staff@school.example',
+                'https://cloudwork.id/claims/groups' => ['CN=Admin-staff,OU=User Groups,DC=school,DC=example', 'CN=ITStaff,OU=User Groups,DC=school,DC=example'],
+                'https://cloudwork.id/claims/role' => 'faculty']),
+        ]);
+
+        [, $query] = $this->startSignIn();
+        $this->get(route('auth.oidc.callback', ['code' => 'abc', 'state' => $query['state']]))->assertRedirect(route('dashboard'));
+
+        $user = User::query()->where('oidc_subject', 'cw-7')->sole();
+        $this->assertSame('admin', $user->role);
+        $this->assertContains('faculty', $user->sso_groups, 'The role claim counts as a group too');
+    }
 }
