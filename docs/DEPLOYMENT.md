@@ -7,7 +7,7 @@ When Nginx Proxy Manager runs in Docker, copy `compose.proxy.example.yml` to
 named `frontend`, and include the override whenever the stack is started:
 
 ```bash
-docker compose -f compose.yml -f compose.proxy.yml up -d
+docker compose up -d      # with COMPOSE_FILE=compose.yml:compose.proxy.yml in .env
 ```
 
 Configure the proxy upstream as `http://filterdesk-web:8080` (a fixed alias on the shared network; `filterdesk-web-1` also works but depends on the project name). The
@@ -95,7 +95,7 @@ After **Policies → Guided setup → Bring everything in**, the *Probe containe
 - The top of the file lists the `docker network create -d macvlan …` command for each probe and the `.env` lines for the built-in `probe-student` and `probe-staff`. Run the commands once on the host, then start the stack with the override:
 
   ```bash
-  docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
+  docker compose up -d      # COMPOSE_FILE=compose.yml:compose.proxy.yml:compose.vlan.yml in .env
   ```
 
 - **Create and link probe profiles** adds a disabled network profile per probe. Enable each one under *Settings → Network profiles* once its container is healthy, then check a hostname you know is blocked on that network. *Health → Diagnostics* checks every enabled probe.
@@ -110,7 +110,7 @@ Settings → Network profiles shows a checklist for every probe, with a fix for 
 
 | Step | Usual cause when it fails |
 | --- | --- |
-| Container running | Started without `-f compose.vlan.yml`, or the probe URL does not match the service name. |
+| Container running | `COMPOSE_FILE` in `.env` does not include `compose.vlan.yml`, a command added `-f` (which replaces it), or the probe URL does not match the service name. |
 | On its VLAN | The macvlan network was not created, or the stack was restarted without `compose.vlan.yml`. |
 | Gateway reachable | The switch port does not tag that VLAN, or the hypervisor drops it: on Proxmox, a VLAN tag on the VM's NIC, a bridge that is not VLAN aware, or the firewall's MAC filter; on VMware, the port group security settings; on Hyper-V, MAC spoofing off. `sudo bin/probe-interfaces --listen <trunk>` shows which VLAN tags arrive. |
 | DNS through the gateway | The gateway is unreachable, or `*_PROBE_DNS_SERVERS` points somewhere else. |

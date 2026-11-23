@@ -4,8 +4,8 @@ namespace App\Services\Network;
 
 /**
  * Implemented by providers that can replace a content filter's allow and
- * block lists. Only the lists change; categories, schedules and the networks
- * the filter applies to are sent back exactly as read.
+ * block lists. Only what a method names changes; everything else is sent
+ * back exactly as read.
  */
 interface WritesContentFilters
 {
@@ -39,6 +39,16 @@ interface WritesContentFilters
      * @throws ProviderRequestFailed
      */
     public function createContentFilter(string $name, array $networkIds, array $categories): array;
+
+    /**
+     * Add networks to a filter (keeping the ones it has), then read it back
+     * and confirm they are there. Lists and categories are sent back as read.
+     *
+     * @param  list<string>  $networkIds
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function attachNetworksToContentFilter(string $filterId, array $networkIds): void;
 
     /**
      * Save the filter back unchanged to prove the key may write it.

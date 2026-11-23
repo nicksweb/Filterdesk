@@ -13,8 +13,8 @@ cp .env .env.backup
 # 2. Choose the release: set FILTERDESK_VERSION in .env (for example 2026.12.1),
 #    then pull it (include any override files you normally use)
 git pull --ff-only          # for the latest compose.yml, docs and bin/ scripts
-docker compose -f compose.yml -f compose.proxy.yml pull
-docker compose -f compose.yml -f compose.proxy.yml up -d
+docker compose pull       # COMPOSE_FILE in .env lists your compose files
+docker compose up -d
 
 # Building from source instead: FILTERDESK_VERSION=local, add -f compose.build.yml,
 # build app, web and probe-student one at a time, then up -d.
@@ -41,6 +41,13 @@ docker compose run --rm migrate
 ## Version numbers
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
+
+## 2026.12.8 → 2026.12.9
+
+- Pull and restart as usual (migrations add baseline filtering and kept names).
+- **Move to one `COMPOSE_FILE` line.** In `.env`, list every compose file you use once, for example `COMPOSE_FILE=compose.yml:compose.proxy.yml:compose.vlan.yml`, then use plain `docker compose …` without `-f`. Remove any duplicate `COMPOSE_FILE` lines.
+- **Regenerate compose.vlan.yml** (Guided setup, step 3, or `docker compose exec -T app php artisan probes:compose > compose.vlan.yml`), then `docker compose up -d`. Check the trunk interface on that page first: the old `eth0` default is gone. The `*_DOCKER_NETWORK` and `*_PROBE_DNS_SERVERS` lines in `.env` are no longer needed and can be removed. Your macvlan networks keep their names, so they don't need recreating.
+- **Baseline filtering** starts at the first sync check after the upgrade. Networks that are unfiltered then are only listed (Networks & filters → *Baseline filtering*) for you to filter or allow; nothing is added to a filter until you decide. Networks that lose their filter later are filtered automatically in Active mode.
 
 ## 2026.12.2 → 2026.12.3
 

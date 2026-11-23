@@ -7,10 +7,12 @@ use App\Jobs\RunManualPush;
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
 use App\Services\AuditLogger;
+use App\Services\Policy\BaselineGuard;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\SyncChecker;
+use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -24,7 +26,7 @@ use Illuminate\View\View;
  */
 class NetworkMapController extends Controller
 {
-    public function index(Request $request, ControllerSync $sync, ControllerPusher $pusher): View
+    public function index(Request $request, ControllerSync $sync, ControllerPusher $pusher, BaselineGuard $baseline): View
     {
         $state = $sync->state($request->boolean('refresh'));
         $policies = FilterPolicy::query()->with('layerOf')->ordered()->get();
@@ -42,7 +44,40 @@ class NetworkMapController extends Controller
             ]),
             'pushStatus' => Cache::get(RunManualPush::statusKey('all')),
             'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
+            'unfiltered' => $baseline->unfiltered($state),
+            'baselinePolicy' => $baseline->policy(),
         ]);
+    }
+
+    /** Give unfiltered networks the baseline filter now: all that are due, or the ones picked. */
+    public function baseline(Request $request, BaselineGuard $baseline): RedirectResponse
+    {
+        $validated = $request->validate(['networks' => ['nullable', 'array', 'max:200'], 'networks.*' => ['string', 'max:190']]);
+        $result = $baseline->enforce($request->user(), $validated['networks'] ?? null);
+
+        return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    /** Allow a network to stay unfiltered (a reason is required), or take that back. */
+    public function allowUnfiltered(Request $request, NetworkAssignment $network, BaselineGuard $baseline): RedirectResponse
+    {
+        $validated = $request->validate(['reason' => ['nullable', 'required_unless:allow,0', 'string', 'max:255'], 'allow' => ['required', 'boolean']]);
+        $baseline->allow($network, $request->boolean('allow') ? $validated['reason'] : null, $request->user());
+
+        return back()->with('success', $request->boolean('allow')
+            ? "{$network->name} may stay unfiltered: {$validated['reason']}."
+            : "{$network->name} is no longer exempt. It gets baseline filtering at the next check, or use Filter it now.");
+    }
+
+    /** Which policy's filter unfiltered networks join. */
+    public function baselinePolicy(Request $request, SettingsRepository $settings, AuditLogger $audit): RedirectResponse
+    {
+        $validated = $request->validate(['policy_id' => ['required', 'integer', Rule::exists('filter_policies', 'id')->whereNull('layer_of_id')->whereNotNull('provider_reference')]]);
+        $settings->set(BaselineGuard::POLICY_KEY, (int) $validated['policy_id']);
+        $policy = FilterPolicy::query()->findOrFail($validated['policy_id']);
+        $audit->log('policy.baseline_policy_set', $policy);
+
+        return back()->with('success', "Unfiltered networks now get {$policy->name} filtering.");
     }
 
     /** Save which filter policy each VLAN should have. */

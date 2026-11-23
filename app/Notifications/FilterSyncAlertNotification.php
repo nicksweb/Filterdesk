@@ -8,7 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-/** Sent when a controller filter starts to differ from its policy, or cannot be read. */
+/** Sent when a controller filter starts to differ from its policy, cannot be read, or a network was given baseline filtering. */
 class FilterSyncAlertNotification extends Notification implements ShouldQueue
 {
     use Queueable;
@@ -23,7 +23,9 @@ class FilterSyncAlertNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $details = collect($this->policies)->map(fn (array $policy) => ($policy['status'] === 'error' ? 'Cannot check ' : 'Changed outside Filterdesk: ')."{$policy['policy']}. {$policy['summary']}")->all();
+        $details = collect($this->policies)->map(fn (array $policy) => match ($policy['status']) {
+            'error' => 'Cannot check ', 'baseline' => 'Baseline filtering: ', 'paused' => 'Paused in UniFi: ', default => 'Changed outside Filterdesk: '
+        }."{$policy['policy']}. {$policy['summary']}")->all();
 
         return app(EmailTemplates::class)->mail('filter_sync_alert', ['details' => $details], route('admin.policy.index'));
     }

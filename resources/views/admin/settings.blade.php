@@ -209,7 +209,7 @@
                 <div class="alert error"><strong>These probes are not on separate networks.</strong> {{ $sharedGateways->map(fn ($group, $gateway) => $group->count().' probes share gateway '.$gateway)->join('; ') }}, so their checks all see the same filtering. Put each probe on its VLAN under <a href="{{ route('admin.policy.setup.show') }}#probes">Guided setup → Probe containers</a>.</div>
             @endif
             <div class="table-wrap"><table>
-                <thead><tr><th>Name</th><th>Network type</th><th>Probe URL</th><th>UniFi network ID</th><th>Probe address</th><th>Order</th><th>On</th></tr></thead>
+                <thead><tr><th>Name</th><th>Network type</th><th>Probe URL</th><th>UniFi network ID</th><th>Probe address</th><th>Order</th><th>On</th><th>Delete</th></tr></thead>
                 <tbody>
                     @foreach($profiles as $profile)
                         <tr>
@@ -225,9 +225,10 @@
                             </td>
                             <td><input type="number" class="narrow" name="profiles[{{ $profile->id }}][sort_order]" value="{{ $profile->sort_order }}"></td>
                             <td><input type="hidden" name="profiles[{{ $profile->id }}][enabled]" value="0"><input type="checkbox" name="profiles[{{ $profile->id }}][enabled]" value="1" @checked($profile->enabled)></td>
+                            <td><input type="hidden" name="profiles[{{ $profile->id }}][delete]" value="0"><input type="checkbox" name="profiles[{{ $profile->id }}][delete]" value="1" aria-label="Delete {{ $profile->name }}"></td>
                         </tr>
                         @if($diagnosis)
-                            <tr class="probe-checklist-row"><td colspan="7">
+                            <tr class="probe-checklist-row"><td colspan="8">
                                 <details class="probe-checklist" data-remember="probe-{{ $profile->id }}-{{ substr(md5($diagnosis['summary']), 0, 8) }}" @if(!in_array($diagnosis['state'], ['ok'], true)) open @endif>
                                     <summary>Setup checklist for {{ $profile->name }} <span class="network-status {{ ['ok' => 'ok', 'warn' => 'warn', 'todo' => 'warn', 'fail' => 'bad'][$diagnosis['state']] ?? 'muted' }}">{{ $diagnosis['summary'] }}</span></summary>
                                     <ol>

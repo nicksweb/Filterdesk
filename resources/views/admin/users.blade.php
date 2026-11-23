@@ -1,7 +1,7 @@
 <x-layouts.app title="Users">
     <x-slot:head><link rel="stylesheet" href="{{ asset('admin.css') }}"></x-slot:head>
     <div class="page-heading">
-        <div><p class="eyebrow">Administration</p><h1>User management</h1><p>Create local test accounts or pre-stage users before OIDC is connected.</p></div>
+        <div><p class="eyebrow">Administration</p><h1>User management</h1><p>Create, correct and delete accounts. Single sign-on creates accounts on first sign-in; local ones are for testing or emergency access.</p></div>
     </div>
 
     <section class="panel preview-panel">
@@ -43,7 +43,29 @@
     <section class="panel table-wrap users-table">
         <table><thead><tr><th>User</th><th>Role and access</th></tr></thead><tbody>
             @foreach($users as $user)
-                <tr><td><strong>{{ $user->name }}</strong><small>{{ $user->email }} · {{ match($user->auth_source) { 'oidc' => 'SSO', 'preview' => 'Preview account', default => 'Local' } }}@if($user->department) · {{ $user->department }}@endif @if($user->network_types) · {{ collect($user->network_types)->map(fn ($key) => \App\Models\NetworkType::labelFor($key))->join(', ') }}@endif</small>@if($user->sso_groups)<span class="group-chips" title="Groups from the last single sign-on">@foreach($user->sso_groups as $group)<span class="chip" title="{{ $group }}">{{ \App\Services\Auth\UserProvisioningService::groupLabel($group) }}</span>@endforeach</span>@endif @if(!$user->isAdmin() && $user->enabled && !$user->is(auth()->user()))<form method="post" action="{{ route('admin.users.impersonate', $user) }}" class="row-action">@csrf<button class="link-button">View as {{ match($user->role) { 'student' => 'this student', 'teacher' => 'this staff member', default => 'this IT user' } }}</button></form>@endif</td><td><form class="inline-form" method="post" action="{{ route('admin.users.update', $user) }}">@csrf @method('PUT')<select name="role">@foreach(['student','teacher','it','admin'] as $role)<option value="{{ $role }}" @selected($user->role===$role)>{{ ucfirst($role) }}</option>@endforeach</select><label class="toggle"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($user->enabled)> Enabled</label><label class="toggle" title="Allow sign-in with a password (emergency local sign-in)"><input type="hidden" name="password_login_enabled" value="0"><input type="checkbox" name="password_login_enabled" value="1" @checked($user->password_login_enabled)> Password</label><span>{{ $user->last_login_at?->diffForHumans() ?? 'Never signed in' }}</span><button class="button small secondary">Save</button></form></td></tr>
+                @php($isMe = $user->is(auth()->user()))
+                <tr>
+                    <td><strong>{{ $user->name }}</strong>@if($user->name_locked)<span class="chip" title="Corrected here; single sign-on will not change it">name kept</span>@endif<small>{{ $user->email }} · {{ match($user->auth_source) { 'oidc' => 'SSO', 'preview' => 'Preview account', default => 'Local' } }}@if($user->department) · {{ $user->department }}@endif @if($user->network_types) · {{ collect($user->network_types)->map(fn ($key) => \App\Models\NetworkType::labelFor($key))->join(', ') }}@endif</small>@if($user->sso_groups)<span class="group-chips" title="Groups from the last single sign-on">@foreach($user->sso_groups as $group)<span class="chip" title="{{ $group }}">{{ \App\Services\Auth\UserProvisioningService::groupLabel($group) }}</span>@endforeach</span>@endif
+                        <div class="row-actions">
+                            @if(!$user->isAdmin() && $user->enabled && !$isMe)<form method="post" action="{{ route('admin.users.impersonate', $user) }}">@csrf<button class="link-button">View as {{ match($user->role) { 'student' => 'this student', 'teacher' => 'this staff member', default => 'this IT user' } }}</button></form>@endif
+                            <details class="user-edit"><summary class="link-button">Edit name{{ $user->auth_source === 'oidc' ? '' : ' or email' }}</summary>
+                                <div class="fields two">
+                                    <label>Name<input name="name" form="user-{{ $user->id }}" value="{{ $user->name }}" required maxlength="120"></label>
+                                    @if($user->auth_source === 'oidc')
+                                        <p class="hint">The email comes from single sign-on. A corrected name is kept at later sign-ins.</p>
+                                    @else
+                                        <label>Email<input name="email" type="email" form="user-{{ $user->id }}" value="{{ $user->email }}" required maxlength="255"></label>
+                                    @endif
+                                </div>
+                                <small class="hint">Save with the Save button on this row.</small>
+                            </details>
+                            @unless($isMe)
+                                <form method="post" action="{{ route('admin.users.destroy', $user) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Delete {{ $user->name }}? They lose access straight away. Their requests are kept under Deleted user, and the audit log keeps their name. This cannot be undone.">Delete</button></form>
+                            @endunless
+                        </div>
+                    </td>
+                    <td><form class="inline-form" id="user-{{ $user->id }}" method="post" action="{{ route('admin.users.update', $user) }}">@csrf @method('PUT')<select name="role" aria-label="Role for {{ $user->name }}">@foreach(['student','teacher','it','admin'] as $role)<option value="{{ $role }}" @selected($user->role===$role)>{{ ucfirst($role) }}</option>@endforeach</select><label class="toggle"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($user->enabled)> Enabled</label><label class="toggle" title="Allow sign-in with a password (emergency local sign-in)"><input type="hidden" name="password_login_enabled" value="0"><input type="checkbox" name="password_login_enabled" value="1" @checked($user->password_login_enabled)> Password</label><span>{{ $user->last_login_at?->diffForHumans() ?? 'Never signed in' }}</span><button class="button small secondary">Save</button></form></td>
+                </tr>
             @endforeach
         </tbody></table>
         {{ $users->links() }}

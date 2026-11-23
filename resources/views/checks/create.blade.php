@@ -5,9 +5,13 @@
         <div>
             <p class="eyebrow">Network visibility</p>
             <h1>Check websites</h1>
-            <p>Compare Staff and Student access, capture evidence, then raise one request for every selected domain.</p>
+            <p>{{ auth()->user()->isStudent() ? 'See whether a website opens on the student network, then ask for it if it is blocked.' : 'Compare access on each network, capture evidence, then raise one request for every selected domain.' }}</p>
         </div>
     </div>
+
+    @if($here ?? null)
+        <p class="notice here-notice">You're on <strong>{{ $here['network']->name }}</strong>{{ $here['network']->vlan ? ' (VLAN '.$here['network']->vlan.')' : '' }}, which gets <strong>{{ $here['type'] ? \App\Models\NetworkType::labelFor($here['type']).' filtering' : 'no managed filtering' }}</strong>{{ auth()->user()->isIt() && $here['policy'] ? ' from '.$here['policy']->name : '' }}.@if($here['profile'] && !auth()->user()->isStudent()) Its result is shown first.@endif</p>
+    @endif
 
     <section class="panel check-form">
         <form method="post" action="{{ route('checks.store') }}">
@@ -50,7 +54,7 @@
                         @foreach($check['results'] as $key => $result)
                             <article class="result-card">
                                 <div class="result-top">
-                                    <span><strong>{{ $result['profile'] }}</strong><small>{{ ucfirst($key) }} network probe</small></span>
+                                    <span><strong>{{ $result['profile'] }}</strong><small>{{ ($here['profile'] ?? null)?->key === $key ? 'Your network' : ucfirst($key).' network probe' }}</small></span>
                                     <span class="probe-state {{ $result['status'] ?? 'unknown' }}">{{ str($result['status'] ?? 'unknown')->replace('_', ' ')->title() }}</span>
                                 </div>
                                 @if(!empty($result['screenshot']))

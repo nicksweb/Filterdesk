@@ -45,7 +45,8 @@ class UserProvisioningService
         }
 
         $user ??= new User(['email' => $claims['email'], 'role' => $mapped, 'password' => str()->random(64)]);
-        $user->fill(['name' => $claims['name'], 'email' => $claims['email'], 'oidc_subject' => $claims['sub'], 'last_login_at' => now(), 'auth_source' => 'oidc']);
+        // A name an admin corrected under Users is kept.
+        $user->fill(['name' => $user->exists && $user->name_locked ? $user->name : $claims['name'], 'email' => $claims['email'], 'oidc_subject' => $claims['sub'], 'last_login_at' => now(), 'auth_source' => 'oidc']);
 
         // The groups this sign-in carried, shown under Users.
         $user->sso_groups = array_values(array_unique(array_filter(array_map('strval', $claims['groups'] ?? [])))) ?: null;

@@ -66,6 +66,60 @@
         </section>
     @endif
 
+    @if($unfiltered->isNotEmpty() || !$state['error'])
+        <section class="panel policy-section baseline" id="baseline">
+            <div class="panel-heading"><div><h2>Baseline filtering</h2><p>No network is left without a filter by accident. A network with no content filter in UniFi is added to <strong>{{ $baselinePolicy?->name ?? 'the Students policy' }}</strong>'s filter, so it gets at least that level of filtering. To keep one unfiltered (a server or management network, say), allow it and say why.</p></div>
+                @if($isAdmin && $unfiltered->where('state', 'enforce')->isNotEmpty())<form method="post" action="{{ route('admin.policy.networks.baseline') }}">@csrf<button class="button primary" data-confirm="Add every unfiltered network that is not allowed to {{ $baselinePolicy?->name ?? 'the Students policy' }}'s filter in UniFi?">Filter them now</button></form>@endif
+            </div>
+            @if(!$baselinePolicy)
+                <p class="network-status warn">No Students policy is linked to a UniFi content filter yet, so there is nothing to add unfiltered networks to. Link one in <a href="{{ route('admin.policy.setup.show') }}">Guided setup</a>.</p>
+            @endif
+            @if($unfiltered->isEmpty())
+                <p class="network-status ok">Every network has a content filter.</p>
+            @else
+                <div class="baseline-rows">
+                    @foreach($unfiltered as $item)
+                        @php($network = $item['network'])
+                        <div class="baseline-row">
+                            <span><strong>{{ $network->name }}</strong><small>{{ $network->vlan ? 'VLAN '.$network->vlan : 'Untagged' }}{{ $network->subnet ? ' · '.$network->subnet : '' }}</small></span>
+                            <span>
+                                @switch($item['state'])
+                                    @case('allowed')<span class="network-status muted">Allowed unfiltered: {{ $network->unfiltered_reason }}</span><small>{{ $network->unfilteredReviewedBy?->name ?? 'An admin' }}, {{ $network->unfiltered_reviewed_at->local()->format('j M Y') }}</small>@break
+                                    @case('paused')<span class="network-status bad">Unfiltered: {{ implode(', ', $item['paused']) }} {{ count($item['paused']) === 1 ? 'is' : 'are' }} paused in UniFi</span><small>Turn it back on in UniFi, filter it now, or allow it unfiltered for now.</small>@break
+                                    @case('decide')<span class="network-status warn">Needs a decision: it had no filter when baseline filtering started</span>@break
+                                    @default<span class="network-status bad">Gets {{ $baselinePolicy?->name ?? 'Students' }} filtering at the next check (every 15 minutes, Active mode)</span>
+                                @endswitch
+                            </span>
+                            @if($isAdmin)
+                                <span class="button-row">
+                                    @if($item['state'] !== 'allowed' && $baselinePolicy)
+                                        <form method="post" action="{{ route('admin.policy.networks.baseline') }}">@csrf<input type="hidden" name="networks[]" value="{{ $network->provider_network_id }}"><button class="button small primary" data-confirm="Add {{ $network->name }} to {{ $baselinePolicy->name }}'s filter in UniFi?">Filter it now</button></form>
+                                    @endif
+                                    @if($item['state'] === 'allowed')
+                                        <form method="post" action="{{ route('admin.policy.networks.unfiltered', $network) }}">@csrf @method('PUT')<input type="hidden" name="allow" value="0"><button class="button small secondary">Stop allowing</button></form>
+                                    @else
+                                        <details class="inline-allow"><summary class="button small secondary">Allow unfiltered…</summary>
+                                            <form method="post" action="{{ route('admin.policy.networks.unfiltered', $network) }}">@csrf @method('PUT')<input type="hidden" name="allow" value="1">
+                                                <label>Why it stays unfiltered<input name="reason" required maxlength="255" placeholder="Servers and switches; no users"></label>
+                                                <button class="button small primary">Allow</button>
+                                            </form>
+                                        </details>
+                                    @endif
+                                </span>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+            @if($isAdmin && $policies->filter(fn ($policy) => filled($policy->provider_reference))->count() > 1)
+                <form method="post" action="{{ route('admin.policy.networks.baseline-policy') }}" class="search-line">@csrf @method('PUT')
+                    <label>Baseline policy<select name="policy_id">@foreach($policies->filter(fn ($policy) => filled($policy->provider_reference)) as $policy)<option value="{{ $policy->id }}" @selected($baselinePolicy?->is($policy))>{{ $policy->name }} · {{ $policy->typeLabel() }}</option>@endforeach</select></label>
+                    <button class="button secondary">Use this policy</button>
+                </form>
+            @endif
+        </section>
+    @endif
+
     <section class="panel table-wrap policy-section">
         <div class="panel-heading"><div><h2>Networks (VLANs)</h2><p>Choose the filter policy each network should have. Its network type sets the filtering level: it inherits that type's lists plus every site-wide list.</p></div></div>
         @if($networks->isEmpty() && $stored->isEmpty())
@@ -92,10 +146,10 @@
                                 </td>
                                 <td>
                                     @switch($network['status'])
-                                        @case('ok')<span class="network-status ok">Matches{{ $network['layer'] ? ' · with layer '.($network['layer']->provider_name ?: $network['layer']->name) : '' }}</span>@break
+                                        @case('ok')@if(collect($network['attached'])->doesntContain(fn ($filter) => $filter['enabled'] ?? true))<span class="network-status bad">Matches, but the filter is paused in UniFi: unfiltered</span>@else<span class="network-status ok">Matches{{ $network['layer'] ? ' · with layer '.($network['layer']->provider_name ?: $network['layer']->name) : '' }}</span>@endif @break
                                         @case('layer_missing')<span class="network-status warn">Add the layer {{ $network['layer']->provider_name ?: $network['layer']->name }} to this network in the controller, or its feeds are not blocked here</span>@break
                                         @case('multiple_filters')<span class="network-status warn">In {{ count($network['attached']) }} filters: a hostname allowed by {{ $network['policy']->provider_name ?: $network['policy']->name }} can still be blocked by {{ collect($network['others'])->pluck('name')->join(', ') }}</span>@break
-                                        @case('unfiltered')<span class="network-status muted">Unfiltered</span>@break
+                                        @case('unfiltered')@php($baselineItem = $unfiltered->first(fn ($item) => $item['network']->provider_network_id === $network['id']))<span class="network-status {{ ($baselineItem['state'] ?? '') === 'allowed' ? 'muted' : 'bad' }}">{{ ($baselineItem['state'] ?? '') === 'allowed' ? 'Unfiltered (allowed)' : 'Unfiltered: see Baseline filtering' }}</span>@break
                                         @case('unmapped')<span class="network-status warn">Filtered in controller, not managed here</span>@break
                                         @case('policy_unlinked')<span class="network-status warn">Link {{ $network['policy']->name }} to a controller filter</span>@break
                                         @case('missing_filter')<span class="network-status warn">Attach {{ $network['policy']->provider_name ?: $network['policy']->name }} to this network in the controller</span>@break

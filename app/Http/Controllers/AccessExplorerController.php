@@ -52,8 +52,8 @@ class AccessExplorerController extends Controller
         $validated = $request->validate(['site' => ['nullable', 'string', 'max:2000']]);
         $site = $this->host($validated['site'] ?? null, $parser);
         $user = $request->user();
-        $types = $user->role === 'student'
-            ? NetworkType::query()->where('key', 'student')->get()
+        $types = $user->checkAudiences() !== null
+            ? NetworkType::query()->whereIn('key', $user->checkAudiences())->ordered()->get()
             : NetworkType::query()->where('requestable', true)->ordered()->get();
 
         $answers = $site ? $types->map(fn (NetworkType $type) => ['type' => $type] + $explorer->plain($explorer->explain($site, $type)))->values() : collect();

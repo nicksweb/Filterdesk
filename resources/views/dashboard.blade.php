@@ -50,7 +50,7 @@
             <article><span>Open requests</span><strong>{{ $pending }}</strong><small>Waiting on a person or action</small></article>
             <article><span>Active allowances</span><strong>{{ $active }}</strong><small>Approved website access</small></article>
         @endif
-        <a class="quick-card" href="{{ route('checks.create') }}"><span class="quick-icon">⌕</span><span><strong>Check a website</strong><small>Compare staff and student access in seconds</small></span></a></section>
+        <a class="quick-card" href="{{ route('checks.create') }}"><span class="quick-icon">⌕</span><span><strong>Check a website</strong><small>{{ auth()->user()->isStudent() ? 'See if a site opens on your network' : 'Compare access on each network in seconds' }}</small></span></a></section>
     <div class="content-grid"><section class="panel"><div class="panel-heading"><div><h2>Recent requests</h2><p>Latest access decisions and progress</p></div><a href="{{ route('requests.index') }}">View all</a></div>
         @forelse($recentRequests as $item)<a class="list-row" href="{{ route('requests.show', $item) }}"><span><strong>{{ implode(', ', array_slice($item->domains, 0, 2)) }}</strong><small>{{ $item->reference }} · {{ $item->requester->name }}</small></span><x-status :status="$item->status" /></a>@empty<p class="empty">No website requests yet.</p>@endforelse
     </section>@if($publishedToday->isNotEmpty())<section class="panel"><div class="panel-heading"><div><h2>Published today</h2><p>Policy versions written to the controller</p></div><a href="{{ route('admin.policy.changes.index') }}">Changes</a></div>

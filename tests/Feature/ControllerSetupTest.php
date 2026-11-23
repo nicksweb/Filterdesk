@@ -67,8 +67,11 @@ class ControllerSetupTest extends TestCase
         $this->actingAs($admin)->get(route('admin.policy.setup.show', ['parent' => 'eno1']))->assertOk()
             ->assertSee('--subnet=10.0.20.0/24 --gateway=10.0.20.1', false)
             ->assertSee('-o parent=eno1.20', false)
-            ->assertSee('STUDENT_PROBE_DNS_SERVERS=10.0.20.1', false)
-            ->assertSee('STAFF_PROBE_DNS_SERVERS=10.0.10.1', false);
+            ->assertSee('COMPOSE_FILE=compose.yml:compose.vlan.yml', false);
+
+        $file = $this->actingAs($admin)->get(route('admin.policy.setup.compose', ['parent' => 'eno1']))->getContent();
+        $this->assertStringContainsString("probe-student:\n    environment:\n      PROBE_DNS_SERVERS: 10.0.20.1", $file, 'DNS set in the file, not .env');
+        $this->assertStringContainsString("probe-staff:\n    environment:\n      PROBE_DNS_SERVERS: 10.0.10.1", $file);
 
         $this->actingAs($admin)->post(route('admin.policy.setup.profiles'))->assertSessionHas('success');
         $this->assertSame('sim-student', NetworkProfile::query()->where('key', 'student')->value('unifi_network_id'));

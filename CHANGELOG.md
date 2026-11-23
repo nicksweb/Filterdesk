@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.9
+
+### Added
+- **Guided setup in four steps**: connect UniFi, match your filters, place the probes, switch on and check, with progress at the top and the terms explained. Each UniFi filter is one plain choice (*Students filtering*, *Extra blocklist layer on top of…*, *Leave it alone*); linking and creating policies happen behind it.
+- **Baseline filtering**: a network with no UniFi content filter gets the Students filter (or a chosen baseline policy) at the next check in Active mode, and IT is emailed, unless an admin allows it to stay unfiltered with a reason. Networks already unfiltered when this starts wait for a decision (Networks & filters → *Baseline filtering*, and the setup checklist).
+- **Paused filters**: a content filter disabled in UniFi is flagged on Networks & filters, its networks count as unfiltered, and IT is emailed once. They are not changed automatically, since pausing is usually deliberate.
+- **Students only see student access**: a student's website check runs only on the probes for their network types (Students unless sign-in groups say otherwise); staff and IT still see every network.
+- **Which network am I on?** The check page recognises the network from the visitor's address (UniFi subnets) and says what filtering it gets; staff see that network's result first.
+- **Users**: correct a name (kept at later single sign-ons), change a local account's email, and delete accounts. A deleted user's requests stay under *Deleted user*.
+- **Network profiles** can be deleted.
+- README screenshots of checks, Insights and Protection.
+
+### Changed
+- **compose.vlan.yml holds everything**: each probe's DNS is set in the file, so nothing goes in `.env` but one `COMPOSE_FILE` line. Extra probes extend the student probe, and each probe's only way out is its VLAN (`networks: !override`, Docker Compose 2.24 or later), so it cannot fall back to the server's network on any Docker Engine.
+- **One COMPOSE_FILE line instead of `-f`** everywhere: the generated file, the page and the docs give the line to put in `.env` (with `compose.proxy.yml` when Filterdesk is reached through a proxy). `-f` replaces `COMPOSE_FILE`, and leaving out `compose.proxy.yml` caused 502s.
+- The generated file checks the macvlan networks exist before starting.
+- The app waits for probes to start, not to be healthy, so a probe that cannot reach its VLAN no longer keeps the admin pages down.
+
+### Fixed
+- **No `eth0` guess for the trunk interface**: the app cannot see the host's interfaces. Until the trunk is saved, the commands contain `<trunk>` and the file says *NOT READY*; the page shows how to find it with `bin/probe-interfaces`.
+- **Saving Settings → Network profiles failed** (since 2026.12.0) whenever a profile existed, so probes could not be switched on.
+
 ## 2026.12.8
 
 ### Fixed

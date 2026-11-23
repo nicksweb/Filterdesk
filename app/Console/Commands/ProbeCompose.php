@@ -3,18 +3,20 @@
 namespace App\Console\Commands;
 
 use App\Services\Policy\ProbePlanner;
+use App\Services\SettingsRepository;
 use Illuminate\Console\Command;
 
 /**
  * Prints compose.vlan.yml for every planned probe, so it can be written on
  * the Docker host:
- * docker compose exec -T app php artisan probes:compose --parent=eth0 > compose.vlan.yml
+ * docker compose exec -T app php artisan probes:compose > compose.vlan.yml
  */
 class ProbeCompose extends Command
 {
     protected $signature = 'probes:compose
         {--parent= : Default host trunk interface (otherwise the one saved in Guided setup)}
-        {--network=* : Extra controller network id to give its own probe (otherwise the saved ones)}';
+        {--network=* : Extra controller network id to give its own probe (otherwise the saved ones)}
+        {--proxy= : yes or no: include compose.proxy.yml in the COMPOSE_FILE line (otherwise as last seen in Guided setup)}';
 
     protected $description = 'Print compose.vlan.yml with one probe container per policy (and any extra networks)';
 
@@ -28,7 +30,15 @@ class ProbeCompose extends Command
             return self::FAILURE;
         }
 
-        $this->output->write($planner->composeFile($plans));
+        $proxy = match (strtolower((string) $this->option('proxy'))) {
+            'yes', '1', 'true' => true,
+            'no', '0', 'false' => false,
+            default => (bool) app(SettingsRepository::class)->get('probes.behind_proxy', false),
+        };
+        if (! $planner->ready($plans)) {
+            $this->getOutput()->getErrorStyle()->warning('Not ready: set the trunk interface in Guided setup (bin/probe-interfaces on the host finds it). The file has <...> placeholders.');
+        }
+        $this->output->write($planner->composeFile($plans, $proxy));
 
         return self::SUCCESS;
     }

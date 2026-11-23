@@ -53,7 +53,7 @@ class ProbeDiagnosticsTest extends TestCase
 
         $page = $this->actingAs(User::factory()->admin()->create())->get(route('admin.settings.show', 'profiles'))->assertOk();
         $page->assertSee('Setup checklist for Student Access')->assertSee('Gateway reachable')
-            ->assertSee('carries VLAN 20 tagged', false)->assertSee('sudo bin/probe-interfaces --listen eth0', false)
+            ->assertSee('carries VLAN 20 tagged', false)->assertSee('sudo bin/probe-interfaces --listen &lt;trunk&gt;', false)
             ->assertSee('turn off the firewall', false)
             ->assertSee('inside Guest Wi-Fi&#039;s DHCP range', false)->assertSee('end the DHCP range below 10.0.80.241', false)->assertSee('Reserve 10.0.80.241 in UniFi')
             ->assertSee('No policy covers Guest Wi-Fi', false)
@@ -73,7 +73,7 @@ class ProbeDiagnosticsTest extends TestCase
 
         $this->artisan('probes:check')->assertSuccessful()
             ->expectsOutputToContain("not Student Access's gateway 10.0.20.1")
-            ->expectsOutputToContain('-f compose.vlan.yml')
+            ->expectsOutputToContain('COMPOSE_FILE line that includes compose.vlan.yml')
             ->expectsOutputToContain('Check PROBE_SHARED_KEY');
     }
 

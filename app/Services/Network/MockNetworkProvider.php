@@ -56,6 +56,17 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
         Cache::forever(self::STATE_KEY, $filters);
     }
 
+    public function attachNetworksToContentFilter(string $filterId, array $networkIds): void
+    {
+        $filters = $this->contentFilters();
+        $index = collect($filters)->search(fn (array $filter) => $filter['id'] === $filterId);
+        if ($index === false) {
+            throw new ProviderRequestFailed('That content filter no longer exists in the simulation.');
+        }
+        $filters[$index]['network_ids'] = array_values(array_unique([...$filters[$index]['network_ids'], ...$networkIds]));
+        Cache::forever(self::STATE_KEY, $filters);
+    }
+
     public function createContentFilter(string $name, array $networkIds, array $categories): array
     {
         $filter = ['id' => 'sim-filter-'.Str::slug($name).'-'.Str::lower(Str::random(4)), 'name' => $name, 'enabled' => true, 'allow' => [], 'block' => [],

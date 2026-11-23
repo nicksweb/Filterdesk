@@ -34,12 +34,19 @@ class WebsiteChecker
     /** Long enough for a batch of slow pages with screenshots (probe page timeout plus settling, run in parallel). */
     private const PROBE_TIMEOUT_SECONDS = 45;
 
-    public function checkMany(array $targets, bool $screenshot = true): array
+    /**
+     * @param  list<string>|null  $audiences  only probes of these network types (null: every probe)
+     * @param  string|null  $first  the probe key to list first (the visitor's own network)
+     */
+    public function checkMany(array $targets, bool $screenshot = true, ?array $audiences = null, ?string $first = null): array
     {
-        $profiles = NetworkProfile::query()->where('enabled', true)->orderBy('sort_order')->orderBy('id')->get();
+        $profiles = NetworkProfile::query()->where('enabled', true)
+            ->when($audiences !== null, fn ($query) => $query->whereIn('audience', $audiences))
+            ->orderBy('sort_order')->orderBy('id')->get()
+            ->sortBy(fn (NetworkProfile $profile) => $profile->key === $first ? 0 : 1)->values();
 
         if ($profiles->isEmpty()) {
-            throw new RuntimeException('No network probe profiles are configured.');
+            throw new RuntimeException($audiences === null ? 'No network probe profiles are configured.' : 'No probe checks your network yet. Ask IT to set one up.');
         }
 
         $started = hrtime(true);

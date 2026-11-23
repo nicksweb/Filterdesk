@@ -42,7 +42,7 @@ class ControllerImportTest extends TestCase
     {
         $admin = User::factory()->admin()->create();
         $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()
-            ->assertSee('Bring everything in')->assertSee('Looks like a blocklist layer of Staff', false);
+            ->assertSee('Bring everything in')->assertSee('Extra blocklist layer on top of Staff', false);
 
         $this->actingAs($admin)->post(route('admin.policy.setup.import-all'))->assertRedirect()->assertSessionHas('success');
 
@@ -65,7 +65,7 @@ class ControllerImportTest extends TestCase
         }
         $this->assertTrue(NetworkProfile::query()->where('key', 'staff')->value('unifi_network_id') === 'sim-staff');
 
-        $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('Ready to go')->assertSee('layer of Staff', false);
+        $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('Switch on and check')->assertSee('(extra blocklist layer)', false);
         $this->actingAs($admin)->post(route('admin.policy.setup.import-all'))->assertSessionHas('success');
         $this->assertSame(3, FilterPolicy::query()->count(), 'Running it again changes nothing');
     }
@@ -111,7 +111,12 @@ class ControllerImportTest extends TestCase
         $this->assertStringContainsString('-o parent=eno1.10 itr_staff_vlan', $file, 'Tagged VLAN on the trunk');
         $this->assertStringContainsString('-o parent=eno2 itr_student_vlan', $file, 'Per-probe override');
         $this->assertStringContainsString('-o parent=eno1.80 itr_net_guest_wi_fi_80_vlan', $file, 'Saved extra network');
-        $this->assertStringContainsString('# Host interfaces: probe-student → eno2, probe-staff → eno1.10, probe-net-guest-wi-fi-80 → eno1.80', $file);
+        $this->assertStringContainsString('#   probe-student → eno2 (VLAN 20', $file);
+        $this->assertStringContainsString('#   probe-net-guest-wi-fi-80 → eno1.80 (VLAN 80', $file);
+        $this->assertStringNotContainsString('NOT READY', $file);
+        $this->assertStringContainsString('extends: { file: compose.yml, service: probe-student }', $file, 'Extra probes reuse the base probe');
+        $this->assertStringContainsString('networks: !override', $file, 'The VLAN is the only way out');
+        $this->assertStringNotContainsString('DOCKER_NETWORK', $file, 'Nothing to add to .env but COMPOSE_FILE');
 
         $this->artisan('probes:compose')->assertSuccessful()->expectsOutputToContain('-o parent=eno1.80');
         $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('value="eno1"', false)->assertSee('set by hand');

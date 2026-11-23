@@ -9,6 +9,8 @@ use App\Services\AuditLogger;
 use App\Services\Policy\ControllerImporter;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\ProbePlanner;
+use App\Services\SettingsRepository;
+use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -22,8 +24,14 @@ use Illuminate\View\View;
  */
 class ControllerSetupController extends Controller
 {
-    public function show(Request $request, ControllerSync $sync, ProbePlanner $planner, ControllerImporter $importer): View
+    public function show(Request $request, ControllerSync $sync, ProbePlanner $planner, ControllerImporter $importer, SettingsRepository $settings, ProbeDiagnostics $diagnostics): View
     {
+        // Remember whether people reach the app through a reverse proxy, so the
+        // COMPOSE_FILE line (here and from probes:compose) includes compose.proxy.yml.
+        $proxy = $request->isFromTrustedProxy();
+        if ((bool) $settings->get('probes.behind_proxy', false) !== $proxy) {
+            $settings->set('probes.behind_proxy', $proxy);
+        }
         $state = $sync->state($request->boolean('refresh'));
         $policies = FilterPolicy::query()->with('layerOf', 'networkProfile')->ordered()->get();
         $networks = $state['error'] ? collect() : $sync->networkReport($state);
@@ -33,8 +41,23 @@ class ControllerSetupController extends Controller
         $extra = $this->extraNetworks($request) ?? $saved['extra'];
         $plans = $planner->plan($parent, $extra);
         $filterNames = collect($state['filters'])->pluck('name', 'id');
+        $linked = $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference));
+        $profiles = NetworkProfile::query()->orderBy('sort_order')->get();
+        $probeProfiles = $profiles->filter(fn (NetworkProfile $profile) => $plans->contains(fn (array $plan) => $plan['profile']?->is($profile)));
+        $steps = [
+            'connect' => ! $state['error'],
+            'filters' => ! $state['error'] && $state['filters'] !== [] && collect($state['filters'])->every(fn (array $filter) => $linked->contains('provider_reference', $filter['id'])),
+            'probes' => $planner->ready($plans) && $plans->every(fn (array $plan) => $plan['profile'] !== null),
+            'check' => $probeProfiles->isNotEmpty() && $probeProfiles->every(fn (NetworkProfile $profile) => $profile->enabled && ($diagnostics->cached($profile)['state'] ?? null) === 'ok'),
+        ];
 
         return view('admin.policy.setup', [
+            'steps' => $steps,
+            'current' => array_search(false, $steps, true) ?: 'done',
+            'composeLine' => $planner->composeFileLine($proxy),
+            'behindProxy' => $proxy,
+            'ready' => $planner->ready($plans),
+            'probeProfiles' => $probeProfiles,
             'state' => $state,
             'filters' => collect($state['filters'])->map(fn (array $filter) => $filter + [
                 'linked' => $policies->firstWhere('provider_reference', $filter['id']),
@@ -45,13 +68,10 @@ class ControllerSetupController extends Controller
             ]),
             'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
             'parentFilters' => collect($state['filters'])->reject(fn (array $filter) => ($suggestions[$filter['id']]['action'] ?? null) === 'layer')->values(),
-            'linkedCount' => $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference))->count(),
-            'ready' => [
-                'policies' => $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference))->values(),
-                'mapped' => $networks->whereNotNull('policy')->count(),
-                'networks' => $networks->count(),
-                'profiles' => NetworkProfile::query()->orderBy('sort_order')->get(),
-            ],
+            'linkedCount' => $linked->count(),
+            'linked' => $linked->values(),
+            'mapped' => $networks->whereNotNull('policy')->count(),
+            'networkCount' => $networks->count(),
             'parent' => $parent,
             'saved' => $saved,
             'extra' => $extra,
@@ -64,7 +84,8 @@ class ControllerSetupController extends Controller
     {
         $validated = $request->validate([
             'filters' => ['required', 'array'],
-            'filters.*.action' => ['required', 'in:skip,link,create,layer'],
+            'filters.*.as' => ['nullable', 'string', 'max:200', 'regex:/^(skip|type:[a-z0-9_]+|layer:.+)$/'],
+            'filters.*.action' => ['nullable', 'required_without:filters.*.as', 'in:skip,link,create,layer'],
             'filters.*.policy_id' => ['nullable', 'integer', 'exists:filter_policies,id'],
             'filters.*.audience' => ['nullable', Rule::exists('network_types', 'key')],
             'filters.*.import' => ['nullable', 'boolean'],
@@ -76,10 +97,51 @@ class ControllerSetupController extends Controller
             return back()->with('error', $state['error']);
         }
 
-        $done = $importer->apply($state, $validated['filters'], $request->user());
+        $choices = $this->choices($validated['filters'], $importer->suggest($state));
+        $done = $importer->apply($state, $choices, $request->user());
 
         return redirect()->route('admin.policy.setup.show')->withFragment('probes')
-            ->with('success', $done ? 'Set up: '.implode('; ', $done).'. Next, set up a probe for each policy below.' : 'Nothing was changed.');
+            ->with('success', $done ? 'Set up: '.implode('; ', $done).'. Next: step 3, the probes.' : 'Nothing was changed.');
+    }
+
+    /**
+     * Turn the form's one plain choice per filter ("Students filtering",
+     * "extra blocklist on top of X", "leave it alone") into importer
+     * actions. A filter given a network type reuses the policy picked under
+     * Advanced, else the suggested spare policy of that type, else gets a new one.
+     *
+     * @param  array<string, array<string, mixed>>  $filters
+     * @param  array<string, array<string, mixed>>  $suggestions
+     * @return array<string, array<string, mixed>>
+     */
+    private function choices(array $filters, array $suggestions): array
+    {
+        $choices = [];
+        foreach ($filters as $id => $choice) {
+            $as = (string) ($choice['as'] ?? '');
+            if ($as === '') {
+                $choices[$id] = $choice;
+
+                continue;
+            }
+            $import = (bool) ($choice['import'] ?? true);
+            if ($as === 'skip') {
+                $choices[$id] = ['action' => 'skip'];
+            } elseif (str_starts_with($as, 'layer:')) {
+                $choices[$id] = ['action' => 'layer', 'parent' => substr($as, 6), 'import' => $import];
+            } else {
+                $audience = substr($as, 5);
+                $picked = filled($choice['policy_id'] ?? null) ? FilterPolicy::query()->main()->find($choice['policy_id']) : null;
+                $suggested = $suggestions[$id] ?? null;
+                $spare = ($suggested['action'] ?? null) === 'link' && ($suggested['audience'] ?? null) === $audience ? $suggested['policy_id'] : null;
+                $policyId = $picked?->id ?? $spare;
+                $choices[$id] = $policyId
+                    ? ['action' => 'link', 'policy_id' => $policyId, 'audience' => $audience, 'import' => $import]
+                    : ['action' => 'create', 'audience' => $audience, 'import' => $import];
+            }
+        }
+
+        return $choices;
     }
 
     /**
@@ -116,7 +178,7 @@ class ControllerSetupController extends Controller
     /** The planned compose.vlan.yml for every probe, as a file. */
     public function compose(Request $request, ProbePlanner $planner): Response
     {
-        return response($planner->composeFile($planner->plan($this->parentOverride($request), $this->extraNetworks($request))), 200, [
+        return response($planner->composeFile($planner->plan($this->parentOverride($request), $this->extraNetworks($request)), $request->isFromTrustedProxy()), 200, [
             'Content-Type' => 'text/yaml; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="compose.vlan.yml"',
         ]);
@@ -173,7 +235,10 @@ class ControllerSetupController extends Controller
         ]);
         $audit->log('policy.probe_interfaces_saved', null, ['trunk' => $validated['trunk'], 'interfaces' => count(array_filter($validated['interfaces'] ?? []))]);
 
-        return redirect()->route('admin.policy.setup.show')->withFragment('probes')->with('success', 'Probe settings saved. The download and probes:compose now use them. If you changed an address, recreate that probe\'s Docker network (docker network rm, then the create command in the file) before starting it.');
+        // Profiles follow the plan straight away, so step 4 can list them.
+        $this->prepareProfiles($planner, null, null);
+
+        return redirect()->route('admin.policy.setup.show')->withFragment('host')->with('success', 'Saved. Now run the steps on the Docker host below. If you changed an address, remove that probe\'s Docker network first (docker network rm) and create it again.');
     }
 
     private function parentOverride(Request $request): ?string

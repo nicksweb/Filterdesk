@@ -6,20 +6,22 @@ use App\Models\PolicyEntry;
 use App\Models\WebsiteCheck;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
+use App\Services\Website\NetworkLocator;
 use App\Services\Website\WebsiteChecker;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use RuntimeException;
 
 class WebsiteCheckController extends Controller
 {
-    public function create(): View
+    public function create(Request $request, NetworkLocator $locator): View
     {
-        return view('checks.create');
+        return view('checks.create', ['here' => $locator->locate($request->ip())]);
     }
 
-    public function store(Request $request, DomainNormalizer $domains, WebsiteChecker $checker): View
+    public function store(Request $request, DomainNormalizer $domains, WebsiteChecker $checker, NetworkLocator $locator): View
     {
         $validated = $request->validate(['websites' => ['required', 'string', 'max:10000']]);
         $values = array_values(array_unique(array_filter(array_map(
@@ -42,7 +44,13 @@ class WebsiteCheckController extends Controller
             $targets[] = ['url' => $url, 'hostname' => $domains->one($url)];
         }
 
-        $result = $checker->checkMany($targets, true);
+        $here = $locator->locate($request->ip());
+        try {
+            // Students see only their own level of access; staff and IT see every network, theirs first.
+            $result = $checker->checkMany($targets, true, $request->user()->checkAudiences(), $here['profile']?->key ?? null);
+        } catch (RuntimeException $exception) {
+            throw ValidationException::withMessages(['websites' => $exception->getMessage()]);
+        }
 
         DB::transaction(function () use ($request, $result): void {
             foreach ($result['checks'] as $check) {
@@ -59,6 +67,7 @@ class WebsiteCheckController extends Controller
         PolicyEntry::markSeen(array_column($result['checks'], 'hostname'));
 
         return view('checks.create', [
+            'here' => $here,
             'checks' => $result['checks'], 'duration' => $result['duration_ms'],
             'categories' => rescue(fn () => app(DomainCategorizer::class)->many(collect($result['checks'])->pluck('hostname')->all()), [], false),
         ]);

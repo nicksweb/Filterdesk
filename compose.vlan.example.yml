@@ -1,27 +1,43 @@
-# Easiest: generate this file from Policy lists → Guided setup (Download
-# compose.vlan.yml), or run `php artisan probes:compose --parent=<trunk>` in the
-# app container. It covers every policy and any extra networks.
-#
-# Copy to compose.vlan.yml and replace these external network names with
-# Docker macvlan/ipvlan networks that egress through the relevant VLAN.
-# Also set STUDENT_PROBE_DNS_SERVERS / STAFF_PROBE_DNS_SERVERS in .env to each
-# VLAN's gateway so lookups go uncached to the resolver UniFi filters on.
+# Generate the real compose.vlan.yml in Filterdesk (Policies → Guided setup →
+# Download compose.vlan.yml), or on the Docker host with
+#   docker compose exec -T app php artisan probes:compose > compose.vlan.yml
+# It covers every policy and extra network, with the commands to run first.
+# This example shows its shape for two VLANs: everything a probe needs is in
+# the file, and its VLAN is its only way out (Docker Compose 2.24 or later).
+# List it in .env:  COMPOSE_FILE=compose.yml:compose.proxy.yml:compose.vlan.yml
 services:
   probe-student:
-    networks:
+    environment:
+      PROBE_DNS_SERVERS: 10.0.20.1          # the VLAN's gateway
+    networks: !override
       probe_control: {}
       student_vlan:
         gw_priority: 1
+        ipv4_address: 10.0.20.241
+        mac_address: 02:00:00:00:00:20
   probe-staff:
-    networks:
+    environment:
+      PROBE_DNS_SERVERS: 10.0.10.1
+    networks: !override
       probe_control: {}
       staff_vlan:
         gw_priority: 1
+        ipv4_address: 10.0.10.241
+        mac_address: 02:00:00:00:00:10
+  # A probe for another network reuses the student probe's definition.
+  probe-guest:
+    extends: { file: compose.yml, service: probe-student }
+    environment:
+      PROBE_DNS_SERVERS: 10.0.80.1
+      ALLOWED_PRIVATE_HOSTS: ""
+    networks: !override
+      probe_control: {}
+      guest_vlan:
+        gw_priority: 1
+        ipv4_address: 10.0.80.241
+        mac_address: 02:00:00:00:00:80
 
 networks:
-  student_vlan:
-    external: true
-    name: ${STUDENT_DOCKER_NETWORK}
-  staff_vlan:
-    external: true
-    name: ${STAFF_DOCKER_NETWORK}
+  student_vlan: { external: true, name: itr_student_vlan }
+  staff_vlan: { external: true, name: itr_staff_vlan }
+  guest_vlan: { external: true, name: itr_guest_vlan }

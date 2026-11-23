@@ -59,7 +59,7 @@ class ProbeSetupController extends Controller
         $audit->log('probe.address_changed', $profile, ['address' => $address]);
         $plan = $planner->plan()->first(fn (array $plan) => $plan['network']->provider_network_id === $network->provider_network_id);
 
-        return back()->with('success', "{$profile->name} will use {$address}. Apply it on the Docker host: regenerate compose.vlan.yml (docker compose exec -T app php artisan probes:compose > compose.vlan.yml), then docker network rm ".($plan['docker_network'] ?? 'its network').', run its create command from the top of the file, and start the stack with -f compose.vlan.yml.');
+        return back()->with('success', "{$profile->name} will use {$address}. Apply it on the Docker host: regenerate compose.vlan.yml (Guided setup, or docker compose exec -T app php artisan probes:compose > compose.vlan.yml), then docker network rm ".($plan['docker_network'] ?? 'its network').', run its create command from the top of the file, and docker compose up -d.');
     }
 
     public function review(Request $request, NetworkProfile $profile, ProbeDiagnostics $diagnostics, SettingsRepository $settings, AuditLogger $audit): RedirectResponse

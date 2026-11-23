@@ -164,9 +164,8 @@ SMTP is normally set in the wizard (Settings → Email). These are only used bef
 | `PROBE_TIMEOUT_MS` | `8000` | How long a check waits for a page to load. |
 | `BLOCK_PAGE_PATTERN` | `blocked\|access denied\|…` | Regular expression for text on your block page, used to recognise a blocked result. |
 | `BLOCK_PAGE_ADDRESSES` | *empty* | Comma-separated IPs UniFi answers with for blocked names (its block page). `0.0.0.0` always counts as blocked. A check of a blocked site shows the address to use. |
-| `STUDENT_PROBE_DNS_SERVERS` / `STAFF_PROBE_DNS_SERVERS` | *empty* | The VLAN gateway for each built-in probe, so lookups go uncached to the resolver UniFi filters on. The generated `compose.vlan.yml` lists these. Extra probes have theirs inside the file. |
+| `STUDENT_PROBE_DNS_SERVERS` / `STAFF_PROBE_DNS_SERVERS` | *empty* | Leave empty. The generated `compose.vlan.yml` sets each probe's DNS (its VLAN gateway) itself; these are only for running the two built-in probes without it. |
 | `STUDENT_ALLOWED_PRIVATE_HOSTS` / `STAFF_ALLOWED_PRIVATE_HOSTS` | *empty* | Hostnames on private addresses that a probe may load (for example an internal block page). Everything else private is refused, to stop the probes being used to reach internal systems. |
-| `STUDENT_DOCKER_NETWORK` / `STAFF_DOCKER_NETWORK` | example names | The macvlan network each built-in probe joins. The generated file tells you what to put here. |
 | `PROBE_REUSE_BROWSER` | `false` | Keep `false`, so every check starts with an empty DNS cache. |
 
 ### Capacity (several people at once)
@@ -185,6 +184,14 @@ A website check runs while the person waits: the app asks every probe at once, a
 | --- | --- | --- |
 | `REVERSE_PROXY_NETWORK` | `frontend` | Only with `compose.proxy.yml`: the Docker network your proxy container is on. |
 
+### Which compose files (`COMPOSE_FILE`)
+
+| Variable | Default | What to set |
+| --- | --- | --- |
+| `COMPOSE_FILE` | `compose.yml` | Every compose file the install uses, separated by `:`. Add `compose.proxy.yml` for a reverse proxy in Docker (step 5) and `compose.vlan.yml` once the probes are set up (step 9), for example `compose.yml:compose.proxy.yml:compose.vlan.yml`. |
+
+Every `docker compose` command (`up`, `pull`, `logs`, `ps`, `exec`) then uses all of them, so this guide never uses `-f`. Don't add `-f` yourself either: it replaces `COMPOSE_FILE` for that command, and leaving out `compose.proxy.yml` takes the web container off the proxy's network (*502 Bad Gateway*).
+
 ## 5. Start the stack
 
 Choose one:
@@ -200,21 +207,20 @@ Choose one:
 
   ```bash
   cp compose.proxy.example.yml compose.proxy.yml
-  docker compose -f compose.yml -f compose.proxy.yml pull
-  docker compose -f compose.yml -f compose.proxy.yml up -d
+  nano .env        # set COMPOSE_FILE=compose.yml:compose.proxy.yml
+  docker compose pull
+  docker compose up -d
   ```
-
-  Use the same `-f` files for every later `docker compose` command.
 
 This pulls the published images from the GitHub Container Registry (`ghcr.io/nicksweb/filterdesk-app`, `-web` and `-probe`); the probe image is large (Chromium), so the first pull takes a few minutes. Set `FILTERDESK_VERSION` in `.env` to an exact release (for example `2026.12.1`) so the install only changes when you upgrade.
 
-To **build from source** instead (for development, or to change the code), set `FILTERDESK_VERSION=local` and add `-f compose.build.yml`, building one image at a time:
+To **build from source** instead (for development, or to change the code), set `FILTERDESK_VERSION=local`, add `compose.build.yml` to `COMPOSE_FILE` (for example `compose.yml:compose.build.yml`), and build one image at a time:
 
 ```bash
-docker compose -f compose.yml -f compose.build.yml build app
-docker compose -f compose.yml -f compose.build.yml build web
-docker compose -f compose.yml -f compose.build.yml build probe-student
-docker compose -f compose.yml -f compose.build.yml up -d
+docker compose build app
+docker compose build web
+docker compose build probe-student
+docker compose up -d
 ```
 
  The one-off `migrate` container sets up the database, then the rest start.
@@ -235,7 +241,7 @@ Point the proxy at the app:
 
 > **8080, not 8088.** `8088` (`APP_PORT`) is published only on the host's loopback, for a proxy running on the host. A proxy in another container must use port `8080`. Use 8088 there and you get *502 Bad Gateway* (*connection refused* in the proxy's error log).
 > Use the full name `filterdesk-web`, not `web`: other stacks on a shared network often have a `web` service too, and the proxy may reach the wrong one.
-> Start the stack with `compose.proxy.yml` every time, or put `COMPOSE_FILE=compose.yml:compose.proxy.yml` in `.env` so a plain `docker compose up -d` includes it.
+> `COMPOSE_FILE` in `.env` must include `compose.proxy.yml` (step 5), so every `docker compose` command keeps the web container on the proxy's network.
 
 In Nginx Proxy Manager: add a proxy host for your hostname with that upstream (scheme `http`), request a certificate, and turn on **Force SSL**, **HTTP/2** and **HSTS**. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-For`, which all of the proxies above do by default. A plain Nginx example is in [DEPLOYMENT.md](DEPLOYMENT.md#reverse-proxy).
 
@@ -302,14 +308,16 @@ If sign-in fails, Settings → Authentication → *Provider details* shows the p
 
 ## 8. Bring UniFi in
 
-On **Policies → Guided setup** (the dashboard links to it), choose **Bring everything in**. It:
+**Policies → Guided setup** (the dashboard links to it) takes you through four steps: connect UniFi, match your filters, place the probes, switch on and check. Step 2 lists each UniFi content filter with what it will become, in plain words (for example *Students → Students filtering*). Choose **Bring everything in**. It:
 
 - creates a policy for each UniFi content filter, reusing the default *Students* and *Staff* policies where the network type fits;
 - recognises a second filter on the same networks that is named or shaped like a blocklist as a *layer*;
 - imports every allow and block entry, maps networks to policies and keeps categories as they are;
 - prepares a disabled probe profile per policy.
 
-Nothing changes in UniFi. If a guess is wrong, use the per-filter table below the button instead, or fix the mapping afterwards under *Networks & filters*.
+Nothing changes in UniFi. If a suggestion is wrong, open **Change a choice** and pick what each filter is for: filtering for a type of network (Students, Staff, Guest…), an *extra blocklist layer* on top of another filter (optional; only for big blocklist feeds), or *leave it alone*. *Advanced* picks a particular policy or skips importing.
+
+**Networks with no filter.** Under *Networks & filters → Baseline filtering*, every network without a UniFi content filter is listed. In Active mode, a network that appears later without a filter (or loses its filter) is added to the Students filter automatically at the next check (every 15 minutes), and IT is emailed. Networks that were already unfiltered when you set up wait for a decision: **Filter it now**, or **Allow unfiltered** with a reason (a server or management network, for example). The dashboard reminds admins until each has one.
 
 Rename or add network types under **Settings → Network types** if Staff and Students don't describe your networks (for example CCTV or Exam rooms), and set each policy's type.
 
@@ -319,28 +327,35 @@ Rename or add network types under **Settings → Network types** if Staff and St
 
 A check is only meaningful if the probe resolves DNS from the same network as the people it represents. UniFi filters DNS at the gateway, per network. So each probe gets its own interface on its policy's VLAN (macvlan), a fixed address, and that VLAN's gateway as its DNS server. This is not host networking: the Docker host's own network settings are untouched.
 
-1. **Tag the VLANs on the host's switch port.** In UniFi, give the port a profile with the host's normal network untagged (native) and each probe VLAN tagged.
-2. **Find the trunk interface.** On the host:
+Guided setup, step 3 (*Place the probes*), walks through this and shows the exact commands for your networks.
+
+1. **Tag the VLANs on the host's switch port.** In UniFi, give the port a profile with the host's normal network untagged (native) and each probe VLAN tagged. On a VM, the hypervisor must pass the tags too (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+2. **Find the trunk interface.** Filterdesk runs in a container and can't see the host's interface names, so it never guesses. On the host, in the Filterdesk folder:
 
    ```bash
-   bin/probe-interfaces                       # lists interfaces and suggests the trunk
-   sudo bin/probe-interfaces --listen eno1    # confirms which VLAN tags arrive on eno1
+   ./bin/probe-interfaces                      # lists interfaces; ends with "Suggested trunk: ens18"
+   sudo ./bin/probe-interfaces --listen ens18  # confirms which VLAN tags arrive on ens18
    ```
 
-3. **Plan.** On Guided setup → *Probe containers*, enter the trunk and tick any **extra probes** (guest Wi-Fi, BYOD, a lab). Use *Different interface* only if a network reaches the host on another NIC. Then **Save probe interfaces**.
-4. **Keep the probe addresses out of DHCP.** Each probe has a fixed address in a small reserved range at the top of its subnet, shown on the page. Make sure the UniFi DHCP range for that network ends below it.
-5. **Write and apply the file** on the host:
+   Most current systems name it `ens18`, `eno1` or `enp3s0`, not `eth0`.
+3. **Enter it** in Guided setup, step 3, tick any **extra probes** (guest Wi-Fi, BYOD, a lab), and **Save**. Use *Different interface* only if a network reaches the host on another NIC. Until the trunk is saved, the commands show `<trunk>` so they can't be run by mistake.
+4. **Keep the probe addresses out of DHCP.** Each probe has a fixed address near the top of its subnet, shown on the page. Make sure the UniFi DHCP range ends below it, or reserve it (the probe's checklist can do that for you).
+5. **On the host**, in the Filterdesk folder:
 
    ```bash
    docker compose exec -T app php artisan probes:compose > compose.vlan.yml
-   head -30 compose.vlan.yml      # run the 'docker network create' commands listed there, once
-   nano .env                      # add the *_DOCKER_NETWORK and *_PROBE_DNS_SERVERS lines it lists
-   docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
+   head -40 compose.vlan.yml            # run the 'docker network create' commands listed there, once
+   docker network ls --filter driver=macvlan   # must list every network the file names
+   nano .env                            # COMPOSE_FILE=compose.yml:compose.proxy.yml:compose.vlan.yml
+   docker compose up -d
    ```
 
-6. **Enable the probes.** Use **Create and link probe profiles**, then tick *On* for each profile under Settings → Network profiles.
+   Leave out `compose.proxy.yml` if you don't use it (the page and the file say which applies). The file holds everything each probe needs, DNS included, so nothing else goes in `.env`. Each probe's only way out is its VLAN, so it can never fall back to the server's own network and report the wrong filtering. This needs Docker Compose 2.24 or later (`docker compose version`).
+6. **Switch them on.** Under Settings → Network profiles, run each probe's checklist and tick *On* once it passes. Guided setup, step 4, shows where each one stands.
 
 **Finish each probe with its checklist.** Settings → Network profiles runs a setup checklist for every probe: network chosen, container running, on its VLAN, gateway reachable, DNS through the gateway, internet access, network filtered, address outside DHCP, switched on. Each failed step says what to fix (for example "give the switch port a profile that carries VLAN 20 tagged" or "turn off the Proxmox MAC filter"). The checklist reruns every 10 minutes, the dashboard reminds admins while any probe is unfinished, and `docker compose exec app php artisan probes:check` prints the same list on the host.
+
+If a probe can't start (its VLAN network is missing, say), the rest of Filterdesk still starts, so you can open its checklist and fix it.
 
 **Check:** every checklist is green and each probe is switched on. Settings → Network profiles shows each probe's address on its VLAN, its MAC, gateway and DNS, with no warnings. Each probe appears as a client on the right network in UniFi (name it there). A website check of a site you know is blocked for students shows *Blocked* for Students and *Allowed* for Staff.
 
@@ -379,7 +394,7 @@ Still in read-only mode (two IT officers make step 6 possible):
 Schedule backups first: `crontab -e` on the host, then add (with your own path and compose files):
 
 ```cron
-30 2 * * * cd /opt/filterdesk && COMPOSE="docker compose -f compose.yml -f compose.proxy.yml" bin/backup >> backups/backup.log 2>&1
+30 2 * * * cd /opt/filterdesk && bin/backup >> backups/backup.log 2>&1
 ```
 
 Copy `backups/` to another machine; it holds the database and `.env` (with `APP_KEY`), so protect it like a password store.
@@ -387,8 +402,9 @@ Copy `backups/` to another machine; it holds the database and `.env` (with `APP_
 | Task | How |
 | --- | --- |
 | Back up | `bin/backup` (a `pg_dump` and a copy of `.env`, kept 14 days in `backups/`); schedule it daily with cron and copy `backups/` off the host. See [DEPLOYMENT.md](DEPLOYMENT.md#backups). Test a restore. |
-| Update | `git pull --ff-only`, then `docker compose … build --pull` and `docker compose … up -d`. Read [CHANGELOG.md](../CHANGELOG.md) and [UPGRADING.md](UPGRADING.md) first. Rebuild monthly even without a release, for PHP, Chromium and OS patches. |
+| Update | `docker compose pull`, then `docker compose up -d` (from source: `git pull --ff-only`, then `docker compose build` one image at a time and `up -d`). Read [CHANGELOG.md](../CHANGELOG.md) and [UPGRADING.md](UPGRADING.md) first. Rebuild monthly even without a release, for PHP, Chromium and OS patches. |
 | Health | **Health** (coverage score), Health → Diagnostics, `docker compose ps`; `GET /api/v1/metrics` for Prometheus. The dashboard warns when a filter drifts from UniFi. |
 | Before a UniFi upgrade | `docker compose exec app php artisan unifi:compat` on a test console (or straight after upgrading): it checks, read-only, that every call the app uses still answers as expected. |
+| Users | Users: correct a name (a corrected single sign-on name is kept at later sign-ins), change a local account's email, or **Delete** an account. A deleted user's requests stay under *Deleted user*, and the audit log keeps who they were. |
 | Locked out | `docker compose exec app php artisan filterdesk:admin-password <email> --enable-local-login` |
 | Start again | See [Starting again in the README](../README.md#starting-again). |

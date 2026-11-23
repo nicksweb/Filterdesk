@@ -4,7 +4,14 @@ Filterdesk is an open-source, Docker-first self-service portal for schools. Staf
 
 The application is school-neutral: branding, identity, network profiles, policy and notifications are configured through the first-run wizard. UniFi Network is the first provider, behind a vendor-neutral interface.
 
-![Filterdesk installation wizard](docs/screenshots/installer.png)
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Check websites: compare Staff and Student access side by side](docs/screenshots/FilterDesk-Check-Websites.png) | ![Web filtering report with requests, decisions, policy versions and exception reviews](docs/screenshots/FilterDesk-WebFiltering-Report.png) |
+| **Check a website** from each network at once, with screenshots, then request access for whatever is blocked. | **Insights:** a termly report of requests, decisions, versions and reviews, with suggestions. No browsing data is used. |
+| ![Protection: DNS blocklists and firewall IP lists](docs/screenshots/FilterDesk-ProtectLists-WebandFirewall.png) | ![The first-run installation wizard](docs/screenshots/installer.png) |
+| **Protection:** subscribe to DNS blocklists (such as hagezi) and IP lists that keep a UniFi firewall group up to date. | **Installation wizard:** branding, sign-in, UniFi, networks, email and approvals in eight steps. |
 
 ## Current capabilities
 
@@ -84,8 +91,8 @@ With a reverse proxy in another Docker container (such as Nginx Proxy Manager), 
 
 ```bash
 cp compose.proxy.example.yml compose.proxy.yml   # set REVERSE_PROXY_NETWORK in .env if its network is not "frontend"
-docker compose -f compose.yml -f compose.proxy.yml pull
-docker compose -f compose.yml -f compose.proxy.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 and point the proxy host at `http://filterdesk-web:8080` (port **8080**, not 8088; see [SETUP step 6](docs/SETUP.md#6-set-up-the-reverse-proxy)). The images come from `ghcr.io/nicksweb/filterdesk-*`; the first pull takes a few minutes. To build from source instead, see [docs/SETUP.md](docs/SETUP.md#5-start-the-stack). `docker compose ps` should show `db`, `web` and both probes healthy.
@@ -115,7 +122,7 @@ Out of the box the probes use Docker's own network, which is fine for a first lo
 2. Download `compose.vlan.yml` (or `docker compose exec -T app php artisan probes:compose > compose.vlan.yml`), run the `docker network create` commands at the top of it, add its `.env` lines, and restart with the extra file:
 
    ```bash
-   docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
+   docker compose up -d
    ```
 
 3. **Create and link probe profiles**, enable each under *Settings → Network profiles*, and check the address, MAC, gateway and DNS each probe reports there.
@@ -134,7 +141,7 @@ To wipe an install and run the wizard again (this deletes its database; UniFi is
 
 ```bash
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > filterdesk-backup.dump   # optional backup
-docker compose -f compose.yml -f compose.proxy.yml down -v --rmi local
+docker compose down -v --rmi local
 mv .env .env.old && ./bin/install
 ```
 
@@ -162,8 +169,8 @@ Configuration and data are stored in `data/` (the database and storage, as bind 
 ```bash
 git pull --ff-only                       # newer compose.yml, docs and scripts
 # set FILTERDESK_VERSION in .env to the new release, then:
-docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml pull
-docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 Leave out any override file you do not use.

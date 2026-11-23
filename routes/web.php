@@ -127,6 +127,9 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/setup/import-all', [ControllerSetupController::class, 'importAll'])->middleware('throttle:6,1')->name('setup.import-all');
                     Route::get('/setup/compose-vlan', [ControllerSetupController::class, 'compose'])->name('setup.compose');
                     Route::post('/networks/link', [NetworkMapController::class, 'link'])->name('networks.link');
+                    Route::post('/networks/baseline', [NetworkMapController::class, 'baseline'])->middleware('throttle:10,1')->name('networks.baseline');
+                    Route::put('/networks/baseline-policy', [NetworkMapController::class, 'baselinePolicy'])->name('networks.baseline-policy');
+                    Route::put('/networks/{network}/unfiltered', [NetworkMapController::class, 'allowUnfiltered'])->name('networks.unfiltered');
                     Route::post('/policies/{policy}/categories', [FilterPolicyController::class, 'categories'])->middleware('throttle:10,1')->name('policies.categories');
                     Route::post('/policies/{policy}/layer', [PolicyLayerController::class, 'store'])->middleware('throttle:6,1')->name('policies.layer.store');
                     Route::post('/policies/{policy}/verify-write', [FilterPolicyController::class, 'verifyWrite'])->middleware('throttle:6,1')->name('policies.verify-write');
@@ -150,6 +153,7 @@ Route::middleware('installed')->group(function (): void {
             Route::post('/integrations/webhooks/{webhook}/test', [IntegrationController::class, 'testWebhook'])->middleware('throttle:10,1')->name('integrations.webhooks.test');
             Route::post('/users', [UserController::class, 'store'])->name('users.store');
             Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+            Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
             Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])->name('users.impersonate');
             Route::post('/preview/{role}', [ImpersonationController::class, 'preview'])->name('preview');
             Route::get('/settings/{section?}', [SettingsController::class, 'show'])->defaults('section', 'general')->name('settings.show');

@@ -92,10 +92,11 @@ class ProbeDiagnostics
         $network = $profile->unifi_network_id ? NetworkAssignment::query()->with('filterPolicy')->where('provider_network_id', $profile->unifi_network_id)->first() : null;
         $subnet = $network ? $this->planner->subnet($network->subnet) : null;
         $expectedGateway = $subnet['gateway'] ?? null;
-        $trunk = $this->planner->saved()['trunk'];
+        $trunk = $this->planner->saved()['trunk'] ?: '<trunk>';
         $interface = $this->planner->saved()['interfaces'][$network?->provider_network_id] ?? ($network?->vlan ? "{$trunk}.{$network->vlan}" : $trunk);
         $vlanText = $network ? ($network->vlan ? "VLAN {$network->vlan}" : 'the untagged (native) network') : 'its network';
-        $compose = 'docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml';
+        // COMPOSE_FILE in .env lists every override, so plain commands use them all.
+        $compose = 'docker compose';
         $checks = [];
 
         // 1. The probe knows which network it is for.
@@ -110,7 +111,7 @@ class ProbeDiagnostics
         if (! $report['ok']) {
             $checks[] = $this->check('running', 'Probe container running', 'fail', $report['message'], [
                 "Check it is running on the Docker host: {$compose} ps",
-                'If it is missing, add it to compose.vlan.yml (download it from Guided setup, or run: docker compose exec -T app php artisan probes:compose > compose.vlan.yml) and start it with the command above plus "up -d".',
+                'If it is missing, regenerate compose.vlan.yml (Guided setup, step 3), check .env has COMPOSE_FILE=…:compose.vlan.yml, then docker compose up -d.',
                 "Check the probe URL on this profile matches the service name, for example http://{$this->serviceFor($profile)}:3000.",
             ]);
 
@@ -126,9 +127,9 @@ class ProbeDiagnostics
             $checks[] = $onVlan
                 ? $this->check('vlan', "On {$network->name}", 'ok', "Address {$address}, MAC ".($vlan['mac'] ?? '?').", gateway {$expectedGateway}.")
                 : $this->check('vlan', "On {$network->name}", 'fail', 'Its traffic leaves through '.($report['gateway'] ?? 'an unknown gateway')." ({$address}), not {$network->name}'s gateway {$expectedGateway}, so it sees the Docker host's filtering instead.", [
-                    'Under Guided setup → Probe containers, check the trunk interface and save.',
-                    'Regenerate compose.vlan.yml, run the "docker network create" commands at its top once, add its .env lines, then restart: '.$compose.' up -d',
-                    'Every later docker compose command must include -f compose.vlan.yml, or the probes fall back to Docker\'s own network.',
+                    'Under Guided setup, step 3, check the trunk interface and save.',
+                    'Regenerate compose.vlan.yml, run the "docker network create" commands at its top once, then: '.$compose.' up -d',
+                    'Make sure .env has one COMPOSE_FILE line that includes compose.vlan.yml, and do not add -f to commands (it replaces that list).',
                 ]);
         }
 
@@ -151,7 +152,7 @@ class ProbeDiagnostics
         if ($report['dns_ok'] ?? false) {
             $checks[] = $expectedGateway && ! in_array($expectedGateway, $dnsServers, true)
                 ? $this->check('dns', 'DNS through the filtering gateway', 'warn', 'Lookups work, but go to '.implode(', ', $dnsServers)." instead of {$expectedGateway}, so they may not be filtered the way {$network?->name} is.", [
-                    "Set this probe's DNS to {$expectedGateway}: for probe-student and probe-staff use STUDENT_PROBE_DNS_SERVERS / STAFF_PROBE_DNS_SERVERS in .env; for other probes PROBE_DNS_SERVERS in compose.vlan.yml. Then restart it.",
+                    "Set this probe's DNS to {$expectedGateway}: regenerate compose.vlan.yml in Guided setup (it sets PROBE_DNS_SERVERS for every probe), then docker compose up -d.",
                 ])
                 : $this->check('dns', 'DNS through the filtering gateway', 'ok', 'Lookups go to '.implode(', ', $dnsServers).'.');
         } else {

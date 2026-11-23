@@ -408,13 +408,24 @@ class SettingsController extends Controller
             'profiles.*.unifi_network_id' => ['nullable', 'string', 'max:120'],
             'profiles.*.enabled' => ['nullable', 'boolean'],
             'profiles.*.sort_order' => ['nullable', 'integer', 'min:0', 'max:1000'],
+            'profiles.*.delete' => ['nullable', 'boolean'],
             'new.name' => ['nullable', 'string', 'max:80'],
             'new.key' => ['nullable', 'required_with:new.name', 'alpha_dash', 'max:40', 'unique:network_profiles,key'],
             'new.audience' => ['nullable', 'required_with:new.name', Rule::exists('network_types', 'key')],
             'new.probe_url' => ['nullable', 'required_with:new.name', 'url', 'max:255'],
         ]);
 
+        $remaining = NetworkProfile::query()->count();
         foreach ($validated['profiles'] ?? [] as $id => $values) {
+            if (! empty($values['delete'])) {
+                // Its probe container stays until removed from compose.vlan.yml; policies just lose the link.
+                if (--$remaining < 1) {
+                    throw ValidationException::withMessages(["profiles.{$id}.delete" => 'Keep at least one network profile: website checks need a probe.']);
+                }
+                NetworkProfile::query()->whereKey($id)->delete();
+
+                continue;
+            }
             NetworkProfile::query()->whereKey($id)->update([
                 'name' => $values['name'],
                 'audience' => $values['audience'],
@@ -422,12 +433,7 @@ class SettingsController extends Controller
                 'unifi_network_id' => $values['unifi_network_id'] ?? null,
                 'enabled' => (bool) ($values['enabled'] ?? false),
                 'sort_order' => (int) ($values['sort_order'] ?? 0),
-                'exam_mode' => $values['exam_mode'] ?? $type->exam_mode ?? 'off',
             ]);
-            // Exam mode needs somewhere to put the sites it blocks.
-            if ($type->exam_mode !== 'off') {
-                $policy->examList($type->key);
-            }
         }
 
         if (filled($validated['new']['name'] ?? null)) {

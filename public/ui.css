@@ -250,3 +250,52 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .access-guide{margin-top:16px}.access-guide ol{padding-left:20px;margin:8px 0 0}.access-guide li{padding:3px 0}
 .claim-list{list-style:none;padding:0;margin:6px 0;columns:2}.claim-list li{font-size:.8rem;padding:2px 0}
 .group-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.group-chips .chip{font-size:.7rem;padding:1px 6px}
+/* Guided setup: steps */
+.setup-steps{list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0;margin:0 0 18px}
+.setup-steps a{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper,#fff);color:var(--muted);font-weight:650;font-size:.86rem}
+.setup-steps span{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);font-size:.78rem}
+.setup-steps li.current a{border-color:var(--blue);color:var(--ink)}
+.setup-steps li.current span{background:var(--blue);border-color:var(--blue);color:#fff}
+.setup-steps li.done span{background:#118a76;border-color:#118a76;color:transparent;font-size:0}
+.setup-steps li.done span:after{content:'\2713';color:#fff;font-size:.8rem}
+.setup-terms summary{cursor:pointer;font-weight:650}
+.setup-terms dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 22px;margin:14px 0 0}
+.setup-terms dt{font-weight:700;font-size:.86rem}
+.setup-terms dd{margin:2px 0 0;color:var(--muted);font-size:.84rem}
+.setup-step{margin-top:18px}
+.setup-step.is-done{opacity:.92}
+.setup-step.is-current{border-left:4px solid var(--blue)}
+.step-head{display:flex;gap:14px;align-items:flex-start}
+.step-head p{margin:2px 0 0;color:var(--muted);font-size:.88rem}
+.step-number{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:#eef2f6;font-weight:750}
+.is-done .step-number{background:#118a76;color:transparent;font-size:0}
+.is-done .step-number:after{content:'\2713';color:#fff;font-size:.9rem}
+.is-current .step-number{background:var(--blue);color:#fff}
+.setup-step h3{font-size:.95rem;margin:22px 0 8px}
+.setup-quick{display:flex;justify-content:space-between;align-items:center;gap:18px;border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:16px}
+.setup-quick h3{margin:0 0 6px}
+.plain-list{margin:0;padding-left:18px;font-size:.88rem}
+.setup-choices{margin-top:14px}
+.setup-choices>summary,.extra-probes>summary,.filter-advanced>summary{cursor:pointer;color:var(--blue);font-weight:650;font-size:.88rem}
+.filter-choice{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:8px 18px;padding:14px 0;border-bottom:1px solid var(--line)}
+.filter-choice>div>small{display:block;color:var(--muted)}
+.filter-advanced{grid-column:2}
+.filter-advanced label{margin-top:8px}
+.trunk-field{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:18px;align-items:start}
+.trunk-field p{margin:0 0 6px}
+.host-steps pre,.trunk-field pre{background:#f3f6f9;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+.numbered-steps{padding-left:20px;display:grid;gap:16px}
+.numbered-steps textarea{margin:6px 0}
+.probe-status-list{list-style:none;padding:0;margin:12px 0;display:grid;gap:8px}
+.probe-status-list li{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+/* Baseline filtering and users */
+.baseline-rows{display:grid;margin-top:10px}
+.baseline-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) auto;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.baseline-row>span:first-child small,.baseline-row>span small{display:block;color:var(--muted)}
+.inline-allow summary{list-style:none}
+.inline-allow form{display:grid;gap:8px;margin-top:8px;min-width:260px}
+.user-edit summary{list-style:none;cursor:pointer}
+.user-edit .fields{margin-top:8px}
+.chip+small{display:block}
+@media(max-width:760px){.setup-steps{grid-template-columns:1fr 1fr}.filter-choice,.trunk-field,.baseline-row{grid-template-columns:1fr}.filter-advanced{grid-column:auto}.setup-quick{flex-direction:column;align-items:flex-start}}
+.here-notice{margin:0 0 18px}

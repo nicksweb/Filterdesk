@@ -5,7 +5,8 @@
 #
 #   bin/backup                 # writes backups/filterdesk-<date>.dump and .env copy
 #   KEEP_DAYS=30 bin/backup    # also deletes backups older than 30 days (default 14)
-#   COMPOSE="docker compose -f compose.yml -f compose.proxy.yml" bin/backup
+#   Uses the compose files listed in COMPOSE_FILE in .env.
+#   COMPOSE="docker compose -p other" bin/backup   # another docker compose command
 #
 # Restore: see docs/UPGRADING.md (Rollback). Keep backups somewhere other than
 # this host, and protect them: they contain the encrypted credentials and .env.

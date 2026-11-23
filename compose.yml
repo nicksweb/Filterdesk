@@ -1,7 +1,8 @@
 # Filterdesk. Pulls the published images (ghcr.io/nicksweb/filterdesk-*);
 # set FILTERDESK_VERSION in .env to pin a release (for example 2026.12.1).
-# To build from source instead, add compose.build.yml:
-#   docker compose -f compose.yml -f compose.build.yml up -d --build
+# Overrides (compose.proxy.yml, compose.vlan.yml, compose.build.yml) are listed
+# once in .env, for example COMPOSE_FILE=compose.yml:compose.proxy.yml:compose.vlan.yml,
+# so a plain `docker compose up -d` (or pull, logs, ps) always uses all of them.
 # Data is kept in ./data (FILTERDESK_DATA): data/postgres (the database) and
 # data/storage (uploads, logs). Back it up with bin/backup.
 # Installs from before 2026.12.2 used Docker volumes: see docs/UPGRADING.md.
@@ -76,8 +77,10 @@ services:
     depends_on:
       db: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
-      probe-student: { condition: service_healthy }
-      probe-staff: { condition: service_healthy }
+      # Started, not healthy: a probe that cannot reach its VLAN must not keep the
+      # admin pages (where its checklist is) from starting.
+      probe-student: { condition: service_started }
+      probe-staff: { condition: service_started }
 
   queue:
     <<: *app

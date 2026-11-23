@@ -4,10 +4,12 @@ namespace App\Services;
 
 use App\Models\CalendarPeriod;
 use App\Models\FilterPolicy;
+use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
 use App\Models\User;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\NetworkProviderManager;
+use App\Services\Policy\BaselineGuard;
 use App\Services\Website\ProbeDiagnostics;
 
 /**
@@ -35,6 +37,10 @@ class SetupChecklist
                 'detail' => 'Each probe checks websites from its own network; the checklist shows what is left.',
                 'link' => route('admin.settings.show', ['section' => 'profiles', 'refresh' => 1]),
                 'done' => $profiles->isNotEmpty() && $profiles->every(fn (NetworkProfile $profile) => (app(ProbeDiagnostics::class)->cached($profile)['state'] ?? null) === 'ok')],
+            ['key' => 'baseline', 'label' => 'Decide on networks without a filter', 'optional' => false,
+                'detail' => 'Every network gets at least Students filtering unless you allow it to stay unfiltered, with a reason.',
+                'link' => route('admin.policy.networks.index').'#baseline',
+                'done' => filled($this->settings->get(BaselineGuard::STARTED_KEY)) && NetworkAssignment::query()->whereNotNull('unfiltered_reason')->whereNull('unfiltered_reviewed_at')->doesntExist()],
             ['key' => 'second_officer', 'label' => 'Add a second IT officer', 'optional' => false,
                 'detail' => 'Two-person approval for site-wide changes and sensitive categories needs two enabled IT officers.',
                 'link' => route('admin.users.index'), 'done' => User::query()->itStaff()->count() >= 2],
