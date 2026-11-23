@@ -224,17 +224,62 @@ async function safeInspect(browser, rawUrl, screenshot) {
   }
 }
 
+/*
+ * At most PROBE_MAX_CONCURRENT check runs at once (each is a browser). Extra
+ * runs wait their turn, first come first served, for up to
+ * PROBE_QUEUE_TIMEOUT_MS; then they are turned away as busy rather than
+ * piling up browsers until the host runs out of memory or CPU.
+ */
+const maxConcurrentRuns = Math.max(1, Number(process.env.PROBE_MAX_CONCURRENT || 6));
+const queueTimeoutMs = Math.max(0, Number(process.env.PROBE_QUEUE_TIMEOUT_MS || 20000));
+let activeRuns = 0;
+const waitingRuns = [];
+
+class ProbeBusy extends Error {}
+
+function acquireRun() {
+  if (activeRuns < maxConcurrentRuns) {
+    activeRuns++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const entry = { resolve, timer: null };
+    entry.timer = setTimeout(() => {
+      const index = waitingRuns.indexOf(entry);
+      if (index >= 0) waitingRuns.splice(index, 1);
+      reject(new ProbeBusy(`This probe is busy with ${activeRuns} other check(s). Try again in a moment.`));
+    }, queueTimeoutMs);
+    waitingRuns.push(entry);
+  });
+}
+
+/** Hands the slot straight to the next waiting run, or frees it. */
+function releaseRun() {
+  const next = waitingRuns.shift();
+  if (next) {
+    clearTimeout(next.timer);
+    next.resolve();
+  } else {
+    activeRuns--;
+  }
+}
+
 /** Runs one check run with its own browser so DNS state cannot leak between runs. */
 async function withRunBrowser(task) {
-  if (reuseBrowser) {
-    warmBrowser ??= await launchBrowser();
-    return task(warmBrowser);
-  }
-  const browser = await launchBrowser();
+  await acquireRun();
   try {
-    return await task(browser);
+    if (reuseBrowser) {
+      warmBrowser ??= await launchBrowser();
+      return await task(warmBrowser);
+    }
+    const browser = await launchBrowser();
+    try {
+      return await task(browser);
+    } finally {
+      await browser.close().catch(() => {});
+    }
   } finally {
-    await browser.close().catch(() => {});
+    releaseRun();
   }
 }
 
@@ -342,7 +387,8 @@ const server = http.createServer(async (request, response) => {
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
   if (request.url === '/health') {
-    return response.end(JSON.stringify({ ok: true, dns: resolver ? 'direct' : 'system', fresh_browser_per_run: !reuseBrowser }));
+    return response.end(JSON.stringify({ ok: true, dns: resolver ? 'direct' : 'system', fresh_browser_per_run: !reuseBrowser,
+      runs: { active: activeRuns, waiting: waitingRuns.length, max: maxConcurrentRuns, queue_timeout_ms: queueTimeoutMs } }));
   }
   if (request.method === 'GET' && request.url === '/diagnose') {
     if (!authorised(request.headers['x-probe-key'])) { response.statusCode = 401; return response.end(JSON.stringify({ message: 'Unauthorised.' })); }
@@ -373,6 +419,11 @@ const server = http.createServer(async (request, response) => {
     const results = await withRunBrowser(browser => Promise.all(urls.map(url => safeInspect(browser, url, screenshot))));
     return response.end(JSON.stringify({ results }));
   } catch (error) {
+    if (error instanceof ProbeBusy) {
+      response.statusCode = 503;
+      response.setHeader('Retry-After', '10');
+      return response.end(JSON.stringify({ status: 'probe_busy', message: error.message }));
+    }
     response.statusCode = 422;
     response.end(JSON.stringify({ status: 'probe_error', message: String(error.message || 'Check failed.').slice(0, 300) }));
   }

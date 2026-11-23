@@ -17,6 +17,9 @@ RUN apk add --no-cache icu-libs libpq libzip oniguruma \
 WORKDIR /var/www/html
 COPY --from=vendor /app /var/www/html
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-filterdesk.ini
+COPY docker/php-fpm-pool.conf /usr/local/etc/php-fpm.d/zz-filterdesk.conf
+# Worker pool defaults (docker/php-fpm-pool.conf); override in .env.
+ENV PHP_FPM_MAX_CHILDREN=20 PHP_FPM_START_SERVERS=4 PHP_FPM_MIN_SPARE_SERVERS=2 PHP_FPM_MAX_SPARE_SERVERS=8
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache \

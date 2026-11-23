@@ -42,6 +42,11 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.2 → 2026.12.3
+
+- Pull and restart as usual. The app now serves 20 requests at once and each probe queues checks beyond 6; adjust with `PHP_FPM_MAX_CHILDREN`, `PROBE_MAX_CONCURRENT` and `PROBE_QUEUE_TIMEOUT_MS` in `.env` (docs/SETUP.md, *Capacity*).
+- Extra probes in `compose.vlan.yml` only get the queue settings if you regenerate the file (`docker compose exec -T app php artisan probes:compose > compose.vlan.yml`) or add `PROBE_MAX_CONCURRENT: ${PROBE_MAX_CONCURRENT:-6}` and `PROBE_QUEUE_TIMEOUT_MS: ${PROBE_QUEUE_TIMEOUT_MS:-20000}` to each probe's `environment`. Without them a probe still uses the same defaults.
+
 ## 2026.12.1 → 2026.12.2: data in ./data (bind mounts)
 
 Data now lives in the install folder: `data/postgres` and `data/storage`, instead of Docker volumes. Existing installs must move their data **before** starting 2026.12.2, or it starts as a new, empty install (the old volumes are not touched, so nothing is lost, but you would see the installer).

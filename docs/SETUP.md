@@ -161,13 +161,23 @@ SMTP is normally set in the wizard (Settings → Email). These are only used bef
 | Variable | Default | What to set |
 | --- | --- | --- |
 | `PROBE_SHARED_KEY` | *generated* | Secret the app sends to the probes; at least 24 characters. Keep it random. |
-| `PROBE_TIMEOUT_MS` | `2800` | How long a check waits per page (maximum 5000). |
+| `PROBE_TIMEOUT_MS` | `8000` | How long a check waits for a page to load. |
 | `BLOCK_PAGE_PATTERN` | `blocked\|access denied\|…` | Regular expression for text on your block page, used to recognise a blocked result. |
 | `BLOCK_PAGE_ADDRESSES` | *empty* | Comma-separated IPs UniFi answers with for blocked names (its block page). `0.0.0.0` always counts as blocked. A check of a blocked site shows the address to use. |
 | `STUDENT_PROBE_DNS_SERVERS` / `STAFF_PROBE_DNS_SERVERS` | *empty* | The VLAN gateway for each built-in probe, so lookups go uncached to the resolver UniFi filters on. The generated `compose.vlan.yml` lists these. Extra probes have theirs inside the file. |
 | `STUDENT_ALLOWED_PRIVATE_HOSTS` / `STAFF_ALLOWED_PRIVATE_HOSTS` | *empty* | Hostnames on private addresses that a probe may load (for example an internal block page). Everything else private is refused, to stop the probes being used to reach internal systems. |
 | `STUDENT_DOCKER_NETWORK` / `STAFF_DOCKER_NETWORK` | example names | The macvlan network each built-in probe joins. The generated file tells you what to put here. |
 | `PROBE_REUSE_BROWSER` | `false` | Keep `false`, so every check starts with an empty DNS cache. |
+
+### Capacity (several people at once)
+
+A website check runs while the person waits: the app asks every probe at once, and each probe opens a browser. On a typical host (6 cores) one probe handled 20 checks at once in 5–8 seconds each. The defaults below suit a school; raise them on a bigger host, lower them on a small one.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PHP_FPM_MAX_CHILDREN` | `20` | How many requests the app serves at once (about 40 MB each). A check holds one for its whole run, so this is roughly how many people can check at the same moment without anyone's pages waiting. |
+| `PROBE_MAX_CONCURRENT` | `6` | Checks each probe runs at once (one browser each, about 120 MB and most of a core while loading). Extra checks wait their turn. |
+| `PROBE_QUEUE_TIMEOUT_MS` | `20000` | How long a check waits for a turn before that network shows *This probe is busy*. Keep it, plus `PROBE_TIMEOUT_MS`, under the app's 45-second limit. |
 
 ### Reverse proxy override
 

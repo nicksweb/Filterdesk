@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.3
+
+### Changed
+- **Many people at once**: the app serves 20 requests at once instead of PHP-FPM's default of 5 (`PHP_FPM_MAX_CHILDREN`), so a few people running checks no longer stall every page.
+- **Probe queue**: each probe runs at most 6 checks at once (`PROBE_MAX_CONCURRENT`); extra checks wait their turn, first come first served, for up to 20 seconds (`PROBE_QUEUE_TIMEOUT_MS`), then that network shows *This probe is busy* while the others still answer. The probe's `/health` reports how many checks are running and waiting. Probes generated for extra networks get the same settings (regenerate `compose.vlan.yml`, or add the two variables to each probe).
+
 ## 2026.12.2
 
 ### Changed
