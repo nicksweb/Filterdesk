@@ -18,12 +18,14 @@ class FilterPolicy extends Model
         'name', 'slug', 'audience', 'layer_of_id', 'description', 'network_profile_id', 'provider_reference', 'provider_name',
         'enabled', 'sort_order', 'current_allowlist', 'current_blocklist', 'snapshot_at', 'snapshot_by_id',
         'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline', 'controller_exclusions', 'controller_managed',
+        'role', 'receives_site_blocks',
     ];
 
     protected function casts(): array
     {
         return [
             'enabled' => 'boolean',
+            'receives_site_blocks' => 'boolean',
             'current_allowlist' => 'array',
             'current_blocklist' => 'array',
             'snapshot_at' => 'datetime',
@@ -86,6 +88,27 @@ class FilterPolicy extends Model
     public function layer(): HasOne
     {
         return $this->hasOne(self::class, 'layer_of_id');
+    }
+
+    /**
+     * A site-wide layer: a controller filter on (nearly) every network, such
+     * as "Allow (Sitewide)" or "Block (Sitewide)". It carries the site-wide
+     * lists and its own, never a network type's.
+     */
+    public function isSitewide(): bool
+    {
+        return $this->role === 'sitewide' && $this->layer_of_id === null;
+    }
+
+    /**
+     * The site-wide layer that carries the site-wide blocks, if one is
+     * linked: every other filter then leaves those blocks to it, which keeps
+     * each filter smaller (UniFi allows about 100,000 entries per filter).
+     */
+    public static function siteBlockCarrier(): ?self
+    {
+        return self::query()->where('role', 'sitewide')->whereNull('layer_of_id')->where('receives_site_blocks', true)
+            ->where('enabled', true)->whereNotNull('provider_reference')->orderBy('id')->first();
     }
 
     public function isLayer(): bool

@@ -66,6 +66,50 @@
         </section>
     @endif
 
+
+    @if($learned->isNotEmpty())
+        <section class="panel policy-section" id="learned">
+            <div class="panel-heading"><div><h2>Network check</h2><p>Learned from UniFi: whether each network is for people's devices or for infrastructure, and what filters it. Device networks are fine without a group filter; adding Students filtering means anyone who gets onto one is filtered.</p></div>
+                @php($protectable = $learned->filter(fn ($item) => ($item['advice']['action'] ?? null) === 'protect'))
+                @if($isAdmin && $baselinePolicy && $protectable->isNotEmpty())
+                    <form method="post" action="{{ route('admin.policy.networks.protect') }}">@csrf @foreach($protectable as $item)<input type="hidden" name="networks[]" value="{{ $item['network']['id'] }}">@endforeach
+                        <button class="button secondary" data-confirm="Add {{ $baselinePolicy->name }}'s filter in UniFi to all {{ $protectable->count() }} networks listed with a suggestion?">Add {{ $baselinePolicy->name }} filtering to all {{ $protectable->count() }}</button></form>
+                @endif
+            </div>
+            @foreach($learned->sortBy(fn ($item) => [$item['advice'] ? ($item['advice']['level'] === 'warn' ? 0 : 1) : 2, $item['network']['vlan'] ?? 0]) as $item)
+                @php($row = $item['network'])
+                @php($assignment = $row['assignment'] ?? null)
+                <div class="learned-row">
+                    <span><strong>{{ $row['name'] }}</strong><small>{{ $row['vlan'] ? 'VLAN '.$row['vlan'] : 'Untagged' }}</small></span>
+                    <span>
+                        @if($isAdmin && $assignment)
+                            <form method="post" action="{{ route('admin.policy.networks.kind', $assignment) }}">@csrf @method('PUT')
+                                <select name="kind" onchange="this.form.submit()" aria-label="Kind of network for {{ $row['name'] }}">
+                                    <option value="user" @selected($item['kind'] === 'user')>User network{{ $item['kind_confirmed'] ? '' : ' (learned)' }}</option>
+                                    <option value="device" @selected($item['kind'] === 'device')>Device network{{ $item['kind_confirmed'] ? '' : ' (learned)' }}</option>
+                                    @if($item['kind_confirmed'])<option value="auto">Learn it again</option>@endif
+                                </select>
+                            </form>
+                        @else
+                            {{ $item['kind'] === 'user' ? 'User network' : 'Device network' }}
+                        @endif
+                    </span>
+                    <span>
+                        <small>{{ $item['groups'] ? 'Groups: '.implode(', ', $item['groups']) : 'No group filter' }}{{ $item['sitewide'] ? ' · site-wide: '.implode(', ', $item['sitewide']) : '' }}</small>
+                        @if($item['advice'])<span class="network-status {{ $item['advice']['level'] === 'warn' ? 'warn' : 'info' }}">{{ $item['advice']['text'] }}</span>@endif
+                    </span>
+                    <span>
+                        @if($isAdmin && ($item['advice']['action'] ?? null) === 'protect' && $baselinePolicy)
+                            <form method="post" action="{{ route('admin.policy.networks.protect') }}">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary" data-confirm="Add {{ $baselinePolicy->name }}'s filter to {{ $row['name'] }} in UniFi?">Add {{ $baselinePolicy->name }}</button></form>
+                        @elseif($isAdmin && ($item['advice']['action'] ?? null) === 'remap')
+                            <form method="post" action="{{ route('admin.policy.networks.update') }}">@csrf @method('PUT')<input type="hidden" name="assignments[{{ $row['id'] }}]" value="{{ $item['advice']['policy']->id }}"><button class="button small secondary">Map to {{ $item['advice']['policy']->name }}</button></form>
+                        @endif
+                    </span>
+                </div>
+            @endforeach
+        </section>
+    @endif
+
     @if($unfiltered->isNotEmpty() || !$state['error'])
         <section class="panel policy-section baseline" id="baseline">
             <div class="panel-heading"><div><h2>Baseline filtering</h2><p>No network is left without a filter by accident. A network with no content filter in UniFi is added to <strong>{{ $baselinePolicy?->name ?? 'the Students policy' }}</strong>'s filter, so it gets at least that level of filtering. To keep one unfiltered (a server or management network, say), allow it and say why.</p></div>

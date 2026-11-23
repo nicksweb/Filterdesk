@@ -20,8 +20,12 @@ use Illuminate\Support\Collection;
  * Statuses:
  * - in_sync: the controller matches the desired lists.
  * - changes_due: this app has changes that have not been pushed yet.
- * - drift: the controller was edited directly since the last push (or since
- *   IT last accepted its state), or a mapped network uses another filter.
+ * - networks: a network mapped to the policy does not have its filter in UniFi.
+ * - drift: the controller's lists or categories were edited directly since the
+ *   last push (or since IT last accepted its state).
+ *
+ * Other filters stacked on the same networks are reported, not counted: the
+ * site-wide layers and filters of the same type are expected there.
  * - error: the filter could not be read or no longer exists.
  *
  * Drift is measured against a baseline: the lists the controller had right
@@ -29,7 +33,7 @@ use Illuminate\Support\Collection;
  */
 class SyncChecker
 {
-    public const STATUSES = ['in_sync', 'changes_due', 'drift', 'error'];
+    public const STATUSES = ['in_sync', 'changes_due', 'networks', 'drift', 'error'];
 
     public function __construct(
         private readonly NetworkProviderManager $providers,
@@ -153,23 +157,30 @@ class SyncChecker
             'block_add' => $report['block_add'], 'block_remove' => $report['block_remove'],
         ];
         $owner = $policy->isLayer() ? $policy->layerOf : $policy;
-        $networkIssues = $networks->filter(fn (array $network) => $owner && $network['policy']?->is($owner) && in_array($network['status'], ['missing_filter', 'wrong_filter', 'multiple_filters', 'layer_missing'], true))
-            ->map(fn (array $network) => $network['name'].($network['vlan'] ? " (VLAN {$network['vlan']})" : '').match ($network['status']) {
-                'multiple_filters' => ' is also in '.collect($network['others'])->pluck('name')->join(', '),
-                'layer_missing' => ' is missing the layer '.($network['layer']->provider_name ?: $network['layer']->name),
-                default => '',
-            })->values()->all();
-        // The parent and its layer share networks by design.
-        $partners = array_filter([$owner?->provider_reference, $owner?->activeLayer()?->provider_reference]);
-        $sharedNetworks = $networks->filter(fn (array $network) => collect($network['attached'])->pluck('id')->contains($filter['id'])
-            && collect($network['attached'])->pluck('id')->diff([$filter['id'], ...$partners])->isNotEmpty())
-            ->map(fn (array $network) => $network['name'].' also uses '.collect($network['attached'])->reject(fn ($other) => in_array($other['id'], [$filter['id'], ...$partners], true))->pluck('name')->join(', '))->values()->all();
-        $networkIssues = array_values(array_unique([...$networkIssues, ...$sharedNetworks]));
+        $label = fn (array $network): string => $network['name'].($network['vlan'] ? " (VLAN {$network['vlan']})" : '');
+        // Networks mapped to this policy whose filter in UniFi is not the one expected: a real difference.
+        $mismatched = $networks->filter(fn (array $network) => $owner && ! $owner->isSitewide() && $network['policy']?->is($owner) && in_array($network['status'], ['missing_filter', 'wrong_filter', 'layer_missing'], true))
+            ->map(fn (array $network) => $label($network).match ($network['status']) {
+                'layer_missing' => ' lacks the layer '.($network['layer']->provider_name ?: $network['layer']->name),
+                'missing_filter' => " does not have {$filter['name']} in UniFi",
+                default => ' uses a different filter in UniFi',
+            })->values();
+        // Other filters stacked on this filter's networks, beyond the expected ones (site-wide layers,
+        // filters of the same type, its own layer). Information only: stacking is a valid design.
+        $expected = FilterPolicy::query()->whereNotNull('provider_reference')->get()
+            ->filter(fn (FilterPolicy $other) => $other->isSitewide() || ($owner && ($other->is($owner) || $other->layer_of_id === $owner->id || (! $other->isSitewide() && ! $owner->isSitewide() && $other->audience === $owner->audience))))
+            ->pluck('provider_reference')->push($filter['id'])->all();
+        $stacked = $owner?->isSitewide() ? collect() : $networks->filter(fn (array $network) => collect($network['attached'])->pluck('id')->contains($filter['id']))
+            ->flatMap(fn (array $network) => collect($network['attached'])->reject(fn (array $other) => in_array($other['id'], $expected, true))->pluck('name'));
+        $stackedNetworks = $owner?->isSitewide() ? 0 : $networks->filter(fn (array $network) => collect($network['attached'])->pluck('id')->contains($filter['id'])
+            && collect($network['attached'])->pluck('id')->diff($expected)->isNotEmpty())->count();
+        $networkIssues = $mismatched->all();
 
         $edited = collect($changedInController)->flatten()->isNotEmpty();
         $due = collect($pending)->flatten()->isNotEmpty();
         $status = match (true) {
-            $edited || $networkIssues !== [] => 'drift',
+            $edited => 'drift',
+            $networkIssues !== [] => 'networks',
             $due => 'changes_due',
             default => 'in_sync',
         };
@@ -182,7 +193,10 @@ class SyncChecker
             $summary[] = 'Changed in the controller: '.$this->count($changedInController, ['allow_added' => 'allow +', 'allow_removed' => 'allow −', 'block_added' => 'block +', 'block_removed' => 'block −', 'categories_added' => 'categories +', 'categories_removed' => 'categories −']).'.';
         }
         if ($networkIssues) {
-            $summary[] = 'Network filter issues: '.implode('; ', $networkIssues).'.';
+            $summary[] = 'Networks differ: '.collect($networkIssues)->take(4)->join('; ').(count($networkIssues) > 4 ? ' and '.(count($networkIssues) - 4).' more' : '').'.';
+        }
+        if ($stackedNetworks > 0) {
+            $summary[] = "Shares {$stackedNetworks} network(s) with ".$stacked->unique()->take(4)->join(', ').($stacked->unique()->count() > 4 ? ' and others' : '').' (see Networks & filters).';
         }
         if ($due) {
             $summary[] = 'Waiting to push: '.$this->count($pending, ['allow_add' => 'allow +', 'allow_remove' => 'allow −', 'block_add' => 'block +', 'block_remove' => 'block −']).'.';

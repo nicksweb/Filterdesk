@@ -103,8 +103,8 @@ class PolicyLayerTest extends TestCase
         Cache::forever('mock.content_filters', $filters);
 
         $this->artisan('policy:check-sync')->assertSuccessful();
-        $this->assertSame('drift', $this->students->refresh()->sync_status);
-        $this->assertStringContainsString('missing the layer', $this->students->sync_details['summary']);
+        $this->assertSame('networks', $this->students->refresh()->sync_status);
+        $this->assertStringContainsString('lacks the layer', $this->students->sync_details['summary']);
 
         $this->actingAs(User::factory()->admin()->create())
             ->post(route('admin.policy.policies.layer.store', $this->students), ['name' => 'Another'])

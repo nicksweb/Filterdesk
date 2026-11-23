@@ -60,9 +60,10 @@ class PolicyList extends Model
             return;
         }
 
+        // A site-wide layer serves every network type, so it takes no type's lists.
         $query->where(fn (Builder $query) => $query
             ->where('scope', ListScope::Site)
-            ->orWhere(fn (Builder $query) => $query->where('scope', ListScope::Audience)->where('audience', $policy->audience))
+            ->when(! $policy->isSitewide(), fn (Builder $query) => $query->orWhere(fn (Builder $query) => $query->where('scope', ListScope::Audience)->where('audience', $policy->audience)))
             ->orWhere(fn (Builder $query) => $query->where('scope', ListScope::Policy)->where('filter_policy_id', $policy->id)));
     }
 
@@ -76,7 +77,7 @@ class PolicyList extends Model
     {
         return match ($this->scope) {
             ListScope::Site => true,
-            ListScope::Audience => $this->audience === $policy->audience,
+            ListScope::Audience => ! $policy->isSitewide() && $this->audience === $policy->audience,
             ListScope::Policy => $this->filter_policy_id === $policy->id || ($policy->layer_of_id !== null && $this->filter_policy_id === $policy->layer_of_id),
         };
     }

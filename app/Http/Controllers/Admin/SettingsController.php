@@ -18,6 +18,7 @@ use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Domains\DomainCategorizer;
+use App\Services\Network\InspectionCertificate;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ReadsContentFilters;
 use App\Services\Network\UniFiNetworkProvider;
@@ -60,6 +61,7 @@ class SettingsController extends Controller
         'profiles' => 'Network profiles',
         'approval' => 'Approval policy',
         'integrations' => 'Integrations',
+        'certificate' => 'HTTPS inspection',
     ];
 
     public function show(Request $request, string $section, SettingsRepository $settings, NetworkProviderManager $providers): View
@@ -120,6 +122,7 @@ class SettingsController extends Controller
             'integrations' => null,
             'templates' => $this->updateTemplates($request, $settings),
             'approval' => $this->updateApproval($request, $settings),
+            'certificate' => $this->updateCertificate($request),
         };
 
         $audit->log("settings.{$section}_updated");
@@ -557,6 +560,31 @@ class SettingsController extends Controller
             BellPeriod::query()->create(Arr::only($validated['new_bell'], ['name', 'starts_at', 'ends_at']) + ['sort_order' => (int) BellPeriod::query()->max('sort_order') + 1]);
         }
         app(SchoolCalendar::class)->forget();
+    }
+
+    /** The gateway's HTTPS inspection CA (public certificate only), offered to devices at /certificate. */
+    private function updateCertificate(Request $request): void
+    {
+        $validated = $request->validate([
+            'certificate_file' => ['nullable', 'file', 'max:64'],
+            'certificate_text' => ['nullable', 'string', 'max:20000'],
+            'remove' => ['nullable', 'boolean'],
+        ]);
+        $certificate = app(InspectionCertificate::class);
+        if ($request->boolean('remove')) {
+            $certificate->remove();
+
+            return;
+        }
+        $contents = $request->file('certificate_file')?->get() ?? ($validated['certificate_text'] ?? null);
+        if (blank($contents)) {
+            throw ValidationException::withMessages(['certificate_file' => 'Choose the CA certificate file, or paste it.']);
+        }
+        try {
+            $certificate->store((string) $contents);
+        } catch (\InvalidArgumentException $exception) {
+            throw ValidationException::withMessages(['certificate_file' => $exception->getMessage()]);
+        }
     }
 
     /** Email wording. Blank fields, or "reset", fall back to the built-in text. */

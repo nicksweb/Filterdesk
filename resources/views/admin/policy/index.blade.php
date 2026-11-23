@@ -17,23 +17,21 @@
     </div>
 
     <section class="policy-section">
-        <div class="section-heading"><h2>Filter policies</h2><p>One per content filter in the controller. Desired state = site-wide lists + network type lists + the policy's own lists + approved requests.</p></div>
-        <div class="policy-cards">
-            @foreach($policies as ['policy' => $policy, 'report' => $report])
-                <a class="panel policy-card" href="{{ route('admin.policy.policies.show', $policy) }}">
-                    <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->isLayer() ? 'Layer of '.$policy->layerOf?->name : $policy->typeLabel() }}{{ $policy->provider_name ? ' · '.$policy->provider_name : '' }}{{ $policy->networkProfile ? ' · '.$policy->networkProfile->name : '' }}</small></span>
-                        @if(!$policy->enabled)<x-status status="disabled" />@elseif(filled($policy->provider_reference))<x-sync-status :policy="$policy" />@elseif(!$report['has_snapshot'])<span class="status status-pending">No snapshot</span>@elseif($report['in_sync'])<span class="status status-ok">In sync</span>@else<span class="status status-action_required">Changes due</span>@endif
-                    </div>
-                    <dl class="mini-stats">
-                        <div><dt>Allow</dt><dd>{{ count($report['allow']) }}</dd></div>
-                        <div><dt>Block</dt><dd>{{ count($report['block']) }}</dd></div>
-                        <div><dt>To add</dt><dd>{{ count($report['allow_add']) + count($report['block_add']) }}</dd></div>
-                        <div><dt>To remove</dt><dd>{{ count($report['allow_remove']) + count($report['block_remove']) }}</dd></div>
-                    </dl>
-                    <small>@if($policy->sync_checked_at){{ $policy->sync_details['summary'] ?? '' }} Checked {{ $policy->sync_checked_at->diffForHumans() }}.@else{{ $policy->snapshot_at ? 'Compared '.$policy->snapshot_at->diffForHumans() : 'Paste the controller lists to compare' }}@endif</small>
-                </a>
-            @endforeach
-        </div>
+        <div class="section-heading"><h2>Content filters</h2><p>As in UniFi's Content Filter page, with what Filterdesk manages each one as and what publishing would change. Open a filter for its lists and history.</p></div>
+        @if($filterRows !== [])
+            <x-filter-table :rows="$filterRows" />
+        @else
+            <div class="policy-cards">
+                @foreach($policies as ['policy' => $policy, 'report' => $report])
+                    <a class="panel policy-card" href="{{ route('admin.policy.policies.show', $policy) }}">
+                        <div class="policy-card-top"><span><strong>{{ $policy->name }}</strong><small>{{ $policy->isLayer() ? 'Layer of '.$policy->layerOf?->name : ($policy->isSitewide() ? 'Site-wide layer' : $policy->typeLabel()) }}{{ $policy->provider_name ? ' · '.$policy->provider_name : '' }}</small></span>
+                            @if(!$policy->enabled)<x-status status="disabled" />@elseif(filled($policy->provider_reference))<x-sync-status :policy="$policy" />@elseif($report['in_sync'])<span class="status status-ok">In sync</span>@else<span class="status status-action_required">Changes due</span>@endif
+                        </div>
+                        <small>{{ count($report['allow']) }} allowed · {{ count($report['block']) }} blocked · {{ count($report['allow_add']) + count($report['block_add']) }} to add · {{ count($report['allow_remove']) + count($report['block_remove']) }} to remove</small>
+                    </a>
+                @endforeach
+            </div>
+        @endif
         @if(auth()->user()->isAdmin())
             <details class="panel inline-create">
                 <summary>Add a filter policy</summary>

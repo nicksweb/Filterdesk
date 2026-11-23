@@ -315,6 +315,15 @@ If sign-in fails, Settings → Authentication → *Provider details* shows the p
 - imports every allow and block entry, maps networks to policies and keeps categories as they are;
 - prepares a disabled probe profile per policy.
 
+**What Filterdesk learns.** It reads how your filters are organised and shows it as a table laid out like UniFi's Content Filter page (name, networks, categories, SafeSearch, schedule), with what Filterdesk will manage each filter as:
+
+- **Site-wide layers:** filters on most networks (for example *Allow (Sitewide)* and *Block (Sitewide)*). They carry the site-wide lists. One of them *takes the site-wide blocks*: new site-wide blocks go only into it, not into every filter, which keeps each filter under UniFi's limit of about 100,000 entries. Allows still go into every filter on the networks concerned, because UniFi blocks a site if any filter on the network blocks it.
+- **Groups:** one or more filters per type of user (Staff, Students, Guests…), on a schedule or not (for example *Student - School Time* and *Students - All Hours*).
+- **Blocklist layers:** a second filter on exactly the same networks, for big feeds.
+- **User and device networks:** from each network's name and filters. Device and infrastructure networks don't need a group filter, but adding Students filtering protects them if a student gets on; *Networks & filters → Network check* suggests it with a button.
+
+Stacked filters like these are normal and no longer show as *Changed in controller*: that status now only means someone edited a filter's lists or categories in UniFi. A network mapped to one policy but filtered differently in UniFi shows as *Networks differ*.
+
 Nothing changes in UniFi. If a suggestion is wrong, open **Change a choice** and pick what each filter is for: filtering for a type of network (Students, Staff, Guest…), an *extra blocklist layer* on top of another filter (optional; only for big blocklist feeds), or *leave it alone*. *Advanced* picks a particular policy or skips importing.
 
 **Networks with no filter.** Under *Networks & filters → Baseline filtering*, every network without a UniFi content filter is listed. In Active mode, a network that appears later without a filter (or loses its filter) is added to the Students filter automatically at the next check (every 15 minutes), and IT is emailed. Networks that were already unfiltered when you set up wait for a decision: **Filter it now**, or **Allow unfiltered** with a reason (a server or management network, for example). The dashboard reminds admins until each has one.
@@ -357,6 +366,8 @@ Guided setup, step 3 (*Place the probes*), walks through this and shows the exac
 
 If a probe can't start (its VLAN network is missing, say), the rest of Filterdesk still starts, so you can open its checklist and fix it.
 
+A probe's address may sit inside the DHCP pool if it is reserved for the probe's MAC: in UniFi (the checklist's *Reserve in UniFi* button does it), or on your own DHCP server behind a relay (reserve it there, then press *It's reserved on our DHCP server*).
+
 **Check:** every checklist is green and each probe is switched on. Settings → Network profiles shows each probe's address on its VLAN, its MAC, gateway and DNS, with no warnings. Each probe appears as a client on the right network in UniFi (name it there). A website check of a site you know is blocked for students shows *Blocked* for Students and *Allowed* for Staff.
 
 ## 10. Test end to end
@@ -386,6 +397,7 @@ Still in read-only mode (two IT officers make step 6 possible):
    - **Settings → School:** the application name, icon, and whether the footer links to the open-source project.
    - **Settings → School calendar:** terms, holidays, exam periods and bell times, for recurring requests that follow the calendar and for exam mode (Settings → Network types).
    - **Settings → Authentication:** network type and department rules from sign-in groups.
+   - **Settings → HTTPS inspection:** if the gateway inspects HTTPS (UniFi Deep Inspection), upload its CA's public certificate. Filterdesk offers it at `/certificate` with install steps for Windows, macOS, iOS, Android and ChromeOS, and website checks that hit an inspected site link there. Never upload the private key.
    - **Settings → Integrations:** API tokens, and webhooks to a Teams channel or a service desk ([API.md](API.md)).
    - Publish waiting changes, and roll versions back, under **Changes**. Check **Health** for the coverage score.
 

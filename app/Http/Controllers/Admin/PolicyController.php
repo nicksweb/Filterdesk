@@ -13,6 +13,9 @@ use App\Models\WebsiteRequest;
 use App\Services\Approval\TwoPersonRule;
 use App\Services\AuditLogger;
 use App\Services\Domains\PublicSuffixList;
+use App\Services\Policy\ControllerLearner;
+use App\Services\Policy\ControllerSync;
+use App\Services\Policy\FilterTable;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\PolicyListParser;
 use App\Services\SettingsRepository;
@@ -33,8 +36,15 @@ class PolicyController extends Controller
             $lookup = ['domain' => $domain, 'entries' => $parser->valid($domain) ? $engine->locate($domain) : collect(), 'valid' => $parser->valid($domain)];
         }
 
+        $reports = $policies->mapWithKeys(fn (FilterPolicy $policy) => [$policy->id => $engine->reconcile($policy)]);
+        // The same view of the filters as UniFi's Content Filter page, when the controller can be read.
+        $sync = app(ControllerSync::class);
+        $state = $sync->available() ? $sync->state() : ['error' => 'unavailable', 'filters' => [], 'networks' => []];
+        $filterRows = $state['error'] ? [] : app(FilterTable::class)->rows($state, app(ControllerLearner::class)->learn($state), $policies, $reports->all());
+
         return view('admin.policy.index', [
-            'policies' => $policies->map(fn (FilterPolicy $policy) => ['policy' => $policy, 'report' => $engine->reconcile($policy)]),
+            'filterRows' => $filterRows,
+            'policies' => $policies->map(fn (FilterPolicy $policy) => ['policy' => $policy, 'report' => $reports[$policy->id]]),
             'lists' => PolicyList::query()->ordered()->with('feed:id,policy_list_id,name')->withCount(['entries', 'entries as request_entries_count' => fn ($query) => $query->where('source', EntrySource::Request)])->with('filterPolicy')->get(),
             'actionRequired' => WebsiteRequest::query()->whereIn('status', [RequestStatus::Approved, RequestStatus::ActionRequired, RequestStatus::Failed])->count(),
             'upcoming' => $engine->upcoming(48),

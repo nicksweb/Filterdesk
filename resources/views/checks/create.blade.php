@@ -77,6 +77,13 @@
                                 @php($failedHosts = collect($result['hosts'] ?? [])->where('failed', true)->pluck('host')->reject(fn ($host) => $host === $check['hostname']))
                                 @if($failedHosts->isNotEmpty())<p class="probe-message">Also failed to load: {{ $failedHosts->take(8)->implode(', ') }}{{ $failedHosts->count() > 8 ? ' …' : '' }}</p>@endif
                                 @if(!empty($result['message']))<p class="probe-message">{{ $result['message'] }}</p>@endif
+                                @if(!empty($result['tls_error']) && !empty($result['tls_issuer']))
+                                    @if(app(\App\Services\Network\InspectionCertificate::class)->matches($result['tls_issuer']))
+                                        <p class="probe-message">This network inspects HTTPS with the school's certificate ({{ $result['tls_issuer'] }}). Devices need it installed: <a href="{{ route('certificate.show') }}">install the school certificate</a>.</p>
+                                    @else
+                                        <p class="probe-message">Certificate issued by {{ $result['tls_issuer'] }}.</p>
+                                    @endif
+                                @endif
                                 @if(!empty($result['page_title']))<p><strong>Page title:</strong> {{ $result['page_title'] }}</p>@endif
                             </article>
                         @endforeach

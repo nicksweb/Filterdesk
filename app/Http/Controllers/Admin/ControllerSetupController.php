@@ -7,7 +7,9 @@ use App\Models\FilterPolicy;
 use App\Models\NetworkProfile;
 use App\Services\AuditLogger;
 use App\Services\Policy\ControllerImporter;
+use App\Services\Policy\ControllerLearner;
 use App\Services\Policy\ControllerSync;
+use App\Services\Policy\FilterTable;
 use App\Services\Policy\ProbePlanner;
 use App\Services\SettingsRepository;
 use App\Services\Website\ProbeDiagnostics;
@@ -37,6 +39,7 @@ class ControllerSetupController extends Controller
         $policies = FilterPolicy::query()->with('layerOf', 'networkProfile')->ordered()->get();
         $networks = $state['error'] ? collect() : $sync->networkReport($state);
         $suggestions = $state['error'] ? [] : $importer->suggest($state);
+        $learned = app(ControllerLearner::class)->learn($state);
         $saved = $planner->saved();
         $parent = $this->parentOverride($request) ?? $saved['trunk'];
         $extra = $this->extraNetworks($request) ?? $saved['extra'];
@@ -55,6 +58,8 @@ class ControllerSetupController extends Controller
 
         return view('admin.policy.setup', [
             'steps' => $steps,
+            'learned' => $learned,
+            'previewRows' => $state['error'] ? [] : app(FilterTable::class)->rows($state, $learned, $policies, [], $suggestions),
             // Main policies sharing a name (made by repeated imports): offer to merge them.
             'duplicates' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->groupBy(fn (FilterPolicy $policy) => Str::slug($policy->name))->filter(fn ($group) => $group->count() > 1)->values(),
             'current' => array_search(false, $steps, true) ?: 'done',
@@ -89,7 +94,8 @@ class ControllerSetupController extends Controller
     {
         $validated = $request->validate([
             'filters' => ['required', 'array'],
-            'filters.*.as' => ['nullable', 'string', 'max:200', 'regex:/^(skip|type:[a-z0-9_]+|layer:.+)$/'],
+            'filters.*.as' => ['nullable', 'string', 'max:200', 'regex:/^(skip|sitewide|type:[a-z0-9_]+|layer:.+)$/'],
+            'filters.*.carries_blocks' => ['nullable', 'boolean'],
             'filters.*.action' => ['nullable', 'required_without:filters.*.as', 'in:skip,link,create,layer'],
             'filters.*.policy_id' => ['nullable', 'integer', 'exists:filter_policies,id'],
             'filters.*.audience' => ['nullable', Rule::exists('network_types', 'key')],
@@ -130,16 +136,20 @@ class ControllerSetupController extends Controller
                 continue;
             }
             $import = (bool) ($choice['import'] ?? true);
+            $suggested = $suggestions[$id] ?? null;
+            $picked = filled($choice['policy_id'] ?? null) ? FilterPolicy::query()->main()->find($choice['policy_id']) : null;
+            // Already linked to this filter: keep that policy, whatever it becomes.
+            $current = filled($suggested['policy_id'] ?? null) ? FilterPolicy::query()->main()->whereKey($suggested['policy_id'])->where('provider_reference', $id)->first() : null;
             if ($as === 'skip') {
                 $choices[$id] = ['action' => 'skip'];
+            } elseif ($as === 'sitewide') {
+                $choices[$id] = ['action' => 'sitewide', 'policy_id' => $picked?->id ?? $suggested['policy_id'] ?? null, 'import' => $import, 'carries_blocks' => (bool) ($choice['carries_blocks'] ?? false)];
             } elseif (str_starts_with($as, 'layer:')) {
                 $choices[$id] = ['action' => 'layer', 'parent' => substr($as, 6), 'import' => $import];
             } else {
                 $audience = substr($as, 5);
-                $picked = filled($choice['policy_id'] ?? null) ? FilterPolicy::query()->main()->find($choice['policy_id']) : null;
-                $suggested = $suggestions[$id] ?? null;
                 $spare = ($suggested['action'] ?? null) === 'link' && ($suggested['audience'] ?? null) === $audience ? $suggested['policy_id'] : null;
-                $policyId = $picked?->id ?? $spare;
+                $policyId = $picked?->id ?? $current?->id ?? $spare;
                 $choices[$id] = $policyId
                     ? ['action' => 'link', 'policy_id' => $policyId, 'audience' => $audience, 'import' => $import]
                     : ['action' => 'create', 'audience' => $audience, 'import' => $import];

@@ -230,6 +230,8 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
             'network_ids' => array_values(array_map('strval', $filter['network_ids'] ?? [])),
             'categories' => array_values(array_map('strval', $filter['categories'] ?? [])),
             'safe_search' => array_values(array_map('strval', $filter['safe_search'] ?? [])),
+            // ALWAYS, or a time-based mode such as CUSTOM: a filter that only applies at certain times.
+            'schedule' => strtoupper((string) ($filter['schedule']['mode'] ?? 'ALWAYS')),
         ])->values()->all();
     }
 

@@ -237,6 +237,9 @@
                                                 <div><strong>{{ $check['label'] }}</strong> <span>{{ $check['detail'] }}</span>
                                                     @if($check['fix'] && $check['status'] !== 'reviewed')<ul class="check-fix">@foreach($check['fix'] as $step)<li>{{ $step }}</li>@endforeach</ul>@endif
                                                     <div class="check-actions">
+                                                        @if(($check['action'] ?? null) === 'confirm_relay' && $check['mac'] && $check['status'] === 'warn')
+                                                            <button class="button small primary" form="probe-confirm-relay-{{ $profile->id }}" data-confirm="Confirm {{ $check['ip'] }} is reserved for {{ $check['mac'] }} on your DHCP server?">It's reserved on our DHCP server</button>
+                                                        @endif
                                                         @if(($check['action'] ?? null) === 'reserve' && $check['mac'] && $check['status'] === 'warn')
                                                             <button class="button small primary" form="probe-reserve-{{ $profile->id }}" data-confirm="Reserve {{ $check['ip'] }} for {{ $check['mac'] }} ({{ $profile->name }}) in UniFi?">Reserve {{ $check['ip'] }} in UniFi</button>
                                                             @if($check['outside'])<button class="button small secondary" form="probe-outside-{{ $profile->id }}" data-confirm="Move {{ $profile->name }} to {{ $check['outside'] }}, outside the DHCP pool? You then regenerate compose.vlan.yml and recreate its Docker network.">Use {{ $check['outside'] }} instead</button>@endif
@@ -269,6 +272,7 @@
             @if($diagnosis = $diagnostics[$profile->id] ?? null)
                 <form id="probe-reserve-{{ $profile->id }}" method="post" action="{{ route('admin.probes.reserve', $profile) }}" hidden>@csrf</form>
                 <form id="probe-outside-{{ $profile->id }}" method="post" action="{{ route('admin.probes.outside-pool', $profile) }}" hidden>@csrf</form>
+                <form id="probe-confirm-relay-{{ $profile->id }}" method="post" action="{{ route('admin.probes.confirm-relay', $profile) }}" hidden>@csrf</form>
                 @foreach($diagnosis['checks'] as $check)
                     @if($check['reviewable'] ?? false)
                         <form id="probe-review-{{ $profile->id }}-{{ $check['key'] }}" method="post" action="{{ route('admin.probes.review', $profile) }}" hidden>@csrf<input type="hidden" name="check" value="{{ $check['key'] }}"><input type="hidden" name="reviewed" value="{{ $check['status'] === 'reviewed' ? 0 : 1 }}"></form>
@@ -466,6 +470,29 @@
             <div class="form-actions"><button class="button secondary">Look it up</button></div>
         </form>
 
+    @elseif($section === 'certificate')
+        @php($certificate = app(\App\Services\Network\InspectionCertificate::class)->current())
+        <section class="panel form-panel">
+            <h2>HTTPS inspection certificate</h2>
+            <p class="section-copy">When the gateway inspects HTTPS (UniFi calls it SSL inspection or Deep Inspection), it signs websites with its own certificate authority. Devices that don't trust it show certificate warnings. Upload that CA's <strong>public</strong> certificate here and Filterdesk offers it at a public page with install steps for each kind of device. Website checks that hit an inspected network link to it. Never upload the private key.</p>
+            @if($certificate)
+                <dl class="details">
+                    <div><dt>Certificate</dt><dd>{{ $certificate['subject'] }}</dd></div>
+                    <div><dt>Valid</dt><dd>{{ $certificate['valid_from'] }} to {{ $certificate['valid_to'] }}</dd></div>
+                    <div><dt>SHA-256 fingerprint</dt><dd class="mono" style="word-break:break-all">{{ $certificate['fingerprint'] }}</dd></div>
+                    <div><dt>Public page</dt><dd><a href="{{ route('certificate.show') }}" target="_blank" rel="noopener">{{ route('certificate.show') }}</a></dd></div>
+                </dl>
+            @endif
+            <form method="post" action="{{ route('admin.settings.update', 'certificate') }}" enctype="multipart/form-data">@csrf @method('PUT')
+                <label>{{ $certificate ? 'Replace with' : 'CA certificate' }} <span class="optional">.crt, .cer or .pem; PEM or DER</span><input type="file" name="certificate_file" accept=".crt,.cer,.pem,.der"></label>
+                <label>Or paste it <span class="optional">-----BEGIN CERTIFICATE----- …</span><textarea name="certificate_text" rows="4" class="mono"></textarea></label>
+                <p class="hint">In UniFi Network: Settings → Security → (Deep Inspection or SSL Inspection) → download the certificate. In other gateways, export the inspection CA without its key.</p>
+                <div class="form-actions"><button class="button primary">Upload</button></div>
+            </form>
+            @if($certificate)
+                <form method="post" action="{{ route('admin.settings.update', 'certificate') }}">@csrf @method('PUT')<input type="hidden" name="remove" value="1"><button class="link-button danger-text" data-confirm="Remove the certificate? Its public page stops working.">Remove the certificate</button></form>
+            @endif
+        </section>
     @elseif($section === 'approval')
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'approval') }}">@csrf @method('PUT')
             <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked($settings->get('approval.auto_approve_staff', false))><span><strong>Auto-approve requests for trusted networks</strong><small>Access requests whose networks are all marked <em>Auto-approve</em> under Network types (by default Staff) are approved straight away. IT still applies them in the controller unless the provider can do it automatically.</small></span></label>

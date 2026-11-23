@@ -200,9 +200,12 @@ async function inspect(browser, rawUrl, screenshot) {
 
     const result = await inspectAttempt(browser, rawUrl, screenshot, true);
     const blocked = result.status === 'blocked';
+    // Name who signed the certificate, so the app can tell gateway inspection (its own CA) apart.
+    const issuer = await certificateIssuer(new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`).hostname).catch(() => 'unknown');
 
     return {
       ...result,
+      tls_issuer: issuer,
       status: blocked ? 'blocked' : 'tls_error',
       tls_error: true,
       message: blocked

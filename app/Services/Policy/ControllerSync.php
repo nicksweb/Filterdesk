@@ -154,8 +154,9 @@ class ControllerSync
         FilterPolicy::query()->whereKeyNot($policy->id)->where('provider_reference', $filter['id'])->update(['provider_reference' => null, 'provider_name' => null]);
         $policy->update(['provider_reference' => $filter['id'], 'provider_name' => $filter['name']]);
 
-        // A layer shares its parent's networks; they stay mapped to the parent.
-        foreach ($policy->isLayer() ? [] : $filter['network_ids'] as $networkId) {
+        // A layer shares its parent's networks, and a site-wide layer is on every network;
+        // networks stay mapped to their group policy.
+        foreach ($policy->isLayer() || $policy->isSitewide() ? [] : $filter['network_ids'] as $networkId) {
             NetworkAssignment::query()->where('provider_network_id', $networkId)
                 ->when(! $remapNetworks, fn ($query) => $query->whereNull('filter_policy_id'))
                 ->update(['filter_policy_id' => $policy->id]);
@@ -182,6 +183,11 @@ class ControllerSync
     public function networkReport(array $state): Collection
     {
         $assignments = NetworkAssignment::query()->with('filterPolicy.layer')->get()->keyBy('provider_network_id');
+        // Filters expected to share a network with its group filter: the site-wide layers, and
+        // other linked filters of the same network type (for example a school-hours and an
+        // all-hours Students filter). Anything else on the network is reported.
+        $linked = FilterPolicy::query()->whereNotNull('provider_reference')->where('enabled', true)->get(['id', 'provider_reference', 'role', 'audience', 'layer_of_id']);
+        $sitewide = $linked->filter(fn (FilterPolicy $policy) => $policy->isSitewide())->pluck('provider_reference')->all();
         $filtersByNetwork = [];
         foreach ($state['filters'] as $filter) {
             foreach ($filter['network_ids'] as $networkId) {
@@ -189,14 +195,15 @@ class ControllerSync
             }
         }
 
-        return collect($state['networks'])->map(function (array $network) use ($assignments, $filtersByNetwork): array {
+        return collect($state['networks'])->map(function (array $network) use ($assignments, $filtersByNetwork, $linked, $sitewide): array {
             $assignment = $assignments->get($network['id']);
             $policy = $assignment?->filterPolicy;
             $attached = $filtersByNetwork[$network['id']] ?? [];
             $attachedIds = array_column($attached, 'id');
             // The policy's layer belongs on the same networks; it is expected, not a conflict.
             $layer = $policy?->activeLayer();
-            $expected = array_filter([$policy?->provider_reference, $layer?->provider_reference]);
+            $expected = $policy ? array_values(array_filter([$policy->provider_reference, $layer?->provider_reference, ...$sitewide,
+                ...$linked->filter(fn (FilterPolicy $other) => ! $other->isSitewide() && $other->audience === $policy->audience)->pluck('provider_reference')->all()])) : [];
             $others = $policy ? array_values(array_filter($attached, fn (array $filter) => ! in_array($filter['id'], $expected, true))) : [];
             $linked = $policy && in_array($policy->provider_reference, $attachedIds, true);
 

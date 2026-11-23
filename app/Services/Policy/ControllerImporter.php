@@ -5,6 +5,7 @@ namespace App\Services\Policy;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Models\FilterPolicy;
+use App\Models\NetworkAssignment;
 use App\Models\NetworkType;
 use App\Models\PolicyEntry;
 use App\Models\User;
@@ -37,7 +38,7 @@ class ControllerImporter
      * A suggested choice per controller filter id.
      *
      * @param  array<string, mixed>  $state
-     * @return array<string, array{action: string, policy_id: ?int, audience: string, import: bool, parent: ?string}>
+     * @return array<string, array{action: string, policy_id: ?int, audience: string, import: bool, parent: ?string, carries_blocks: bool}>
      */
     public function suggest(array $state): array
     {
@@ -49,18 +50,30 @@ class ControllerImporter
         // Parents before layers, so a layer can name the parent's choice.
         $layers = $filters->mapWithKeys(fn (array $filter) => [$filter['id'] => $this->layerParent($filter, $filters)])->filter();
 
+        $learned = app(ControllerLearner::class)->learn($state)['filters'];
+
         foreach ($filters->sortBy(fn (array $filter) => isset($layers[$filter['id']]) ? 1 : 0) as $filter) {
             $linked = $policies->firstWhere('provider_reference', $filter['id']);
-            $audience = $this->suggestAudience($filter['name'], $networks->whereIn('id', $filter['network_ids']));
+            $lesson = $learned->get($filter['id']);
+            $audience = $lesson['audience'] ?? $this->suggestAudience($filter['name'], $networks->whereIn('id', $filter['network_ids']));
             $parent = $layers[$filter['id']] ?? null;
+            $sitewide = ($lesson['role'] ?? null) === 'sitewide';
+            $carries = (bool) ($lesson['carries_blocks'] ?? false);
 
             if ($linked) {
-                $suggestions[$filter['id']] = ['action' => 'link', 'policy_id' => $linked->id, 'audience' => $linked->audience, 'import' => false, 'parent' => $linked->layerOf?->provider_reference];
+                $suggestions[$filter['id']] = ['action' => $sitewide && ! $linked->isLayer() ? 'sitewide' : 'link', 'policy_id' => $linked->id, 'audience' => $sitewide ? $linked->audience : ($linked->isSitewide() ? $audience : $linked->audience),
+                    'import' => false, 'parent' => $linked->layerOf?->provider_reference, 'carries_blocks' => $sitewide ? $carries : false];
+
+                continue;
+            }
+            if ($sitewide) {
+                $spare = $this->spare($filter['name'], null, array_column($suggestions, 'policy_id'), $policies);
+                $suggestions[$filter['id']] = ['action' => 'sitewide', 'policy_id' => $spare?->id, 'audience' => 'other', 'import' => true, 'parent' => null, 'carries_blocks' => $carries];
 
                 continue;
             }
             if ($parent) {
-                $suggestions[$filter['id']] = ['action' => 'layer', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => $parent];
+                $suggestions[$filter['id']] = ['action' => 'layer', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => $parent, 'carries_blocks' => false];
 
                 continue;
             }
@@ -68,10 +81,10 @@ class ControllerImporter
             // Reuse an unlinked policy: one with the same name first (made by the installer or an
             // earlier import), then one with the same network type, such as the default Students and Staff.
             $spare = $this->spare($filter['name'], $audience, array_column($suggestions, 'policy_id'), $policies);
-            $audience = $spare?->audience ?? $audience;
+            $audience = $spare && Str::slug($spare->name) === Str::slug($filter['name']) ? $audience : ($spare?->audience ?? $audience);
             $suggestions[$filter['id']] = $spare
-                ? ['action' => 'link', 'policy_id' => $spare->id, 'audience' => $audience, 'import' => true, 'parent' => null]
-                : ['action' => 'create', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => null];
+                ? ['action' => 'link', 'policy_id' => $spare->id, 'audience' => $audience, 'import' => true, 'parent' => null, 'carries_blocks' => false]
+                : ['action' => 'create', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => null, 'carries_blocks' => false];
         }
 
         return $suggestions;
@@ -111,8 +124,27 @@ class ControllerImporter
                     'layer_of_id' => $parentPolicy->id, 'description' => "Carries the blocklist feeds for {$parentPolicy->name}.",
                     'sort_order' => $parentPolicy->sort_order,
                 ]);
+            } elseif ($action === 'sitewide') {
+                $policy = (filled($choice['policy_id'] ?? null) ? FilterPolicy::query()->main()->find($choice['policy_id']) : null)
+                    ?? $this->spare($filter['name'], null, array_map(fn (FilterPolicy $policy) => $policy->id, $policyFor))
+                    ?? FilterPolicy::query()->create([
+                        'name' => $filter['name'], 'slug' => $this->engine->uniqueSlug($filter['name']), 'audience' => NetworkType::byKey('other') ? 'other' : NetworkType::query()->ordered()->value('key'),
+                        'description' => "Site-wide layer: content filter {$filter['name']} in the controller.",
+                    ]);
+                $carries = ! empty($choice['carries_blocks']);
+                if ($carries) {
+                    FilterPolicy::query()->whereKeyNot($policy->id)->update(['receives_site_blocks' => false]);
+                }
+                $policy->update(['role' => 'sitewide', 'receives_site_blocks' => $carries]);
+                // A site-wide layer is on every network; networks belong to their group policies.
+                NetworkAssignment::query()->where('filter_policy_id', $policy->id)->update(['filter_policy_id' => null]);
             } elseif ($action === 'link' && filled($choice['policy_id'] ?? null)) {
                 $policy = FilterPolicy::query()->findOrFail($choice['policy_id']);
+                $audience = NetworkType::byKey((string) ($choice['audience'] ?? ''))?->key;
+                $policy->update(['role' => 'group', 'receives_site_blocks' => false] + ($audience && ! $policy->isLayer() ? ['audience' => $audience] : []));
+                if ($audience) {
+                    $this->engine->ensureAudienceLists($audience);
+                }
             } elseif ($existing = $this->spare($filter['name'], null, array_map(fn (FilterPolicy $policy) => $policy->id, $policyFor))) {
                 // Never a second policy of the same name: an unlinked one is linked instead, with the chosen type.
                 $policy = $existing;
@@ -131,10 +163,11 @@ class ControllerImporter
             }
 
             $imported = ! empty($choice['import']) ? $this->importEntries($policy, $filter, $actor) : 0;
-            $this->sync->link($filter, $policy->refresh(), $actor, remapNetworks: ! $policy->isLayer());
+            $policy->refresh();
+            $this->sync->link($filter, $policy, $actor, remapNetworks: ! $policy->isLayer() && ! $policy->isSitewide());
             $policyFor[$filter['id']] = $policy;
             $this->audit->log('policy.setup_from_controller', $policy, ['filter' => $filter['name'], 'imported' => $imported, 'action' => $action]);
-            $done[] = "{$filter['name']} → {$policy->name}".($policy->isLayer() ? " (layer of {$policy->layerOf->name})" : '').($imported ? ' ('.number_format($imported).' entries imported)' : '');
+            $done[] = "{$filter['name']} → {$policy->name}".($policy->isLayer() ? " (layer of {$policy->layerOf->name})" : ($policy->isSitewide() ? ' (site-wide layer'.($policy->receives_site_blocks ? ', takes the site-wide blocks' : '').')' : '')).($imported ? ' ('.number_format($imported).' entries imported)' : '');
         }
         $this->sync->forget();
 

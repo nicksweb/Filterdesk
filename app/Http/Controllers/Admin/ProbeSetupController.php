@@ -46,6 +46,22 @@ class ProbeSetupController extends Controller
         return back()->with('success', "Reserved {$check['ip']} for {$profile->name} ({$check['mac']}) in UniFi.");
     }
 
+    /** The probe's address is reserved for its MAC on the relay's DHCP server: an admin says so. */
+    public function confirmRelay(Request $request, NetworkProfile $profile, ProbeDiagnostics $diagnostics, SettingsRepository $settings, AuditLogger $audit): RedirectResponse
+    {
+        $check = $this->dhcpCheck($profile, $diagnostics);
+        if (! $check || ! $check['mac'] || ! $check['ip']) {
+            return back()->with('error', 'Run the checklist first: the probe has to be running on its network.');
+        }
+        $confirmed = (array) $settings->get('probes.dhcp_confirmed', []);
+        $confirmed[$profile->id] = "{$check['ip']}|{$check['mac']}";
+        $settings->set('probes.dhcp_confirmed', $confirmed);
+        $diagnostics->for($profile, refresh: true);
+        $audit->log('probe.dhcp_reservation_confirmed', $profile, ['ip' => $check['ip'], 'mac' => $check['mac']]);
+
+        return back()->with('success', "{$profile->name}: {$check['ip']} is reserved for {$check['mac']} on your DHCP server. If the address or MAC changes, the checklist asks again.");
+    }
+
     public function useOutsidePool(Request $request, NetworkProfile $profile, ProbePlanner $planner, AuditLogger $audit): RedirectResponse
     {
         $network = NetworkAssignment::query()->where('provider_network_id', (string) $profile->unifi_network_id)->first();

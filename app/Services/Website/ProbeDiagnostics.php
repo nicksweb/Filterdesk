@@ -4,6 +4,7 @@ namespace App\Services\Website;
 
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
+use App\Services\Network\InspectionCertificate;
 use App\Services\Network\ManagesReservations;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Policy\ProbePlanner;
@@ -183,6 +184,9 @@ class ProbeDiagnostics
             ? ($intercepted->isEmpty()
                 ? $this->check('internet', 'Internet access', 'ok', 'It can load web pages.')
                 : $this->check('internet', 'Internet access', 'warn', 'Internet works, but HTTPS to '.$intercepted->map(fn ($item) => $item['host'].' is intercepted by the gateway (certificate from '.($item['issuer'] ?? 'unknown').')')->join('; ').'. A content filter, SafeSearch, ad blocking or a traffic rule is inspecting or blocking it on '.($network?->name ?? 'this network').'.', [
+                    ...($intercepted->contains(fn ($item) => app(InspectionCertificate::class)->matches($item['issuer'] ?? null))
+                        ? ['That is your HTTPS inspection certificate (Settings → HTTPS inspection). Devices that have it installed from '.route('certificate.show').' see no warning; the probe does not use it, on purpose, so it can report inspection.']
+                        : ['If this network uses HTTPS inspection on purpose, upload its CA under Settings → HTTPS inspection, so devices can install it.']),
                     'In UniFi, look at what acts on '.$intercepted->pluck('host')->join(', ').' for this network: the content filter categories and SafeSearch, ad blocking, and traffic rules. Users there get the same certificate warning.',
                     'If that is intended, mark this reviewed.',
                 ]))
@@ -209,12 +213,14 @@ class ProbeDiagnostics
             $reserved = $reservation && $reservation['ip'] === $ip;
             $inside = $network->dhcp_start && $network->dhcp_stop && ip2long($ip) >= ip2long($network->dhcp_start) && ip2long($ip) <= ip2long($network->dhcp_stop);
             $outside = $this->planner->addressOutsidePool($network);
+            $confirmed = ((array) app(SettingsRepository::class)->get('probes.dhcp_confirmed', []))[$profile->id] ?? null;
             $dhcpCheck = match (true) {
                 $reserved => $this->check('dhcp', 'Address safe from DHCP', 'ok', "{$ip} is reserved for {$mac} in UniFi."),
+                $network->dhcp_mode === 'relay' && $confirmed === "{$ip}|{$mac}" => $this->check('dhcp', 'Address safe from DHCP', 'ok', "{$ip} is reserved for {$mac} on {$network->name}'s DHCP server (confirmed here)."),
                 $network->dhcp_mode === 'relay' => $this->check('dhcp', 'Address safe from DHCP', 'warn', "{$network->name} uses a DHCP relay, so another server hands out its addresses and could give {$ip} to another device.", [
-                    "On that DHCP server, reserve {$ip} for MAC {$mac} (or exclude {$ip} from its scope).",
-                    'Or set a different address for this probe under Guided setup → Probe containers: one the DHCP server never hands out.',
-                ], 'reserve'),
+                    "On that DHCP server, reserve {$ip} for MAC {$mac} (a DHCP reservation is fine), then confirm it here.",
+                    'Or set a different address for this probe in Guided setup, step 3: one the DHCP server never hands out.',
+                ], 'confirm_relay'),
                 $inside => $this->check('dhcp', 'Address safe from DHCP', 'warn', "{$ip} is inside {$network->name}'s DHCP range ({$network->dhcp_start}–{$network->dhcp_stop}), so UniFi could give it to another device.", array_values(array_filter([
                     "Reserve in UniFi: pins {$ip} to MAC {$mac}, so UniFi never hands it out. Nothing else changes.",
                     $outside ? "Or use {$outside}, which is outside the pool. The probe's address changes, so regenerate compose.vlan.yml and recreate its Docker network afterwards." : null,

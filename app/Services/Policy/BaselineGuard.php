@@ -180,6 +180,36 @@ class BaselineGuard
         return $paused->isEmpty() ? null : $paused->pluck('name')->join(', ').' '.($paused->count() === 1 ? 'is' : 'are').' paused in UniFi; '.($paused->count() === 1 ? 'its' : 'their').' networks are unfiltered until turned back on.';
     }
 
+    /**
+     * Add networks to the baseline (Students) filter on request, whatever
+     * they have now: protection for a device network, or a user network
+     * with only site-wide filtering.
+     *
+     * @param  list<string>  $networkIds
+     * @return array{ok: bool, message: string}
+     */
+    public function protect(array $networkIds, User $actor): array
+    {
+        $policy = $this->policy();
+        if (! $policy) {
+            return ['ok' => false, 'message' => 'No Students policy is linked to a UniFi filter yet.'];
+        }
+        if (! $this->pusher->enabled() || ! $this->pusher->writer()) {
+            return ['ok' => false, 'message' => "Adding {$policy->name}'s filter needs the network provider in Active mode. Or add the network to {$policy->provider_name} in UniFi."];
+        }
+        $networks = NetworkAssignment::query()->whereIn('provider_network_id', $networkIds)->get();
+        try {
+            $this->pusher->writer()->attachNetworksToContentFilter($policy->provider_reference, $networks->pluck('provider_network_id')->all());
+        } catch (ProviderRequestFailed $exception) {
+            return ['ok' => false, 'message' => $exception->getMessage()];
+        }
+        NetworkAssignment::query()->whereIn('id', $networks->pluck('id'))->whereNull('filter_policy_id')->update(['filter_policy_id' => $policy->id]);
+        $this->sync->forget();
+        $this->audit->log('policy.baseline_protected', $policy, ['networks' => $networks->pluck('name')->all()]);
+
+        return ['ok' => true, 'message' => $networks->pluck('name')->join(', ').' now '.($networks->count() === 1 ? 'has' : 'have')." {$policy->name} filtering in UniFi."];
+    }
+
     /** Let a network stay unfiltered, or take that back. */
     public function allow(NetworkAssignment $network, ?string $reason, User $actor): void
     {

@@ -266,6 +266,8 @@ class PolicyEngine
         $sources = [];
         // Blocks only a feed (or the layer's own list) asks for; a layer carries these.
         $layerBlocks = [];
+        // Blocks that come only from site-wide lists; a site-wide layer can carry these instead.
+        $siteBlocks = [];
 
         foreach ($lists as $list) {
             $specificity = match ($list->scope) {
@@ -295,6 +297,7 @@ class PolicyEngine
                     $block[$entry->domain] = max($block[$entry->domain] ?? [-1, -1, 0, 0], $rank);
                     $carried = $isFeed || ($policy->isLayer() && $list->filter_policy_id === $policy->id);
                     $layerBlocks[$entry->domain] = ($layerBlocks[$entry->domain] ?? true) && $carried;
+                    $siteBlocks[$entry->domain] = ($siteBlocks[$entry->domain] ?? true) && $list->scope === ListScope::Site;
                 }
                 if (! $isFeed) {
                     $sources[$entry->domain][] = [
@@ -344,6 +347,15 @@ class PolicyEngine
             $allow = [];
         } elseif ($policy->activeLayer()) {
             $block = array_filter($block, fn ($rank, string $domain) => ! ($layerBlocks[$domain] ?? false), ARRAY_FILTER_USE_BOTH);
+        }
+
+        // Stacked filters: when a site-wide layer carries the site-wide blocks (a filter such as
+        // "Block (Sitewide)" on every network), every other filter leaves them to it. Allows still
+        // go into every filter, because a host allowed by one filter is blocked by any other that blocks it.
+        $carrier = FilterPolicy::siteBlockCarrier();
+        $root = $policy->isLayer() ? $policy->layerOf : $policy;
+        if ($carrier && $root && ! $carrier->is($root)) {
+            $block = array_filter($block, fn ($rank, string $domain) => ! ($siteBlocks[$domain] ?? false), ARRAY_FILTER_USE_BOTH);
         }
 
         $rules = $this->rules();

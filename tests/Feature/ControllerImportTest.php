@@ -65,7 +65,7 @@ class ControllerImportTest extends TestCase
         }
         $this->assertTrue(NetworkProfile::query()->where('key', 'staff')->value('unifi_network_id') === 'sim-staff');
 
-        $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('Switch on and check')->assertSee('(extra blocklist layer)', false);
+        $this->actingAs($admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('Switch on and check')->assertSee('Blocklist layer of Staff', false);
         $this->actingAs($admin)->post(route('admin.policy.setup.import-all'))->assertSessionHas('success');
         $this->assertSame(3, FilterPolicy::query()->count(), 'Running it again changes nothing');
     }

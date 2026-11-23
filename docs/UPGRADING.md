@@ -42,6 +42,12 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.12 → 2026.12.13
+
+- Pull and restart as usual; the probe image changed too.
+- Open Guided setup: step 2 shows what Filterdesk learned from UniFi (site-wide layers, groups, user and device networks) and a preview laid out like UniFi's Content Filter page. Run **Bring everything in** again, or set each filter under *Change a choice*, so filters on every network (such as *Allow (Sitewide)*) become site-wide layers. Nothing changes in UniFi.
+- Then look at **Policies → Changes** before publishing: with a site-wide layer that takes the site-wide blocks, site-wide blocks leave the group filters, so their change sets may show removals of entries that the site-wide filter now carries.
+
 ## 2026.12.8 → 2026.12.9 (and 2026.12.10)
 
 - Pull and restart as usual (migrations add baseline filtering and kept names).

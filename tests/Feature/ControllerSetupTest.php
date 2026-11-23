@@ -102,8 +102,8 @@ class ControllerSetupTest extends TestCase
             ->assertSee('In 2 filters', false)->assertSee('can still be blocked by Staff', false);
 
         $this->artisan('policy:check-sync')->assertSuccessful();
-        $this->assertSame('drift', $student->refresh()->sync_status);
-        $this->assertStringContainsString('also in Staff', $student->sync_details['summary']);
+        $this->assertNotSame('drift', $student->refresh()->sync_status, 'Stacked filters are reported, not drift');
+        $this->assertStringContainsString('Shares 1 network(s) with Staff', $student->sync_details['summary']);
     }
 
     public function test_categories_are_saved_to_the_linked_filter_and_edits_in_the_controller_are_detected(): void

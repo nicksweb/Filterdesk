@@ -22,6 +22,7 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BrandIconController;
+use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExceptionReviewController;
 use App\Http\Controllers\HealthController;
@@ -34,6 +35,8 @@ use App\Http\Controllers\WebsiteRequestController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class)->name('health');
+Route::get('/certificate', [CertificateController::class, 'show'])->name('certificate.show');
+Route::get('/certificate/download.{format}', [CertificateController::class, 'download'])->whereIn('format', ['crt', 'pem'])->name('certificate.download');
 
 Route::get('/brand/icon', BrandIconController::class)->name('brand.icon');
 
@@ -130,6 +133,8 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/networks/baseline', [NetworkMapController::class, 'baseline'])->middleware('throttle:10,1')->name('networks.baseline');
                     Route::put('/networks/baseline-policy', [NetworkMapController::class, 'baselinePolicy'])->name('networks.baseline-policy');
                     Route::put('/networks/{network}/unfiltered', [NetworkMapController::class, 'allowUnfiltered'])->name('networks.unfiltered');
+                    Route::post('/networks/protect', [NetworkMapController::class, 'protect'])->middleware('throttle:10,1')->name('networks.protect');
+                    Route::put('/networks/{network}/kind', [NetworkMapController::class, 'kind'])->name('networks.kind');
                     Route::post('/policies/{policy}/categories', [FilterPolicyController::class, 'categories'])->middleware('throttle:10,1')->name('policies.categories');
                     Route::post('/policies/{policy}/layer', [PolicyLayerController::class, 'store'])->middleware('throttle:6,1')->name('policies.layer.store');
                     Route::post('/policies/{policy}/verify-write', [FilterPolicyController::class, 'verifyWrite'])->middleware('throttle:6,1')->name('policies.verify-write');
@@ -165,6 +170,7 @@ Route::middleware('installed')->group(function (): void {
             Route::post('/settings/categories/test', [SettingsController::class, 'testCategories'])->middleware('throttle:10,1')->name('settings.test-categories');
             Route::post('/settings/network/discover', [SettingsController::class, 'discover'])->middleware('throttle:10,1')->name('settings.discover');
             Route::post('/probes/{profile}/reserve', [ProbeSetupController::class, 'reserve'])->middleware('throttle:10,1')->name('probes.reserve');
+            Route::post('/probes/{profile}/confirm-relay', [ProbeSetupController::class, 'confirmRelay'])->name('probes.confirm-relay');
             Route::post('/probes/{profile}/outside-pool', [ProbeSetupController::class, 'useOutsidePool'])->name('probes.outside-pool');
             Route::post('/probes/{profile}/review', [ProbeSetupController::class, 'review'])->name('probes.review');
             Route::get('/audit', AuditLogController::class)->name('audit');

@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.13
+
+### Added
+- **Filterdesk learns how your UniFi filters are organised**: site-wide layers (filters on most networks, such as *Allow (Sitewide)* and *Block (Sitewide)*), groups per type of user with their schedules, blocklist layers, and user versus device networks. Guided setup shows it as suggestions to confirm, with a preview laid out like UniFi's Content Filter page (name, networks, categories, SafeSearch, schedule) and what Filterdesk manages each filter as.
+- **Site-wide layers in publishing**: one site-wide layer takes the site-wide blocks, so new site-wide blocks go only into it instead of every filter (keeping each under UniFi's ~100,000-entry limit). Allows still go into every filter on the networks concerned.
+- **Policies page as a table** like UniFi's, with sync status and what publishing would change per filter, instead of stacked cards.
+- **Network check** (Networks & filters): each network as a user or device network (learned; confirm or change), with suggestions such as a user network that has only site-wide filtering, or a device network without Students filtering, and a button to add Students filtering.
+- **HTTPS inspection certificate**: upload the gateway's inspection CA (public certificate only; a private key is refused) under Settings → HTTPS inspection. A public `/certificate` page offers it with install steps per device, the probe names the issuer when a site's certificate is intercepted, and checks link to the page when it is the school's.
+- **DHCP reservations are accepted for probes** behind a DHCP relay once confirmed on the checklist (*It's reserved on our DHCP server*); UniFi reservations already were.
+
+### Changed
+- **Stacked filters are no longer "Changed in controller"**: that status now means only that a filter's lists or categories were edited in UniFi. Networks mapped here but filtered differently in UniFi show as *Networks differ*; other filters stacked on the same networks are one short line in the summary.
+- Paused filters are greyed in the tables and never chosen to take the site-wide blocks.
+
 ## 2026.12.12
 
 ### Fixed

@@ -32,7 +32,7 @@ class Coverage
             'link' => route('admin.policy.networks.index')];
 
         $linked = FilterPolicy::query()->where('enabled', true)->whereNotNull('provider_reference')->get(['name', 'sync_status']);
-        $outOfStep = $linked->whereIn('sync_status', ['drift', 'error', 'changes_due']);
+        $outOfStep = $linked->whereIn('sync_status', ['drift', 'error', 'changes_due', 'networks']);
         $parts[] = ['key' => 'sync', 'label' => 'Filters in sync', 'ok' => $linked->isEmpty() ? null : $outOfStep->isEmpty(),
             'value' => $linked->isEmpty() ? '—' : ($linked->count() - $outOfStep->count()).' of '.$linked->count(),
             'detail' => $outOfStep->isEmpty() ? 'Every linked filter matches its policy.' : 'Out of step: '.$outOfStep->pluck('name')->join(', ').'.',

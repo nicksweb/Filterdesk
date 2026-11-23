@@ -8,6 +8,7 @@ use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
 use App\Services\AuditLogger;
 use App\Services\Policy\BaselineGuard;
+use App\Services\Policy\ControllerLearner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
@@ -45,6 +46,7 @@ class NetworkMapController extends Controller
             'pushStatus' => Cache::get(RunManualPush::statusKey('all')),
             'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
             'unfiltered' => $baseline->unfiltered($state),
+            'learned' => app(ControllerLearner::class)->learn($state)['networks'],
             'baselinePolicy' => $baseline->policy(),
         ]);
     }
@@ -56,6 +58,27 @@ class NetworkMapController extends Controller
         $result = $baseline->enforce($request->user(), $validated['networks'] ?? null);
 
         return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    /** Add networks to the Students (baseline) filter: protection for device networks, or a user network missing its group. */
+    public function protect(Request $request, BaselineGuard $baseline): RedirectResponse
+    {
+        $validated = $request->validate(['networks' => ['required', 'array', 'max:200'], 'networks.*' => ['string', 'max:190']]);
+        $result = $baseline->protect($validated['networks'], $request->user());
+
+        return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    /** Confirm a network is a user or device network (or go back to the learned guess). */
+    public function kind(Request $request, NetworkAssignment $network, AuditLogger $audit): RedirectResponse
+    {
+        $validated = $request->validate(['kind' => ['required', 'in:user,device,auto']]);
+        $network->update(['role' => $validated['kind'] === 'auto' ? null : $validated['kind']]);
+        $audit->log('policy.network_kind_set', null, ['network' => $network->name, 'kind' => $validated['kind']]);
+
+        return back()->with('success', "{$network->name}: ".match ($validated['kind']) {
+            'user' => 'user network', 'device' => 'device network', default => 'learned from UniFi again'
+        }.'.');
     }
 
     /** Allow a network to stay unfiltered (a reason is required), or take that back. */

@@ -56,23 +56,41 @@
                 @php
                     $describe = function (array $filter) {
                         $suggestion = $filter['suggestion'];
-                        if ($filter['linked']) {
+                        if ($filter['linked'] && ! $filter['linked']->isSitewide() && $suggestion['action'] !== 'sitewide') {
                             return 'Managed by '.$filter['linked']->name.($filter['linked']->isLayer() ? ' (extra blocklist layer)' : ' · '.$filter['linked']->typeLabel().' filtering');
                         }
 
                         return match ($suggestion['action']) {
+                            'sitewide' => 'Site-wide layer (on every network)'.(! empty($suggestion['carries_blocks']) ? ', takes the site-wide blocks' : '').($filter['linked'] && ! $filter['linked']->isSitewide() ? ' · now managed as '.$filter['linked']->typeLabel().', will change' : ''),
                             'layer' => 'Extra blocklist layer on top of '.($filter['parent_name'] ?? 'another filter'),
                             'skip' => 'Left alone',
                             default => \App\Models\NetworkType::labelFor($suggestion['audience']).' filtering',
                         };
                     };
                 @endphp
+                @php $lessons = $learned['filters']; @endphp
+                @if($lessons->isNotEmpty())
+                    <div class="learned">
+                        <h3>What Filterdesk learned from UniFi</h3>
+                        <div class="learned-grid">
+                            <div><strong>Site-wide layers</strong><small>On most networks; allows and blocks for everyone</small>
+                                <ul>@forelse($lessons->where('role', 'sitewide') as $item)<li>{{ $item['filter']['name'] }} <span class="hint">{{ $item['coverage'] }} networks{{ $item['carries_blocks'] ? ' · takes the site-wide blocks' : '' }}</span></li>@empty<li class="hint">None: each network has its own filter</li>@endforelse</ul></div>
+                            <div><strong>Groups</strong><small>One type of user each</small>
+                                <ul>@foreach($lessons->where('role', 'group')->groupBy('audience') as $audience => $items)<li>{{ \App\Models\NetworkType::labelFor($audience) }}: {{ $items->map(fn ($item) => $item['filter']['name'].($item['scheduled'] ? ' (on a schedule)' : ''))->join(', ') }}</li>@endforeach</ul></div>
+                            @php $kinds = $learned['networks']; @endphp
+                            <div><strong>Networks</strong><small>From their names and filters; confirm under Networks &amp; filters</small>
+                                <ul><li>{{ $kinds->where('kind', 'user')->count() }} user networks</li><li>{{ $kinds->where('kind', 'device')->count() }} device or infrastructure networks</li>
+                                    @if($kinds->whereNotNull('advice')->isNotEmpty())<li><a href="{{ route('admin.policy.networks.index') }}#learned">{{ $kinds->whereNotNull('advice')->count() }} to look at</a></li>@endif</ul></div>
+                        </div>
+                    </div>
+                @endif
+                <h3>How your UniFi console will look</h3>
+                <p class="hint">Laid out like UniFi's Content Filter page. Bringing everything in changes nothing in UniFi: the same filters, networks, categories, SafeSearch and schedules, with every entry kept. What changes is that Filterdesk manages each filter as shown in the second column. Approvals then go to the filters that need them, and Policies → Changes shows exactly what each publish writes, filter by filter.</p>
+                <x-filter-table :rows="$previewRows" :preview="true" />
                 <div class="setup-quick">
                     <div>
                         <h3>Recommended: bring everything in</h3>
-                        <ul class="plain-list">
-                            @foreach($filters as $filter)<li><strong>{{ $filter['name'] }}</strong> → {{ $describe($filter) }}</li>@endforeach
-                        </ul>
+                        <p class="hint">Uses the choices in the table above. Change any of them first under <em>Change a choice</em>.</p>
                     </div>
                     <form method="post" action="{{ route('admin.policy.setup.import-all') }}">@csrf
                         <button class="button primary" data-confirm="Bring in all {{ $filters->count() }} content filters as shown? Nothing is changed in UniFi.">Bring everything in</button>
@@ -85,9 +103,11 @@
                         @foreach($filters as $filter)
                             @php
                                 $suggestion = $filter['suggestion'];
-                                $selected = $filter['linked']
-                                    ? ($filter['linked']->isLayer() ? 'layer:'.$filter['linked']->layerOf?->provider_reference : 'type:'.$filter['linked']->audience)
-                                    : match ($suggestion['action']) { 'layer' => 'layer:'.$suggestion['parent'], 'skip' => 'skip', default => 'type:'.$suggestion['audience'] };
+                                $selected = match (true) {
+                                    $suggestion['action'] === 'sitewide' => 'sitewide',
+                                    (bool) $filter['linked'] => $filter['linked']->isLayer() ? 'layer:'.$filter['linked']->layerOf?->provider_reference : 'type:'.$filter['linked']->audience,
+                                    default => match ($suggestion['action']) { 'layer' => 'layer:'.$suggestion['parent'], 'skip' => 'skip', default => 'type:'.$suggestion['audience'] },
+                                };
                                 $count = count($filter['allow']) + count($filter['block']);
                             @endphp
                             <div class="filter-choice">
@@ -101,6 +121,9 @@
                                     <select name="filters[{{ $filter['id'] }}][as]">
                                         <optgroup label="Filtering for a type of network">
                                             @foreach(\App\Models\NetworkType::options() as $value => $label)<option value="type:{{ $value }}" @selected($selected === 'type:'.$value)>{{ $label }} filtering</option>@endforeach
+                                        </optgroup>
+                                        <optgroup label="On every network">
+                                            <option value="sitewide" @selected($selected === 'sitewide')>Site-wide layer (allows or blocks for everyone)</option>
                                         </optgroup>
                                         @if($parentFilters->reject(fn ($other) => $other['id'] === $filter['id'])->isNotEmpty())
                                             <optgroup label="Optional">
@@ -117,6 +140,7 @@
                                             @foreach($policies as $policy)<option value="{{ $policy->id }}">{{ $policy->name }} ({{ $policy->typeLabel() }}){{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' · now on '.$policy->provider_name : '' }}</option>@endforeach
                                         </select>
                                     </label>
+                                    <label class="choice compact"><input type="hidden" name="filters[{{ $filter['id'] }}][carries_blocks]" value="0"><input type="checkbox" name="filters[{{ $filter['id'] }}][carries_blocks]" value="1" @checked(!empty($suggestion['carries_blocks']))><span>Takes the site-wide blocks<small>Only for a site-wide layer. New site-wide blocks go only into this filter instead of every filter, so each stays under UniFi's entry limit.</small></span></label>
                                     <label class="choice compact"><input type="hidden" name="filters[{{ $filter['id'] }}][import]" value="0"><input type="checkbox" name="filters[{{ $filter['id'] }}][import]" value="1" @checked($filter['linked'] ? false : $suggestion['import'])><span>Import its {{ number_format($count) }} entries<small>Recommended the first time, so publishing keeps them.</small></span></label>
                                 </details>
                             </div>
