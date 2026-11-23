@@ -23,7 +23,7 @@ class ProbeCompose extends Command
     public function handle(ProbePlanner $planner): int
     {
         $extra = array_values(array_filter((array) $this->option('network'), 'is_string'));
-        $plans = $planner->plan($this->option('parent') ?: null, $extra === [] ? null : $extra);
+        $plans = $planner->probes($this->option('parent') ?: null, $extra === [] ? null : $extra);
         if ($plans->isEmpty()) {
             $this->error('No probes to plan. Map networks to policies first (Policies → Guided setup).');
 

@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.11
+
+### Added
+- **No probe for a network**: Guided setup, step 3, lets you leave any planned probe out (a VPN, another site, a network the host's switch port doesn't carry). Its policy still works; it just isn't shown in website checks, and compose.vlan.yml no longer includes it.
+
 ## 2026.12.10
 
 ### Fixed

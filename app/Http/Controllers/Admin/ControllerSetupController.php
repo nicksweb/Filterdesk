@@ -39,7 +39,8 @@ class ControllerSetupController extends Controller
         $saved = $planner->saved();
         $parent = $this->parentOverride($request) ?? $saved['trunk'];
         $extra = $this->extraNetworks($request) ?? $saved['extra'];
-        $plans = $planner->plan($parent, $extra);
+        $allPlans = $planner->plan($parent, $extra);
+        $plans = $allPlans->reject(fn (array $plan) => in_array($plan['network']->provider_network_id, $saved['skip'], true))->values();
         $filterNames = collect($state['filters'])->pluck('name', 'id');
         $linked = $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference));
         $profiles = NetworkProfile::query()->orderBy('sort_order')->get();
@@ -77,6 +78,7 @@ class ControllerSetupController extends Controller
             'extra' => $extra,
             'extraOptions' => $networks->reject(fn (array $network) => $plans->contains(fn (array $plan) => $plan['network']->provider_network_id === $network['id'] && $plan['policy']))->values(),
             'plans' => $plans,
+            'allPlans' => $allPlans,
         ]);
     }
 
@@ -178,7 +180,7 @@ class ControllerSetupController extends Controller
     /** The planned compose.vlan.yml for every probe, as a file. */
     public function compose(Request $request, ProbePlanner $planner): Response
     {
-        return response($planner->composeFile($planner->plan($this->parentOverride($request), $this->extraNetworks($request)), $this->behindProxy($request)), 200, [
+        return response($planner->composeFile($planner->probes($this->parentOverride($request), $this->extraNetworks($request)), $this->behindProxy($request)), 200, [
             'Content-Type' => 'text/yaml; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="compose.vlan.yml"',
         ]);
@@ -193,7 +195,7 @@ class ControllerSetupController extends Controller
     private function prepareProfiles(ProbePlanner $planner, ?string $parent, ?array $extra): array
     {
         $created = [];
-        foreach ($planner->plan($parent, $extra) as $plan) {
+        foreach ($planner->probes($parent, $extra) as $plan) {
             $profile = $plan['profile'] ?? NetworkProfile::query()->firstOrCreate(['key' => $plan['key']], [
                 'name' => $plan['label'],
                 'audience' => $plan['audience'],
@@ -225,12 +227,15 @@ class ControllerSetupController extends Controller
             'extra.*' => ['string', 'regex:/^[A-Za-z0-9_-]{1,80}$/'],
             'addresses' => ['nullable', 'array', 'max:200'],
             'addresses.*' => ['nullable', 'ipv4'],
+            'skip' => ['nullable', 'array', 'max:200'],
+            'skip.*' => ['string', 'regex:/^[A-Za-z0-9_-]{1,80}$/'],
         ], ['ipv4' => 'Enter an IPv4 address such as 10.0.20.50.', 'regex' => 'Use a Linux interface name such as eno1, eno1.20, vlan20 or br0 (up to 15 characters).']);
 
         $planner->save([
             'trunk' => $validated['trunk'],
             'interfaces' => collect($validated['interfaces'] ?? [])->filter(fn ($value, $key) => is_string($key) && preg_match('/^[A-Za-z0-9_-]{1,80}$/', $key))->all(),
             'extra' => $validated['extra'] ?? [],
+            'skip' => $validated['skip'] ?? [],
             'addresses' => collect($validated['addresses'] ?? [])->filter(fn ($value, $key) => is_string($key) && preg_match('/^[A-Za-z0-9_-]{1,80}$/', $key))->all(),
         ]);
         $audit->log('policy.probe_interfaces_saved', null, ['trunk' => $validated['trunk'], 'interfaces' => count(array_filter($validated['interfaces'] ?? []))]);

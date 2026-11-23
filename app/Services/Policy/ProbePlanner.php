@@ -51,6 +51,7 @@ class ProbePlanner
             'interfaces' => array_filter((array) $this->settings->get('probes.interfaces', []), fn ($value) => is_string($value) && preg_match(self::INTERFACE_PATTERN, $value)),
             'extra' => array_values(array_filter((array) $this->settings->get('probes.extra', []), 'is_string')),
             'addresses' => array_filter((array) $this->settings->get('probes.addresses', []), fn ($value) => is_string($value) && filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)),
+            'skip' => array_values(array_filter((array) $this->settings->get('probes.skip', []), 'is_string')),
         ];
     }
 
@@ -62,6 +63,9 @@ class ProbePlanner
         $this->settings->set('probes.trunk', $values['trunk']);
         $this->settings->set('probes.interfaces', array_filter($values['interfaces'], fn ($value) => filled($value)));
         $this->settings->set('probes.extra', array_values($values['extra']));
+        if (array_key_exists('skip', $values)) {
+            $this->settings->set('probes.skip', array_values($values['skip']));
+        }
         if (array_key_exists('addresses', $values)) {
             $this->settings->set('probes.addresses', array_filter($values['addresses'], fn ($value) => filled($value)));
         }
@@ -129,6 +133,20 @@ class ProbePlanner
             ->map(fn (NetworkAssignment $network) => $this->planFor(null, $network, collect(), $parent));
 
         return $plans->concat($extras)->values();
+    }
+
+    /**
+     * The plans that get a probe: every plan except those whose network an
+     * admin chose to leave without one (a network the host cannot reach, or
+     * a policy not worth testing on its own).
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function probes(?string $parent = null, ?array $extraNetworkIds = null): Collection
+    {
+        $skip = $this->saved()['skip'];
+
+        return $this->plan($parent, $extraNetworkIds)->reject(fn (array $plan) => in_array($plan['network']->provider_network_id, $skip, true))->values();
     }
 
     /**

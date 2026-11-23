@@ -80,6 +80,13 @@ class SetupFlowTest extends TestCase
         $this->assertStringNotContainsString(' -f ', $file, 'No -f in the start command');
         $this->assertNotNull(NetworkProfile::query()->where('key', 'student')->value('unifi_network_id'), 'Saving the probes links the profiles');
 
+        // A network the host cannot reach is left without a probe.
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.probes'), ['trunk' => 'ens18', 'skip' => ['sim-staff']])->assertSessionHas('success');
+        $file = $this->actingAs($this->admin)->get(route('admin.policy.setup.compose'))->getContent();
+        $this->assertStringNotContainsString('probe-staff:', $file);
+        $this->assertStringContainsString('probe-student:', $file);
+        $this->actingAs($this->admin)->get(route('admin.policy.setup.show'))->assertOk()->assertSee('plan-skipped', false);
+
         $this->assertSame('COMPOSE_FILE=compose.yml:compose.proxy.yml:compose.vlan.yml', app(ProbePlanner::class)->composeFileLine(true));
         $this->artisan('probes:compose', ['--proxy' => 'yes'])->assertSuccessful()->expectsOutputToContain('compose.proxy.yml:compose.vlan.yml');
     }

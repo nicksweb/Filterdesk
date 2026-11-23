@@ -137,7 +137,7 @@
                 <p>One probe per policy, each on one of that policy's VLANs, so website checks see exactly what that network gets. UniFi filters by DNS at the gateway of each network, so a probe on the server's own network would see the wrong filtering.</p>
             </div></div>
 
-            @if($plans->isEmpty())
+            @if($allPlans->isEmpty())
                 <p class="hint">Finish step 2 first: the probes follow the networks your policies cover.</p>
             @else
                 <form method="post" action="{{ route('admin.policy.setup.probes') }}">@csrf
@@ -156,10 +156,11 @@
 
                     <h3>b. Which networks get a probe</h3>
                     <div class="table-wrap compact"><table>
-                        <thead><tr><th>Probe</th><th>Network</th><th>Host interface</th><th>Address</th></tr></thead>
+                        <thead><tr><th>Probe</th><th>Network</th><th>Host interface</th><th>Address</th><th>Probe?</th></tr></thead>
                         <tbody>
-                            @foreach($plans as $plan)
-                                <tr>
+                            @foreach($allPlans as $plan)
+                                @php($skipped = in_array($plan['network']->provider_network_id, $saved['skip'], true))
+                                <tr @class(['plan-skipped' => $skipped])>
                                     <td><strong>{{ $plan['policy']?->name ?? $plan['label'] }}</strong><small><code>{{ $plan['service'] }}</code> · {{ \App\Models\NetworkType::labelFor($plan['audience']) }}</small>
                                         @foreach($plan['warnings'] as $warning)<small class="network-status warn">{{ $warning }}</small>@endforeach
                                         @if($plan['others']->isNotEmpty())<small>Also stands for {{ $plan['others']->map(fn ($network) => $network->name)->join(', ') }}</small>@endif
@@ -176,6 +177,7 @@
                                         <small>{{ $plan['address_source'] === 'manual' ? 'Set by hand' : 'Suggested, outside most DHCP pools' }}{{ $plan['subnet'] ? ' · DNS '.$plan['dns'] : '' }}</small>
                                         @if($plan['dhcp_mode'] === 'relay')<small class="network-status warn">DHCP relay: reserve MAC {{ $plan['mac'] }} on your DHCP server</small>@elseif($plan['dhcp_clash'] ?? false)<small class="network-status warn">Inside the DHCP pool: reserve it in UniFi</small>@endif
                                     </td>
+                                    <td><label class="choice compact" title="Leave this network without a probe: checks won't show it"><input type="checkbox" name="skip[]" value="{{ $plan['network']->provider_network_id }}" @checked($skipped)><span>No probe<small>For a network the host can't reach, or one not worth testing</small></span></label></td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -189,9 +191,11 @@
                             </div>
                         </details>
                     @endif
+                    <p class="hint">A probe needs its network to reach this host: tagged on the trunk's switch port, or, for an untagged network, the trunk's own network. Tick <strong>No probe</strong> for any other (a VPN, another site, a network not on this port); its policy still works, it just isn't shown in checks.</p>
                     <div class="form-actions"><button class="button primary">Save and show the host steps</button></div>
                 </form>
 
+                @if($plans->isNotEmpty())
                 <div class="host-steps" id="host">
                     <h3>c. On the Docker host</h3>
                     @unless($ready)
@@ -218,6 +222,7 @@
                         <li><strong>Start</strong>: <code>docker compose up -d</code></li>
                     </ol>
                 </div>
+                @endif
             @endif
         </section>
 
