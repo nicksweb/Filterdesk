@@ -59,6 +59,7 @@ class PolicyInsights
             'decline_reasons' => $requests->where('status', RequestStatus::Rejected)->map(fn (WebsiteRequest $request) => str((string) $request->resolution)->limit(80)->toString())->countBy()->sortDesc()->take(8)->all(),
             'versions' => PolicyRelease::query()->whereNotNull('number')->whereBetween('created_at', [$from, $to])->count(),
             'rollbacks' => PolicyRelease::query()->whereNotNull('rollback_of_id')->whereBetween('created_at', [$from, $to])->count(),
+            'overrides' => AuditEvent::query()->whereIn('action', ['website_request.two_person_override', 'policy.two_person_override'])->whereBetween('created_at', [$from, $to])->count(),
             'kept' => AuditEvent::query()->where('action', 'policy.exception_kept')->whereBetween('created_at', [$from, $to])->count(),
             'expired_unreviewed' => AuditEvent::query()->where('action', 'policy.exception_expired_unreviewed')->whereBetween('created_at', [$from, $to])->count(),
             'exceptions' => PolicyEntry::query()->reviewable()->count(),

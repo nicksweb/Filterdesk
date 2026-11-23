@@ -104,8 +104,17 @@
                             <label>Note to requester <span class="optional">optional</span><input name="message" value="{{ old('action') === 'approve' ? old('message') : '' }}"></label>
                         </div>
                         <ul class="rule-notes">@foreach($rules->notes as $note)<li>{{ $note }}</li>@endforeach</ul>
-                        @if($first && (int) $first['user_id'] === auth()->id())
-                            <div class="form-actions"><button class="button primary" disabled>Waiting for another IT officer</button></div>
+                        @php($rule = app(\App\Services\Approval\TwoPersonRule::class))
+                        @php($mineFirst = $first && (int) $first['user_id'] === auth()->id())
+                        @if(($first ? $mineFirst : ! empty($twoPerson)) && $rule->possible() && $rule->overrideAllowed())
+                            <details class="override" @if(old('override')) open @endif>
+                                <summary>No other IT officer is available?</summary>
+                                <label class="choice compact"><input type="hidden" name="override" value="0"><input type="checkbox" name="override" value="1" @checked(old('override'))><span><strong>Approve without a second IT officer</strong><small>This needs two IT officers ({{ implode('; ', $first['reasons'] ?? $twoPerson) }}). Use it only when nobody else can approve in time. The other IT officers are emailed so someone reviews it, and it is recorded in the audit log.</small></span></label>
+                                <label>Why no one else is available<input name="override_reason" maxlength="1000" value="{{ old('override_reason') }}" placeholder="Only IT officer on site during exams; the other is on leave"></label>
+                            </details>
+                        @endif
+                        @if($mineFirst)
+                            <div class="form-actions"><button class="button primary">Approve alone (tick the box above)</button></div>
                         @else
                             <div class="form-actions"><button class="button primary">{{ $first ? 'Give the second approval' : ($websiteRequest->isBlock() ? 'Block selected hostnames' : 'Approve selected hostnames') }}</button></div>
                         @endif

@@ -200,6 +200,8 @@ class WebsiteRequestController extends Controller
                     : null,
                 'entries' => $websiteRequest->policyEntries()->with('policyList')->get(),
                 // Why each requested site is (or is not) reachable now, for the networks it was requested for.
+                // Whether approving needs a second IT officer, so the form can offer the override.
+                'twoPerson' => $websiteRequest->status->isOpen() ? app(TwoPersonRule::class)->reasonsForRequest($websiteRequest, $websiteRequest->access_scope, $websiteRequest->domains) : [],
                 'explained' => $websiteRequest->status->isOpen() ? rescue(fn () => $this->explainNow($websiteRequest), [], false) : [],
             ];
         }

@@ -239,3 +239,4 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .coverage-parts li a{display:flex;justify-content:space-between;color:var(--ink)}.coverage-parts li small{display:block;color:var(--muted);margin-top:2px}
 .coverage-parts .part-ok{border-left-color:#08705f}.coverage-parts .part-bad{border-left-color:#a6222b}
 .home-manager{margin-bottom:24px}
+.override{margin:14px 0;padding:10px 14px;border:1px dashed #d9b36b;border-radius:10px;background:#fffaf0}.override summary{cursor:pointer;font-weight:650;font-size:.86rem}

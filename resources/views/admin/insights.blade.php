@@ -20,7 +20,7 @@
     <div class="stat-grid four">
         <article><span>Requests</span><strong>{{ $report['submitted'] }}</strong><small>{{ $report['approved'] }} approved · {{ $report['declined'] }} declined · {{ $report['open'] }} open</small></article>
         <article><span>Median time to decide</span><strong>{{ $report['median_hours'] === null ? '—' : ($report['median_hours'] < 48 ? $report['median_hours'].' h' : round($report['median_hours'] / 24, 1).' days') }}</strong><small>From submission to approval or decline</small></article>
-        <article><span>Policy versions</span><strong>{{ $report['versions'] }}</strong><small>{{ $report['rollbacks'] }} rollback(s)</small></article>
+        <article><span>Policy versions</span><strong>{{ $report['versions'] }}</strong><small>{{ $report['rollbacks'] }} rollback(s) · {{ $report['overrides'] }} approved without a second officer</small></article>
         <article><span>Exception reviews</span><strong>{{ $report['kept'] }}</strong><small>kept · {{ $report['expired_unreviewed'] }} removed unreviewed · {{ number_format($report['exceptions']) }} exceptions in place</small></article>
     </div>
 

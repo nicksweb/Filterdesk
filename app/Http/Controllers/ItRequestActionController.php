@@ -35,7 +35,10 @@ class ItRequestActionController extends Controller
             'scope.*' => ['string', 'max:40'],
             'access_from' => ['nullable', 'date'],
             'access_until' => ['nullable', 'date'],
+            'override' => ['nullable', 'boolean'],
+            'override_reason' => ['nullable', 'required_if_accepted:override', 'string', 'max:1000'],
         ], [
+            'override_reason.required_if_accepted' => 'Say why no other IT officer is available.',
             'assignee_id.exists' => 'Choose an enabled IT staff member.',
             'message.required_if' => 'Add a note explaining this action.',
         ]);
@@ -52,6 +55,7 @@ class ItRequestActionController extends Controller
                     $this->scope($validated['scope'] ?? null),
                     $this->window($request, $settings),
                     smart: $request->boolean('smart'),
+                    override: $request->boolean('override') ? $validated['override_reason'] : null,
                 ),
                 'window' => $workflow->changeWindow($websiteRequest, $actor, ...$this->window($request, $settings) ?? ['from' => null, 'until' => null], note: $validated['message'] ?? null),
                 'reject' => $workflow->reject($websiteRequest, $actor, $validated['message']),

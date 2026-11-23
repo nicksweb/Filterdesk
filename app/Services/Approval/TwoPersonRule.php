@@ -32,6 +32,15 @@ class TwoPersonRule
         return (bool) $this->settings->get('approval.two_person_site_wide', true);
     }
 
+    /**
+     * An officer may approve alone when nobody else is available, giving a
+     * reason; the other officers are told and the override is audited.
+     */
+    public function overrideAllowed(): bool
+    {
+        return (bool) $this->settings->get('approval.two_person_override', true);
+    }
+
     /** @return list<string> */
     public function sensitiveCategories(): array
     {

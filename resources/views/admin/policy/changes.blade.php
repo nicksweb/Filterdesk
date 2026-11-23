@@ -45,6 +45,13 @@
                         @endforeach
                     </tbody>
                 </table></div>
+                @if($entries->contains('proposed_by_id', auth()->id()) && app(\App\Services\Approval\TwoPersonRule::class)->overrideAllowed())
+                    <details class="override">
+                        <summary>No other IT officer is available?</summary>
+                        <label class="choice compact"><input type="hidden" name="override" value="0"><input type="checkbox" name="override" value="1"><span><strong>Confirm my own changes without a second IT officer</strong><small>Only when nobody else can confirm in time. The other IT officers are emailed so someone reviews it, and it is recorded in the audit log.</small></span></label>
+                        <label>Why no one else is available<input name="override_reason" maxlength="1000"></label>
+                    </details>
+                @endif
                 <div class="button-row">
                     <button class="button primary" name="decision" value="confirm">Confirm selected</button>
                     <button class="button secondary" name="decision" value="reject">Turn down selected</button>

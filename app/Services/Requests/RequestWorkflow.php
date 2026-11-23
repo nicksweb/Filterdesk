@@ -80,8 +80,9 @@ class RequestWorkflow
      *
      * @param  list<string>|null  $domains  Final hostname set; defaults to the requested domains.
      * @param  array{from: ?CarbonInterface, until: ?CarbonInterface}|null  $window  Access window chosen by IT; defaults to the requested one. A null "until" is permanent.
+     * @param  string|null  $override  Why no second IT officer is available: approves alone where two would be needed, and tells the others.
      */
-    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?Reach $scope = null, ?array $window = null, bool $smart = false): WebsiteRequest
+    public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?Reach $scope = null, ?array $window = null, bool $smart = false, ?string $override = null): WebsiteRequest
     {
         $this->guard($websiteRequest, RequestStatus::open(), 'Only pending requests can be approved.');
         // A second approver who leaves the form as it is confirms what the first approver chose.
@@ -96,12 +97,20 @@ class RequestWorkflow
         $rule = app(TwoPersonRule::class);
         $reasons = $rule->reasonsForRequest($websiteRequest, $scope, $domains);
         if ($reasons !== []) {
+            $confirming = $first && (int) $first['user_id'] !== $actor->id;
             if (! $rule->possible()) {
                 $note = trim('Second approval skipped: only one IT officer is enabled ('.implode('; ', $reasons).').'.($note ? "\n\n{$note}" : ''));
+            } elseif (filled($override) && ! $confirming) {
+                if (! $rule->overrideAllowed()) {
+                    throw new InvalidRequestTransition('Approving without a second IT officer is turned off (Settings → Approval policy).');
+                }
+                $note = trim("Approved by {$actor->name} without a second IT officer (".implode('; ', $reasons)."). Reason: {$override}".($note ? "\n\n{$note}" : ''));
+                $this->audit->log('website_request.two_person_override', $websiteRequest, ['reasons' => $reasons, 'reason' => $override]);
+                $this->notifier->twoPersonOverride($actor, "{$websiteRequest->reference} (".implode(', ', $domains).')', $reasons, $override, route('requests.show', $websiteRequest));
             } elseif (! $first) {
                 return $this->recordFirstApproval($websiteRequest, $actor, $note, $domains, $scope, $window, $smart, $reasons);
             } elseif ((int) $first['user_id'] === $actor->id) {
-                throw new InvalidRequestTransition('You gave the first approval. A different IT officer must give the second approval ('.implode('; ', $reasons).').');
+                throw new InvalidRequestTransition('You gave the first approval. A different IT officer must give the second approval ('.implode('; ', $reasons).'), or tick "No other IT officer is available" and give a reason.');
             } else {
                 $note = trim('Two-person approval ('.implode('; ', $reasons)."): first approved by {$first['name']}, confirmed by {$actor->name}.".($note ? "\n\n{$note}" : ''));
                 $smart = $smart || (bool) ($first['smart'] ?? false);
