@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.5
+
+### Added
+- **Add all your networks in the installer**: step 5 has rows for networks beyond Students and Staff (guest Wi-Fi, BYOD, CCTV, a lab), each with its network type (existing or new) and VLAN. Each becomes a network profile, switched off until its probe runs; a new type gets its own lists and filter policy, and Guided setup plans its probe on that VLAN. The review step lists them.
+
+### Fixed
+- After an upgrade, pages could be drawn from the previous version's templates: compiled views lived in the shared `data/storage`. They are now kept inside each container (`VIEW_COMPILED_PATH`), compiled from that container's own image.
+- The probe planner now puts every profile that names its network on that network, not only the built-in Students and Staff probes (existing plans are unchanged).
+
 ## 2026.12.4
 
 ### Fixed

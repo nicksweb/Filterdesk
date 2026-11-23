@@ -21,7 +21,10 @@ COPY docker/php-fpm-pool.conf /usr/local/etc/php-fpm.d/zz-filterdesk.conf
 # Worker pool defaults (docker/php-fpm-pool.conf); override in .env.
 ENV PHP_FPM_MAX_CHILDREN=20 PHP_FPM_START_SERVERS=4 PHP_FPM_MIN_SPARE_SERVERS=2 PHP_FPM_MAX_SPARE_SERVERS=8
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
+# Compiled views stay inside each container (not on the shared storage mount),
+# so after an upgrade no container renders pages from the previous version.
+ENV VIEW_COMPILED_PATH=/var/www/html/bootstrap/cache/views
+RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache/views \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod +x /entrypoint.sh
 USER www-data

@@ -6,12 +6,15 @@ use App\Enums\RequestStatus;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
+use App\Models\NetworkProfile;
 use App\Models\NetworkType;
 use App\Models\PolicyEntry;
 use App\Models\PolicyRelease;
 use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Approval\TwoPersonRule;
+use App\Services\Policy\ControllerSync;
+use App\Services\Policy\ProbePlanner;
 use App\Services\SettingsRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -38,7 +41,7 @@ class FreshInstallTest extends TestCase
         Http::fake(['*' => Http::failedConnection()]);
     }
 
-    private function install(array $approval = []): void
+    private function install(array $approval = [], array $networks = []): void
     {
         $steps = [
             1 => [],
@@ -46,7 +49,7 @@ class FreshInstallTest extends TestCase
             3 => ['admin_name' => 'Ada Admin', 'admin_email' => 'admin@example.test', 'admin_password' => self::PASSWORD, 'admin_password_confirmation' => self::PASSWORD,
                 'emergency_local_login' => '1', 'oidc_enabled' => '0', 'default_role' => 'teacher'],
             4 => ['unifi_enabled' => '0', 'unifi_mode' => 'read_only'],
-            5 => ['student_probe_url' => 'http://probe-student:3000', 'staff_probe_url' => 'http://probe-staff:3000'],
+            5 => ['student_probe_url' => 'http://probe-student:3000', 'staff_probe_url' => 'http://probe-staff:3000', 'networks' => $networks],
             6 => ['it_notification_address' => 'it@example.test', 'mail_encryption' => 'none'],
             7 => $approval + ['auto_approve_staff' => '0', 'students_can_request' => '0', 'default_temporary_days' => 30, 'categories' => 'Teaching and learning, Research'],
             8 => [],
@@ -130,5 +133,33 @@ class FreshInstallTest extends TestCase
         $this->assertSame(['Gambling', 'Weapons'], $settings->get('approval.sensitive_categories'));
         $this->assertSame(6, PolicyEntry::reviewMonths());
         $this->assertSame(7, PolicyEntry::graceDays());
+    }
+
+    public function test_extra_networks_added_in_the_wizard_get_profiles_types_policies_and_probes(): void
+    {
+        $this->install([], [
+            ['name' => 'Guest Wi-Fi', 'type' => 'guest', 'vlan' => 80],
+            ['name' => 'CCTV', 'type' => '__new', 'new_type' => 'CCTV', 'vlan' => 30],
+            ['name' => '', 'type' => 'other', 'vlan' => ''],
+        ]);
+
+        $guest = NetworkProfile::query()->where('name', 'Guest Wi-Fi')->sole();
+        $this->assertSame('guest', $guest->audience);
+        $this->assertFalse($guest->enabled, 'Switched on once its probe container runs');
+        $this->assertSame('http://probe-guest-wi-fi:3000', $guest->probe_url);
+        $this->assertSame('80', $guest->unifi_network_id);
+
+        $cctv = NetworkProfile::query()->where('name', 'CCTV')->sole();
+        $this->assertSame('cctv', $cctv->audience);
+        $this->assertSame('CCTV', NetworkType::byKey('cctv')?->name);
+        $this->assertSame(4, NetworkProfile::query()->count(), 'Students, Staff and the two filled rows');
+        $this->assertEqualsCanonicalizing(['staff', 'student', 'guest', 'cctv'], FilterPolicy::query()->pluck('audience')->all(), 'A filter policy per network type');
+
+        // Once UniFi is read, VLAN 80 is matched to its network and the probe is planned there.
+        app(ControllerSync::class)->state(true);
+        $plan = app(ProbePlanner::class)->plan()->firstWhere('key', 'guest_wi_fi');
+        $this->assertNotNull($plan, 'The guest network gets its own probe');
+        $this->assertSame('probe-guest-wi-fi', $plan['service']);
+        $this->assertSame($guest->refresh()->probe_url, $plan['probe_url']);
     }
 }

@@ -81,9 +81,9 @@ class ProbePlanner
         $this->interfaces = $saved['interfaces'];
         $this->addresses = $saved['addresses'];
 
-        // 1. The built-in probes go on the network their profile names (a VLAN typed
-        //    in the installer, or set under Settings → Network profiles).
-        $pinned = NetworkProfile::query()->whereIn('key', array_keys(self::BUILT_IN))->whereNotNull('unifi_network_id')->orderBy('sort_order')->get()
+        // 1. Every profile that names its network (a VLAN typed in the installer,
+        //    or set under Settings → Network profiles) gets its probe on that network.
+        $pinned = NetworkProfile::query()->whereNotNull('unifi_network_id')->where('unifi_network_id', '!=', '')->orderBy('sort_order')->orderBy('id')->get()
             ->map(function (NetworkProfile $profile) use ($parent): ?array {
                 $network = NetworkAssignment::query()->with('filterPolicy')->where('provider_network_id', $profile->unifi_network_id)->first();
                 if (! $network) {

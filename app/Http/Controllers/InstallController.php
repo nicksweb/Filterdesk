@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\IntegrationConfig;
 use App\Models\NetworkProfile;
+use App\Models\NetworkType;
 use App\Models\User;
 use App\Services\Approval\TwoPersonRule;
 use App\Services\Auth\UserProvisioningService;
@@ -15,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Throwable;
@@ -72,7 +74,12 @@ class InstallController extends Controller
                 'staff_probe_url' => ['required', 'url'],
                 'student_network_id' => ['nullable', 'string'],
                 'staff_network_id' => ['nullable', 'string'],
-            ]),
+                'networks' => ['nullable', 'array', 'max:'.self::EXTRA_NETWORK_ROWS],
+                'networks.*.name' => ['nullable', 'string', 'max:60'],
+                'networks.*.type' => ['nullable', 'required_with:networks.*.name', 'string', 'max:40'],
+                'networks.*.new_type' => ['nullable', 'string', 'max:60', 'required_if:networks.*.type,__new'],
+                'networks.*.vlan' => ['nullable', 'integer', 'min:1', 'max:4094'],
+            ], ['networks.*.new_type.required_if' => 'Name the new network type.', 'networks.*.vlan.max' => 'A VLAN is a number from 1 to 4094.']),
             6 => $request->validate([
                 'mail_host' => ['nullable', 'string'], 'mail_port' => ['nullable', 'integer'], 'mail_encryption' => ['nullable', 'in:tls,ssl,none'],
                 'mail_username' => ['nullable', 'string'], 'mail_password' => ['nullable', 'string'],
@@ -169,6 +176,48 @@ class InstallController extends Controller
         return ['ok' => true, 'message' => $request->isSecure() ? 'HTTPS reverse proxy is trusted.' : 'Plain HTTP (fine locally; use HTTPS behind a reverse proxy in production).'];
     }
 
+    /** Rows offered on step 5 for networks beyond Students and Staff. */
+    public const EXTRA_NETWORK_ROWS = 6;
+
+    /**
+     * Networks added on step 5 (guest Wi-Fi, CCTV, a lab…): each becomes a
+     * network profile with its own planned probe, switched off until its
+     * container runs (Guided setup plans the container on the VLAN). A new
+     * type is created; the default policies then give each type a filter policy.
+     *
+     * @param  array<int, array{name?: ?string, type?: ?string, new_type?: ?string, vlan?: mixed}>  $rows
+     */
+    private function createExtraNetworks(array $rows): void
+    {
+        $order = 3;
+        foreach ($rows as $row) {
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $type = (string) ($row['type'] ?? 'other');
+            if ($type === '__new') {
+                $typeName = trim((string) ($row['new_type'] ?? '')) ?: $name;
+                $type = Str::slug($typeName, '_') ?: 'network';
+                NetworkType::ensure($type, $typeName);
+            } elseif (! NetworkType::byKey($type)) {
+                $type = 'other';
+            }
+
+            $key = Str::slug($name, '_') ?: 'network';
+            $base = $key;
+            for ($suffix = 2; in_array($key, ['student', 'staff'], true) || NetworkProfile::query()->where('key', $key)->exists(); $suffix++) {
+                $key = "{$base}_{$suffix}";
+            }
+            NetworkProfile::query()->create([
+                'key' => $key, 'name' => $name, 'audience' => $type, 'enabled' => false, 'sort_order' => $order++,
+                // The service Guided setup plans for this profile (ProbePlanner names it probe-<key>).
+                'probe_url' => 'http://probe-'.Str::slug($key).':3000',
+                'unifi_network_id' => filled($row['vlan'] ?? null) ? (string) (int) $row['vlan'] : null,
+            ]);
+        }
+    }
+
     /** @param array<string, mixed> $data */
     private function complete(array $data): void
     {
@@ -248,6 +297,7 @@ class InstallController extends Controller
 
             NetworkProfile::query()->create(['key' => 'student', 'name' => 'Student Access', 'audience' => 'student', 'sort_order' => 1, 'probe_url' => $data['student_probe_url'], 'unifi_network_id' => $data['student_network_id'] ?? null]);
             NetworkProfile::query()->create(['key' => 'staff', 'name' => 'Staff Access', 'audience' => 'staff', 'sort_order' => 2, 'probe_url' => $data['staff_probe_url'], 'unifi_network_id' => $data['staff_network_id'] ?? null]);
+            $this->createExtraNetworks($data['networks'] ?? []);
             app(PolicyEngine::class)->ensureDefaults();
             $settings->set(config('version.stored_version_key'), config('version.app'));
             $settings->set(PolicyBackfill::WINDOW_FIX_FLAG, true);
