@@ -93,7 +93,9 @@ services:
 
   web:
     image: ${FILTERDESK_IMAGE_PREFIX:-ghcr.io/nicksweb/filterdesk}-web:${FILTERDESK_VERSION:-latest}
-    ports: ["127.0.0.1:${APP_PORT:-8088}:8080"]
+    # Listens on this host only by default. With the reverse proxy on another
+    # machine, set APP_BIND=0.0.0.0 (or this host's LAN address) in .env.
+    ports: ["${APP_BIND:-127.0.0.1}:${APP_PORT:-8088}:8080"]
     networks: [app, frontend]
     restart: unless-stopped
     depends_on: [app]

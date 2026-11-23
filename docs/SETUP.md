@@ -231,12 +231,14 @@ Point the proxy at the app:
 | --- | --- |
 | On the host (Nginx, Caddy) | `http://127.0.0.1:8088` |
 | Nginx Proxy Manager or Traefik in Docker, with `compose.proxy.yml` | `http://filterdesk-web-1:8080` |
+| A proxy on **another machine** (for example an existing Nginx Proxy Manager or NPMplus host) | `http://<this host's address>:8088`, after setting `APP_BIND=0.0.0.0` in `.env` and running `docker compose up -d`. Don't use `compose.proxy.yml`. Firewall port 8088 so only the proxy can reach it. |
 
 In Nginx Proxy Manager: add a proxy host for your hostname with that upstream, request a certificate, and turn on **Force SSL**, **HTTP/2** and **HSTS**. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-For`, which all of the proxies above do by default. A plain Nginx example is in [DEPLOYMENT.md](DEPLOYMENT.md#reverse-proxy).
 
 Then set `TRUSTED_PROXIES` to the proxy's address:
 
 - Proxy on the host: `127.0.0.1` (the default).
+- Proxy on another machine: that machine's address, for example `10.0.0.5`.
 - Proxy in Docker: the shared network's subnet, for example `172.18.0.0/16`, from
   `docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' <shared-network>`.
   Use the subnet rather than the proxy's own address: Docker can give the proxy a new address when it is recreated, and pages then load without styles.
