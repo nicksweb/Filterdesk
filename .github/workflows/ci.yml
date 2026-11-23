@@ -15,6 +15,11 @@ jobs:
           php-version: '8.5'
           extensions: mbstring, sqlite, pdo_sqlite
           coverage: none
+      - name: Probe base image matches its Playwright package
+        run: |
+          version=$(node -p "require('./probe/package.json').dependencies.playwright")
+          grep -q "mcr.microsoft.com/playwright:v${version}-" probe/Dockerfile || {
+            echo "probe/Dockerfile must use mcr.microsoft.com/playwright:v${version}-noble to match probe/package.json"; exit 1; }
       - run: composer install --no-interaction --prefer-dist
       - run: cp .env.example .env
       - run: vendor/bin/pint --test

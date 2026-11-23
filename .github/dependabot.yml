@@ -6,8 +6,11 @@ updates:
   - package-ecosystem: npm
     directory: /probe
     schedule: { interval: weekly }
+  # Base images: the app and web images (docker/Dockerfile). The probe's
+  # Playwright base image is bumped with the playwright package (CI checks
+  # the two match), so it is not watched separately.
   - package-ecosystem: docker
-    directory: /
+    directory: /docker
     schedule: { interval: weekly }
   - package-ecosystem: github-actions
     directory: /
