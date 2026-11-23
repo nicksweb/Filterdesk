@@ -1,10 +1,10 @@
-# IT Requests
+# Filterdesk
 
-IT Requests is an open-source, Docker-first self-service portal for schools. Staff check a website from the Staff and Student networks side by side (with a screenshot), then ask for it to be allowed, or blocked, for a while or permanently. IT gets an auditable workflow (questions, reassignment, approval, notifications, expiry) and the app keeps UniFi's content filters in step: it reads them, pushes approved changes with read-back verification, and treats UniFi as the source of truth.
+Filterdesk is an open-source, Docker-first self-service portal for schools. Staff check a website from the Staff and Student networks side by side (with a screenshot), then ask for it to be allowed, or blocked, for a while or permanently. IT gets an auditable workflow (questions, reassignment, approval, notifications, expiry) and the app keeps UniFi's content filters in step: it reads them, pushes approved changes with read-back verification, and treats UniFi as the source of truth.
 
 The application is school-neutral: branding, identity, network profiles, policy and notifications are configured through the first-run wizard. UniFi Network is the first provider, behind a vendor-neutral interface.
 
-![IT Requests installation wizard](docs/screenshots/installer.png)
+![Filterdesk installation wizard](docs/screenshots/installer.png)
 
 ## Current capabilities
 
@@ -59,8 +59,8 @@ The application is school-neutral: branding, identity, network profiles, policy 
 ### 2. Get the code and create `.env`
 
 ```bash
-git clone https://github.com/nicksweb/it-edu-selfservice.git itrequests
-cd itrequests
+git clone https://github.com/nicksweb/Filterdesk.git filterdesk
+cd filterdesk
 ./bin/install          # creates .env with a fresh APP_KEY, database password and probe key
 ```
 
@@ -68,7 +68,7 @@ Edit `.env`:
 
 | Setting | Set it to |
 | --- | --- |
-| `APP_URL` | The address people will use, for example `https://itrequests.example.edu.au` (or `http://127.0.0.1:8088` locally, with `SESSION_SECURE_COOKIE=false`). |
+| `APP_URL` | The address people will use, for example `https://filterdesk.example.edu.au` (or `http://127.0.0.1:8088` locally, with `SESSION_SECURE_COOKIE=false`). |
 | `TRUSTED_PROXIES` | The **reverse proxy's IP address** as the app sees it. If it is wrong, pages load **without styling** (the app links `http://` stylesheets from an `https://` page). For Nginx Proxy Manager in Docker: `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' <npm-container>`. The wizard's first page tells you if it is wrong and which address to use. |
 | `APP_TIMEZONE` | Your timezone, for example `Australia/Brisbane`. |
 
@@ -77,17 +77,18 @@ Edit `.env`:
 Without a reverse proxy, or with one on the host itself (it reaches the app at `127.0.0.1:8088`):
 
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
 
 With a reverse proxy in another Docker container (such as Nginx Proxy Manager), join its network so it can reach the app by name:
 
 ```bash
 cp compose.proxy.example.yml compose.proxy.yml   # set REVERSE_PROXY_NETWORK in .env if its network is not "frontend"
-docker compose -f compose.yml -f compose.proxy.yml up -d --build
+docker compose -f compose.yml -f compose.proxy.yml pull
+docker compose -f compose.yml -f compose.proxy.yml up -d
 ```
 
-and point the proxy host at `http://it-edu-selfservice-web-1:8080`. The first build takes a few minutes. `docker compose ps` should show `db`, `web` and both probes healthy.
+and point the proxy host at `http://filterdesk-web-1:8080`. The images come from `ghcr.io/nicksweb/filterdesk-*`; the first pull takes a few minutes. To build from source instead, see [docs/SETUP.md](docs/SETUP.md#5-start-the-stack). `docker compose ps` should show `db`, `web` and both probes healthy.
 
 ### 4. Run the installation wizard
 
@@ -132,7 +133,7 @@ Keep PostgreSQL, PHP-FPM and the probes off the internet; the Compose file only 
 To wipe an install and run the wizard again (this deletes its database; UniFi is not touched):
 
 ```bash
-docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > itrequests-backup.dump   # optional backup
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > filterdesk-backup.dump   # optional backup
 docker compose -f compose.yml -f compose.proxy.yml down -v --rmi local
 mv .env .env.old && ./bin/install
 ```
@@ -166,7 +167,7 @@ docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
 
 Leave out any override file you do not use.
 
-The one-shot `migrate` service runs `php artisan itrequests:upgrade` (migrations, backfills, cache clearing, worker restart) before workers start. Read [CHANGELOG.md](CHANGELOG.md) and [docs/UPGRADING.md](docs/UPGRADING.md) before each upgrade.
+The one-shot `migrate` service runs `php artisan filterdesk:upgrade` (migrations, backfills, cache clearing, worker restart) before workers start. Read [CHANGELOG.md](CHANGELOG.md) and [docs/UPGRADING.md](docs/UPGRADING.md) before each upgrade.
 
 ## Development
 
@@ -185,7 +186,7 @@ Do not open public issues containing vulnerabilities, credentials, school names,
 
 ## Third-party blocklists
 
-The optional blocklist presets (Protection) point to [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists), maintained by hagezi and contributors and published under GPL-3.0. IT Requests does not include any list content: lists are downloaded from the publisher when an administrator subscribes and on each scheduled refresh. Review a list's description in that repository before using it, and report false positives to the publisher.
+The optional blocklist presets (Protection) point to [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists), maintained by hagezi and contributors and published under GPL-3.0. Filterdesk does not include any list content: lists are downloaded from the publisher when an administrator subscribes and on each scheduled refresh. Review a list's description in that repository before using it, and report false positives to the publisher.
 
 ## Licence
 

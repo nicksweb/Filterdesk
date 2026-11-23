@@ -55,7 +55,8 @@ class TimezoneAndSettingsTest extends TestCase
         Setting::query()->create(['key' => 'school', 'value' => ['timezone' => 'Australia/Brisbane']]);
         $request = $this->pendingRequest(['legacy.example.org'], attributes: ['requested_until' => '2030-01-01 10:00:00']);
 
-        $this->artisan('itrequests:upgrade', ['--skip-migrations' => true])->assertSuccessful();
+        $this->artisan('filterdesk:upgrade', ['--skip-migrations' => true])->assertSuccessful();
+        // The name from before the rename still works.
         $this->artisan('itrequests:upgrade', ['--skip-migrations' => true])->assertSuccessful();
 
         $this->assertSame('2030-01-01 00:00:00', $request->refresh()->getRawOriginal('requested_until'));

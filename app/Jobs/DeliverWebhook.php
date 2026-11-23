@@ -10,7 +10,7 @@ use Throwable;
 
 /**
  * Sends one event to one endpoint. JSON bodies carry an HMAC-SHA256 signature
- * of the raw body in X-ITRequests-Signature (sha256=…) when a secret is set;
+ * of the raw body in X-Filterdesk-Signature (sha256=…) when a secret is set;
  * Teams endpoints get a MessageCard with a button to the request.
  */
 class DeliverWebhook implements ShouldQueue
@@ -34,9 +34,9 @@ class DeliverWebhook implements ShouldQueue
 
         $body = $endpoint->format === 'teams' ? $this->teamsCard() : ['event' => $this->event, 'sent_at' => now()->toIso8601String(), 'data' => $this->payload];
         $json = (string) json_encode($body, JSON_UNESCAPED_SLASHES);
-        $headers = ['Content-Type' => 'application/json', 'User-Agent' => 'IT-Requests-Webhook', 'X-ITRequests-Event' => $this->event];
+        $headers = ['Content-Type' => 'application/json', 'User-Agent' => 'Filterdesk-Webhook', 'X-Filterdesk-Event' => $this->event];
         if ($endpoint->format === 'json' && filled($endpoint->secret)) {
-            $headers['X-ITRequests-Signature'] = 'sha256='.hash_hmac('sha256', $json, (string) $endpoint->secret);
+            $headers['X-Filterdesk-Signature'] = 'sha256='.hash_hmac('sha256', $json, (string) $endpoint->secret);
         }
 
         try {

@@ -1,0 +1,5 @@
+# The probe image needs only package.json, package-lock.json and server.mjs.
+node_modules
+.env
+.env.*
+*.log

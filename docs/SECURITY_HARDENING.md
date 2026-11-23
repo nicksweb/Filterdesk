@@ -1,6 +1,6 @@
 # Security hardening
 
-IT Requests can change what students and staff can reach, and it holds a UniFi API key that can change network policy. Treat it like any other network management tool. This checklist goes in priority order. Do the **Essential** items before going live, and the **Recommended** ones soon after.
+Filterdesk can change what students and staff can reach, and it holds a UniFi API key that can change network policy. Treat it like any other network management tool. This checklist goes in priority order. Do the **Essential** items before going live, and the **Recommended** ones soon after.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
@@ -43,12 +43,12 @@ The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a rest
 - [ ] Use single sign-on (OIDC, for example Entra ID) for everyone, with **allowed email domains** set, and require MFA in your identity provider (Conditional Access in Entra ID).
 - [ ] Use role rules so only the IT group gets *IT* and only a small admin group gets *admin*. Set the default role to *teacher* or *deny*, not *admin*.
 - [ ] Once an SSO admin can sign in, **turn off password sign-in for the installer's local admin** (Users → untick *Password*), or turn off *Emergency local sign-in* under Settings → Authentication. Keep the break-glass command documented instead:
-  `docker compose exec app php artisan itrequests:admin-password <email> --enable-local-login`
+  `docker compose exec app php artisan filterdesk:admin-password <email> --enable-local-login`
 - [ ] Any remaining local password is 14+ characters, unique and stored in your password manager. Built-in protection locks an account after 5 failures in 15 minutes and blocks an IP after 20. Lockouts are emailed and audited.
 
 ### UniFi
 
-- [ ] Create the API key under a **dedicated UniFi admin account** for this app (for example `itrequests-service`), not a person's account. Then it can be revoked on its own and its changes are attributable in UniFi.
+- [ ] Create the API key under a **dedicated UniFi admin account** for this app (for example `filterdesk-service`), not a person's account. Then it can be revoked on its own and its changes are attributable in UniFi.
 - [ ] Give that account only the **Network** application, with the lowest role that works: a view-only role while in Read-only mode, an admin role only once you switch to Active. Do not give it UniFi OS owner rights, Protect, Access or other apps.
 - [ ] Prefer a **local console key** over a Site Manager key when the host can reach the console. A Site Manager key reaches every console its owner owns, through the cloud.
 - [ ] Stay in **Read-only** mode until testing is complete. In Active mode keep **Largest list per content filter** and **Largest automatic push** at their defaults unless you have a reason. They stop a bad feed or a mistake from rewriting a filter wholesale.

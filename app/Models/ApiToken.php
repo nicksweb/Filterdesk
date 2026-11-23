@@ -34,7 +34,7 @@ class ApiToken extends Model
      */
     public static function issue(User $user, string $name, array $abilities, ?\DateTimeInterface $expires = null): array
     {
-        $plain = 'itr_'.Str::random(48);
+        $plain = 'fd_'.Str::random(48);
         $token = static::query()->create(['user_id' => $user->id, 'name' => $name, 'token_hash' => hash('sha256', $plain), 'abilities' => array_values($abilities), 'expires_at' => $expires]);
 
         return [$token, $plain];

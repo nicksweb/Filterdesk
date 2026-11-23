@@ -35,7 +35,7 @@ class ProbeSetupController extends Controller
         }
 
         try {
-            $provider->reserveAddress($check['mac'], 'IT Requests probe: '.$profile->name, $check['network_id'], $check['ip']);
+            $provider->reserveAddress($check['mac'], 'Filterdesk probe: '.$profile->name, $check['network_id'], $check['ip']);
         } catch (ProviderRequestFailed $exception) {
             return back()->with('error', $exception->getMessage());
         }

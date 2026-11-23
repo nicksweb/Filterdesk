@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.1
+
+### Changed
+- **IT Requests is now Filterdesk** (github.com/nicksweb/Filterdesk). Existing installs keep their data: see docs/UPGRADING.md (set `COMPOSE_PROJECT_NAME=it-edu-selfservice`).
+- **Published images**: each release is built for amd64 and arm64 and published to the GitHub Container Registry as `ghcr.io/nicksweb/filterdesk-app`, `-web` and `-probe` (with an SBOM and build provenance). `compose.yml` pulls them; `FILTERDESK_VERSION` in `.env` chooses the release. `compose.build.yml` builds from source instead.
+- Commands are `filterdesk:upgrade` and `filterdesk:admin-password` (the `itrequests:` names still work). Webhook headers are `X-Filterdesk-Signature` and `X-Filterdesk-Event`; metrics start `filterdesk_`; new API tokens start `fd_`.
+
+### Security
+- The image build now leaves out environment files, override compose files, backups and dumps, docs, tests, host scripts and editor or assistant folders; CI fails if the app image contains any of them.
+
 ## 2026.12.0
 
 The strategic roadmap: the app moves from pushing lists to managing policy.

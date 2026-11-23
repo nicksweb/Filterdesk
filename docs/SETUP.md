@@ -26,7 +26,7 @@ Have these ready:
 | Item | Notes |
 | --- | --- |
 | Linux host | Ubuntu 22.04+ or Debian 12+ recommended; 2 CPU, 4 GB RAM free, 20 GB disk. A VM is fine. It must reach the UniFi console (local key) or the internet (Site Manager key). |
-| Hostname | For example `itrequests.example.edu.au`, with a DNS record pointing at your reverse proxy. |
+| Hostname | For example `filterdesk.example.edu.au`, with a DNS record pointing at your reverse proxy. |
 | HTTPS reverse proxy | Nginx Proxy Manager, Caddy, Traefik or Nginx, with a certificate for that hostname. |
 | UniFi API key | See [the API key section of the README](../README.md#unifi-api-key). Create it for a dedicated admin account; see [hardening](SECURITY_HARDENING.md#unifi). |
 | Single sign-on (recommended) | An OIDC app registration, for example in Entra ID. The redirect URI is `https://<hostname>/auth/oidc/callback`. You need the issuer URL, client ID and client secret. |
@@ -65,8 +65,8 @@ If the host already has a `/etc/docker/daemon.json`, add the `"live-restore": tr
 ## 3. Get the code and create .env
 
 ```bash
-git clone https://github.com/nicksweb/it-edu-selfservice.git itrequests
-cd itrequests
+git clone https://github.com/nicksweb/Filterdesk.git filterdesk
+cd filterdesk
 ./bin/install
 ```
 
@@ -90,16 +90,17 @@ Most settings (school, sign-in, UniFi, email, approvals) are entered in the wiza
 
 | Variable | Default | What to set |
 | --- | --- | --- |
-| `APP_NAME` | `IT Requests` | Shown in the browser title and emails. |
+| `APP_NAME` | `Filterdesk` | Shown in the browser title and emails. |
 | `APP_ENV` | `production` | Leave as `production`. |
 | `APP_KEY` | *generated* | Encrypts sessions and every stored credential (UniFi key, OIDC secret, SMTP password). **Back it up with the database.** Without it, those credentials cannot be recovered. Never change it on a running install. |
 | `APP_DEBUG` | `false` | Must stay `false` in production; `true` shows stack traces to users. |
-| `APP_URL` | `https://itrequests.example.edu.au` | The exact public URL, including `https://`. It is used in emails and links. For a local trial use `http://127.0.0.1:8088`. |
+| `APP_URL` | `https://filterdesk.example.edu.au` | The exact public URL, including `https://`. It is used in emails and links. For a local trial use `http://127.0.0.1:8088`. |
 | `APP_TIMEZONE` | `Australia/Brisbane` | Your timezone. Access windows, expiries and digests use it. |
 | `APP_LOCALE` | `en` | Interface language. |
 | `TRUSTED_PROXIES` | `127.0.0.1` | The IP address (or comma-separated list, or CIDR) of the reverse proxy *as the app sees it*. If wrong, the app thinks every request is plain HTTP: **pages load without styling** and secure cookies fail. The wizard's first page tells you the address to use. Never use `*` if the port is reachable by anyone other than the proxy. |
 | `APP_PORT` | `8088` | Port the web container publishes, on `127.0.0.1` only. Change it if 8088 is taken. |
-| `APP_IMAGE_TAG` | `local` | Tag for the locally built images. Leave as is. |
+| `FILTERDESK_VERSION` | `latest` | Which published release to run: `latest`, a month such as `2026.12`, or an exact release such as `2026.12.1` (recommended, so upgrades happen when you choose). `local` when building from source with `compose.build.yml`. |
+| `COMPOSE_PROJECT_NAME` | — | Only for installs from before the rename: `it-edu-selfservice`, so the database volume and containers keep their names. |
 
 ### Logging
 
@@ -115,7 +116,7 @@ Most settings (school, sign-in, UniFi, email, approvals) are entered in the wiza
 | --- | --- | --- |
 | `DB_CONNECTION` | `pgsql` | Leave. |
 | `DB_HOST` / `DB_PORT` | `db` / `5432` | The bundled PostgreSQL container. Change only for an external server. |
-| `DB_DATABASE` / `DB_USERNAME` | `itrequests` | Leave. |
+| `DB_DATABASE` / `DB_USERNAME` | `filterdesk` | Leave. |
 | `DB_PASSWORD` | *generated* | Set once, before the first start. The database volume keeps the password it was created with, so changing it later locks the app out. |
 
 ### Sessions, queue and cache
@@ -164,19 +165,32 @@ Choose one:
 - **Proxy on the host, or no proxy (trial):**
 
   ```bash
-  docker compose up -d --build
+  docker compose pull
+  docker compose up -d
   ```
 
 - **Proxy in another Docker container** (for example Nginx Proxy Manager):
 
   ```bash
   cp compose.proxy.example.yml compose.proxy.yml
-  docker compose -f compose.yml -f compose.proxy.yml up -d --build
+  docker compose -f compose.yml -f compose.proxy.yml pull
+  docker compose -f compose.yml -f compose.proxy.yml up -d
   ```
 
   Use the same `-f` files for every later `docker compose` command.
 
-The first build takes several minutes. The one-off `migrate` container sets up the database, then the rest start.
+This pulls the published images from the GitHub Container Registry (`ghcr.io/nicksweb/filterdesk-app`, `-web` and `-probe`); the probe image is large (Chromium), so the first pull takes a few minutes. Set `FILTERDESK_VERSION` in `.env` to an exact release (for example `2026.12.1`) so the install only changes when you upgrade.
+
+To **build from source** instead (for development, or to change the code), set `FILTERDESK_VERSION=local` and add `-f compose.build.yml`, building one image at a time:
+
+```bash
+docker compose -f compose.yml -f compose.build.yml build app
+docker compose -f compose.yml -f compose.build.yml build web
+docker compose -f compose.yml -f compose.build.yml build probe-student
+docker compose -f compose.yml -f compose.build.yml up -d
+```
+
+ The one-off `migrate` container sets up the database, then the rest start.
 
 **Check:** `docker compose ps` shows `db`, `web`, `probe-student` and `probe-staff` as `healthy`, `app`, `queue` and `scheduler` as running, and `migrate` exited with code 0. Also `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8088/up` prints `200`.
 
@@ -189,7 +203,7 @@ Point the proxy at the app:
 | Proxy | Upstream |
 | --- | --- |
 | On the host (Nginx, Caddy) | `http://127.0.0.1:8088` |
-| Nginx Proxy Manager or Traefik in Docker, with `compose.proxy.yml` | `http://it-edu-selfservice-web-1:8080` |
+| Nginx Proxy Manager or Traefik in Docker, with `compose.proxy.yml` | `http://filterdesk-web-1:8080` |
 
 In Nginx Proxy Manager: add a proxy host for your hostname with that upstream, request a certificate, and turn on **Force SSL**, **HTTP/2** and **HSTS**. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-For`, which all of the proxies above do by default. A plain Nginx example is in [DEPLOYMENT.md](DEPLOYMENT.md#reverse-proxy).
 
@@ -302,7 +316,7 @@ Still in read-only mode (two IT officers make step 6 possible):
 Schedule backups first: `crontab -e` on the host, then add (with your own path and compose files):
 
 ```cron
-30 2 * * * cd /opt/itrequests && COMPOSE="docker compose -f compose.yml -f compose.proxy.yml" bin/backup >> backups/backup.log 2>&1
+30 2 * * * cd /opt/filterdesk && COMPOSE="docker compose -f compose.yml -f compose.proxy.yml" bin/backup >> backups/backup.log 2>&1
 ```
 
 Copy `backups/` to another machine; it holds the database and `.env` (with `APP_KEY`), so protect it like a password store.
@@ -313,5 +327,5 @@ Copy `backups/` to another machine; it holds the database and `.env` (with `APP_
 | Update | `git pull --ff-only`, then `docker compose … build --pull` and `docker compose … up -d`. Read [CHANGELOG.md](../CHANGELOG.md) and [UPGRADING.md](UPGRADING.md) first. Rebuild monthly even without a release, for PHP, Chromium and OS patches. |
 | Health | **Health** (coverage score), Health → Diagnostics, `docker compose ps`; `GET /api/v1/metrics` for Prometheus. The dashboard warns when a filter drifts from UniFi. |
 | Before a UniFi upgrade | `docker compose exec app php artisan unifi:compat` on a test console (or straight after upgrading): it checks, read-only, that every call the app uses still answers as expected. |
-| Locked out | `docker compose exec app php artisan itrequests:admin-password <email> --enable-local-login` |
+| Locked out | `docker compose exec app php artisan filterdesk:admin-password <email> --enable-local-login` |
 | Start again | See [Starting again in the README](../README.md#starting-again). |

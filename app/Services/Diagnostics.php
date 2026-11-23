@@ -34,7 +34,7 @@ class Diagnostics
 
         $installed = (string) $this->settings->get(config('version.stored_version_key'), 'unknown');
         $code = (string) config('version.app');
-        $checks['version'] = ['ok' => $installed === $code, 'label' => 'Version', 'message' => $installed === $code ? "Running {$code}." : "Code is {$code} but the database records {$installed}. Run `php artisan itrequests:upgrade`.", 'warn' => true];
+        $checks['version'] = ['ok' => $installed === $code, 'label' => 'Version', 'message' => $installed === $code ? "Running {$code}." : "Code is {$code} but the database records {$installed}. Run `php artisan filterdesk:upgrade`.", 'warn' => true];
 
         $checks['app_key'] = ['ok' => filled(config('app.key')), 'label' => 'Encryption key', 'message' => filled(config('app.key')) ? 'APP_KEY is set. Keep a copy with your backups.' : 'APP_KEY is missing.'];
         $checks['debug'] = ['ok' => ! config('app.debug'), 'label' => 'Debug mode', 'message' => config('app.debug') ? 'APP_DEBUG is on. Turn it off in production.' : 'Off.'];

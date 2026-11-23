@@ -206,8 +206,8 @@ class PolicyManagementTest extends TestCase
         Setting::query()->create(['key' => 'policy', 'value' => ['master_allowlist' => ['legacy.example.org'], 'master_blocklist' => ['bad.example.org']]]);
         $request = $this->pendingRequest(['old-approval.example.org'], Reach::types('staff', 'student'), ['status' => RequestStatus::ActionRequired]);
 
-        $this->artisan('itrequests:upgrade', ['--skip-migrations' => true])->assertSuccessful();
-        $this->artisan('itrequests:upgrade', ['--skip-migrations' => true])->assertSuccessful();
+        $this->artisan('filterdesk:upgrade', ['--skip-migrations' => true])->assertSuccessful();
+        $this->artisan('filterdesk:upgrade', ['--skip-migrations' => true])->assertSuccessful();
 
         $student = FilterPolicy::query()->where('audience', 'student')->firstOrFail();
         $desired = $this->engine->desired($student);

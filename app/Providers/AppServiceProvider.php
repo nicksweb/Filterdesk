@@ -52,9 +52,9 @@ class AppServiceProvider extends ServiceProvider
             $settings = app(SettingsRepository::class);
             $school = $settings->get('school', []);
             $branding = (array) $settings->get('branding', []);
-            // The product name can be changed (for example to "uConnect"); without one it stays "<School> IT Requests".
+            // The product name can be changed (for example to "uConnect"); without one it stays "<School> Filterdesk".
             config([
-                'app.product_name' => filled($branding['app_name'] ?? null) ? $branding['app_name'] : 'IT Requests',
+                'app.product_name' => filled($branding['app_name'] ?? null) ? $branding['app_name'] : 'Filterdesk',
                 'app.brand_mark' => filled($branding['mark'] ?? null) ? $branding['mark'] : 'IT',
                 'app.icon_version' => substr(md5((string) ($branding['icon_data'] ?? '')), 0, 8),
             ]);
@@ -63,7 +63,7 @@ class AppServiceProvider extends ServiceProvider
             }
             if ($school) {
                 config([
-                    'app.name' => filled($branding['app_name'] ?? null) ? $branding['app_name'] : (($school['name'] ?? '') !== '' ? $school['name'].' IT Requests' : config('app.name')),
+                    'app.name' => filled($branding['app_name'] ?? null) ? $branding['app_name'] : (($school['name'] ?? '') !== '' ? $school['name'].' Filterdesk' : config('app.name')),
                     'app.url' => $school['app_url'] ?? config('app.url'),
                     'app.display_timezone' => $settings->timezone(),
                 ]);

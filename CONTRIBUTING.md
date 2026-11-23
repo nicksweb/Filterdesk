@@ -1,11 +1,11 @@
 # Contributing
 
-Thank you for helping. IT Requests is built for schools, so changes should keep it simple to run, safe by default and free of school-specific details.
+Thank you for helping. Filterdesk is built for schools, so changes should keep it simple to run, safe by default and free of school-specific details.
 
 ## Getting started
 
 ```bash
-git clone https://github.com/nicksweb/it-edu-selfservice.git && cd it-edu-selfservice
+git clone https://github.com/nicksweb/Filterdesk.git && cd Filterdesk
 docker run --rm -v "$PWD":/app -w /app composer:2 install
 docker run --rm -v "$PWD":/app -w /app php:8.5-cli php vendor/bin/phpunit
 ```

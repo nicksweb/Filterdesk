@@ -1,11 +1,13 @@
-name: it-edu-selfservice
+# Filterdesk. Pulls the published images (ghcr.io/nicksweb/filterdesk-*);
+# set FILTERDESK_VERSION in .env to pin a release (for example 2026.12.1).
+# To build from source instead, add compose.build.yml:
+#   docker compose -f compose.yml -f compose.build.yml up -d --build
+# Installs from before the rename keep their project name (and volumes) with
+# COMPOSE_PROJECT_NAME=it-edu-selfservice in .env.
+name: filterdesk
 
 x-app: &app
-  build:
-    context: .
-    dockerfile: docker/Dockerfile
-    target: runtime
-  image: it-edu-selfservice-app:${APP_IMAGE_TAG:-local}
+  image: ${FILTERDESK_IMAGE_PREFIX:-ghcr.io/nicksweb/filterdesk}-app:${FILTERDESK_VERSION:-latest}
   env_file: .env
   environment:
     # Longer than the queue worker's --timeout, so a slow push is not started twice.
@@ -16,9 +18,7 @@ x-app: &app
     - app_storage:/var/www/html/storage
 
 x-probe: &probe
-  build:
-    context: probe
-  image: it-edu-selfservice-probe:${APP_IMAGE_TAG:-local}
+  image: ${FILTERDESK_IMAGE_PREFIX:-ghcr.io/nicksweb/filterdesk}-probe:${FILTERDESK_VERSION:-latest}
   env_file: .env
   restart: unless-stopped
   shm_size: 256mb
@@ -50,7 +50,7 @@ services:
   migrate:
     <<: *app
     restart: "no"
-    command: ["php", "artisan", "itrequests:upgrade"]
+    command: ["php", "artisan", "filterdesk:upgrade"]
     depends_on:
       db: { condition: service_healthy }
 
@@ -58,7 +58,7 @@ services:
     <<: *app
     networks:
       app:
-        aliases: [itrequests-php]
+        aliases: [filterdesk-php]
       outbound: {}
       probe_control: {}
     depends_on:
@@ -80,11 +80,7 @@ services:
       migrate: { condition: service_completed_successfully }
 
   web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: webserver
-    image: it-edu-selfservice-web:${APP_IMAGE_TAG:-local}
+    image: ${FILTERDESK_IMAGE_PREFIX:-ghcr.io/nicksweb/filterdesk}-web:${FILTERDESK_VERSION:-latest}
     ports: ["127.0.0.1:${APP_PORT:-8088}:8080"]
     networks: [app, frontend]
     restart: unless-stopped

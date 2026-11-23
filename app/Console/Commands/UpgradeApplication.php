@@ -21,7 +21,10 @@ use Throwable;
  */
 class UpgradeApplication extends Command
 {
-    protected $signature = 'itrequests:upgrade {--skip-migrations : Run everything except database migrations}';
+    protected $signature = 'filterdesk:upgrade {--skip-migrations : Run everything except database migrations}';
+
+    /** @var list<string> The name before the rename to Filterdesk, still accepted. */
+    protected $aliases = ['itrequests:upgrade'];
 
     protected $description = 'Migrate, backfill and clear caches to finish an upgrade to this release';
 
@@ -30,7 +33,7 @@ class UpgradeApplication extends Command
         $target = (string) config('version.app');
         $key = (string) config('version.stored_version_key');
         $current = (string) $settings->get($key, '0.1.0');
-        $this->line("IT Requests upgrade: <info>{$current}</info> → <info>{$target}</info>");
+        $this->line("Filterdesk upgrade: <info>{$current}</info> → <info>{$target}</info>");
 
         if (version_compare($current, (string) config('version.min_upgrade_from'), '<')) {
             $this->error("This release cannot upgrade an instance on {$current} directly. See docs/UPGRADING.md.");

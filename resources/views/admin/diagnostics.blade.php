@@ -11,8 +11,8 @@
     <section class="panel">
         <h2>Operations</h2>
         <ul class="rule-notes">
-            <li>Upgrade: <code>git pull --ff-only && docker compose up -d --build</code>. The <code>migrate</code> service runs <code>php artisan itrequests:upgrade</code> before workers start.</li>
-            <li>Emergency admin password: <code>docker compose exec app php artisan itrequests:admin-password admin@example.edu.au --enable-local-login</code></li>
+            <li>Upgrade: set <code>FILTERDESK_VERSION</code> in <code>.env</code>, then <code>docker compose pull && docker compose up -d</code> (see docs/UPGRADING.md). The <code>migrate</code> service runs <code>php artisan filterdesk:upgrade</code> before workers start.</li>
+            <li>Emergency admin password: <code>docker compose exec app php artisan filterdesk:admin-password admin@example.edu.au --enable-local-login</code></li>
             <li>Send the policy digest now: <code>docker compose exec app php artisan policy:digest --force</code></li>
             <li>Back up the database and <code>.env</code> (APP_KEY) together. See docs/DEPLOYMENT.md.</li>
         </ul>

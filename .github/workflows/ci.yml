@@ -28,4 +28,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: docker compose build app web probe-student
+      - run: sed "s/^FILTERDESK_VERSION=.*/FILTERDESK_VERSION=local/" .env.example > .env
+      # One image at a time, as the docs recommend.
+      - run: docker compose -f compose.yml -f compose.build.yml build app
+      - run: docker compose -f compose.yml -f compose.build.yml build web
+      - run: docker compose -f compose.yml -f compose.build.yml build probe-student
+      # The image must not contain site configuration, secrets or backups.
+      - run: |
+          docker run --rm --entrypoint sh ghcr.io/nicksweb/filterdesk-app:local -c '
+            for path in .env .git .claude backups docs tests bin compose.yml; do
+              if [ -e "/var/www/html/$path" ]; then echo "image contains $path"; exit 1; fi
+            done; echo "image is clean"'

@@ -7,18 +7,23 @@ image, so upgrades keep settings and data.
 
 ```bash
 # 1. Back up (database + .env, which holds APP_KEY)
-docker compose exec -T db sh -c 'pg_dump -U $POSTGRES_USER -d $POSTGRES_DB -Fc' > itrequests-$(date +%F).dump
+docker compose exec -T db sh -c 'pg_dump -U $POSTGRES_USER -d $POSTGRES_DB -Fc' > filterdesk-$(date +%F).dump
 cp .env .env.backup
 
-# 2. Update and rebuild (include any override files you normally use)
-git pull --ff-only
-docker compose -f compose.yml -f compose.proxy.yml up -d --build
+# 2. Choose the release: set FILTERDESK_VERSION in .env (for example 2026.12.1),
+#    then pull it (include any override files you normally use)
+git pull --ff-only          # for the latest compose.yml, docs and bin/ scripts
+docker compose -f compose.yml -f compose.proxy.yml pull
+docker compose -f compose.yml -f compose.proxy.yml up -d
+
+# Building from source instead: FILTERDESK_VERSION=local, add -f compose.build.yml,
+# build app, web and probe-student one at a time, then up -d.
 
 # 3. Check the upgrade output
 docker compose logs migrate
 ```
 
-The one-shot `migrate` service runs `php artisan itrequests:upgrade`, which:
+The one-shot `migrate` service runs `php artisan filterdesk:upgrade`, which:
 
 1. refuses versions too old to upgrade directly;
 2. runs migrations;
@@ -36,6 +41,23 @@ docker compose run --rm migrate
 ## Version numbers
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
+
+## 2026.12.0 → 2026.12.1: the rename to Filterdesk
+
+IT Requests is now **Filterdesk**, and releases are published as container images, so upgrades pull instead of build.
+
+1. **Keep your project name** (your database volume and containers are named after it). Add to `.env`:
+
+   ```bash
+   COMPOSE_PROJECT_NAME=it-edu-selfservice
+   FILTERDESK_VERSION=2026.12.1      # or local, to keep building from source
+   ```
+
+   Without the first line Docker Compose would start a new, empty install called `filterdesk`.
+2. Replace `APP_IMAGE_TAG` in `.env`, if present, with `FILTERDESK_VERSION`.
+3. If you generated `compose.vlan.yml`, regenerate it (`docker compose exec -T app php artisan probes:compose > compose.vlan.yml`) or change each probe's `image:` to `${FILTERDESK_IMAGE_PREFIX:-ghcr.io/nicksweb/filterdesk}-probe:${FILTERDESK_VERSION:-latest}`.
+4. Pull and start as in *Standard upgrade*. With `COMPOSE_PROJECT_NAME` kept, your reverse proxy still reaches `it-edu-selfservice-web-1`.
+5. Changed names: commands are `filterdesk:upgrade` and `filterdesk:admin-password` (the old `itrequests:` names still work); webhook headers are `X-Filterdesk-Signature` and `X-Filterdesk-Event` (update any receiver that checks the signature); metrics start `filterdesk_`; new API tokens start `fd_` (existing tokens keep working); `bin/backup` writes `filterdesk-*.dump`.
 
 ## 2026.11.0 → 2026.12.0
 
@@ -61,12 +83,13 @@ start the previous tag:
 
 ```bash
 docker compose stop app queue scheduler
-docker compose exec -T db sh -c 'pg_restore -U $POSTGRES_USER -d $POSTGRES_DB --clean --if-exists' < itrequests-YYYY-MM-DD.dump
-git checkout <previous-tag> && docker compose up -d --build
+docker compose exec -T db sh -c 'pg_restore -U $POSTGRES_USER -d $POSTGRES_DB --clean --if-exists' < filterdesk-YYYY-MM-DD.dump
+# set FILTERDESK_VERSION back to the previous release, then
+docker compose pull && docker compose up -d
 ```
 
 ## Emergency administrator access
 
 ```bash
-docker compose exec app php artisan itrequests:admin-password admin@example.edu.au --enable-local-login
+docker compose exec app php artisan filterdesk:admin-password admin@example.edu.au --enable-local-login
 ```

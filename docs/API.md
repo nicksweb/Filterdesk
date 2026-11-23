@@ -1,6 +1,6 @@
 # API
 
-IT Requests has a small JSON API for service desks, scripts and dashboards. It does everything through the same rules as the app: an approval made through the API needs a second IT officer when the app would ask for one.
+Filterdesk has a small JSON API for service desks, scripts and dashboards. It does everything through the same rules as the app: an approval made through the API needs a second IT officer when the app would ask for one.
 
 ## Tokens
 
@@ -14,7 +14,7 @@ Create tokens under **Settings → Integrations → API tokens** (administrators
 Send it as a bearer token. Requests are limited to 120 a minute per client.
 
 ```bash
-curl -H "Authorization: Bearer itr_…" https://itrequests.example.edu.au/api/v1/requests?status=pending
+curl -H "Authorization: Bearer fd_…" https://filterdesk.example.edu.au/api/v1/requests?status=pending
 ```
 
 ## Endpoints
@@ -39,8 +39,8 @@ Add endpoints under **Settings → Integrations → Webhooks** and choose the ev
 {"event": "request.submitted", "sent_at": "2026-12-01T09:00:00+10:00", "data": {"reference": "WEB-2026-00042", "websites": ["example.org"], "networks": "staff", "status": "pending", "url": "https://…"}}
 ```
 
-With a secret set, `X-ITRequests-Signature: sha256=<hex>` is the HMAC-SHA256 of the raw body with that secret. Check it before trusting the body. Deliveries are retried three times; the last result is shown with the endpoint.
+With a secret set, `X-Filterdesk-Signature: sha256=<hex>` is the HMAC-SHA256 of the raw body with that secret. Check it before trusting the body. Deliveries are retried three times; the last result is shown with the endpoint.
 
-**Microsoft Teams** endpoints (an incoming webhook or a Workflows URL) receive a card. New requests have **Approve** and **Decline** buttons that open a confirmation page in IT Requests: the link is signed and expires after 7 days, and the officer still signs in, so the decision is theirs and the normal checks apply.
+**Microsoft Teams** endpoints (an incoming webhook or a Workflows URL) receive a card. New requests have **Approve** and **Decline** buttons that open a confirmation page in Filterdesk: the link is signed and expires after 7 days, and the officer still signs in, so the decision is theirs and the normal checks apply.
 
 Ticketing systems that accept webhooks (for example Jira Service Management or Freshservice automations) can create a ticket from `request.submitted` and post decisions back through `POST /requests/{reference}/decision`.

@@ -1,6 +1,6 @@
 # Policy lists and reconciliation
 
-IT Requests keeps the *desired* content-filter state for every network and
+Filterdesk keeps the *desired* content-filter state for every network and
 compares it with what is actually configured in the controller. UniFi's
 official API does not expose content-filter domain lists, so with UniFi the
 app reads and (in Active mode) writes them through the Network application's

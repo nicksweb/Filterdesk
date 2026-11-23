@@ -23,10 +23,10 @@ class MetricsController extends Controller
             if ($value === null) {
                 return;
             }
-            $lines[] = "# HELP itrequests_{$name} {$help}";
-            $lines[] = "# TYPE itrequests_{$name} gauge";
+            $lines[] = "# HELP filterdesk_{$name} {$help}";
+            $lines[] = "# TYPE filterdesk_{$name} gauge";
             $label = $labels ? '{'.collect($labels)->map(fn ($v, $k) => $k.'="'.addslashes((string) $v).'"')->join(',').'}' : '';
-            $lines[] = "itrequests_{$name}{$label} {$value}";
+            $lines[] = "filterdesk_{$name}{$label} {$value}";
         };
 
         $metric('requests_open', 'Requests awaiting a decision', WebsiteRequest::query()->whereIn('status', RequestStatus::open())->count());

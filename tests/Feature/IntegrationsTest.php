@@ -81,7 +81,7 @@ class IntegrationsTest extends TestCase
 
         Http::assertSent(function (ClientRequest $sent) {
             return str_contains($sent->url(), 'desk.example.test') && $sent['event'] === 'request.submitted'
-                && $sent->header('X-ITRequests-Signature')[0] === 'sha256='.hash_hmac('sha256', $sent->body(), 's3cret');
+                && $sent->header('X-Filterdesk-Signature')[0] === 'sha256='.hash_hmac('sha256', $sent->body(), 's3cret');
         });
         Http::assertSent(fn (ClientRequest $sent) => str_contains($sent->url(), 'teams.example.test') && $sent['@type'] === 'MessageCard'
             && collect($sent['potentialAction'])->pluck('name')->contains('Approve'));
@@ -118,8 +118,8 @@ class IntegrationsTest extends TestCase
 
         $this->get('/api/v1/metrics')->assertUnauthorized();
         $body = $this->withToken($read)->get('/api/v1/metrics')->assertOk()->getContent();
-        $this->assertStringContainsString('itrequests_requests_open 1', $body);
-        $this->assertStringContainsString('# TYPE itrequests_reviews_overdue gauge', $body);
+        $this->assertStringContainsString('filterdesk_requests_open 1', $body);
+        $this->assertStringContainsString('# TYPE filterdesk_reviews_overdue gauge', $body);
     }
 
     public function test_the_compatibility_check_reads_every_call_the_app_uses(): void

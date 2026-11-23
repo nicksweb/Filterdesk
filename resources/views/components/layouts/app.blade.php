@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $title ?? config('app.product_name', 'IT Requests') }} · {{ config('app.name') }}</title>
+    <title>{{ $title ?? config('app.product_name', 'Filterdesk') }} · {{ config('app.name') }}</title>
     <link rel="icon" href="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}">
     <link rel="apple-touch-icon" href="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}">
     <link rel="stylesheet" href="{{ asset('app.css') }}?v={{ config('version.app') }}">
@@ -83,7 +83,7 @@
             </nav>
         @endif
         {{ $slot }}
-        <footer class="app-footer">{{ config('app.product_name', 'IT Requests') }} {{ config('version.app') }}@if(app(\App\Services\SettingsRepository::class)->get('branding.project_link', true)) · <a href="{{ config('app.project_url') }}" target="_blank" rel="noopener">Built with IT Requests, open source on GitHub</a>@endif</footer>
+        <footer class="app-footer">{{ config('app.product_name', 'Filterdesk') }} {{ config('version.app') }}@if(app(\App\Services\SettingsRepository::class)->get('branding.project_link', true)) · <a href="{{ config('app.project_url') }}" target="_blank" rel="noopener">Built with Filterdesk, open source on GitHub</a>@endif</footer>
     </main>
 </body>
 </html>

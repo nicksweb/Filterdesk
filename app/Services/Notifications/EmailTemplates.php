@@ -133,7 +133,7 @@ class EmailTemplates
             'requester' => 'Alex Teacher', 'scope' => 'Staff and Students', 'category' => 'Teaching and learning', 'reason' => 'Year 9 science, unit 3',
             'headline' => 'New website request', 'details' => ['Reason: Year 9 science, unit 3'],
             'email' => 'alex@example.org', 'minutes' => '15', 'ip' => '10.0.0.5', 'sender' => 'Sam Admin',
-        ] + ($key === 'filter_sync_alert' ? ['details' => ['Changed outside IT Requests: Students. 2 entries added in UniFi.']] : [])
+        ] + ($key === 'filter_sync_alert' ? ['details' => ['Changed outside Filterdesk: Students. 2 entries added in UniFi.']] : [])
           + ($key === 'policy_digest' ? ['details' => ['1 approved request(s) are waiting to be applied in the network controller.', 'Students: allow +2 / −0, block +0 / −1.']] : []);
     }
 

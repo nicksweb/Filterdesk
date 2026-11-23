@@ -1,7 +1,62 @@
+# Only the application goes into the image. Anything site-specific or secret
+# stays out: environment files, override compose files (network details),
+# backups and dumps, editor and assistant folders, docs, tests and host scripts.
+
+# Version control, CI, editors and assistants
 .git
+.github
+.claude
+.codex
+.cursor
+.idea
+.vscode
+.zed
+.nova
+.phpactor.json
+
+# Secrets and site configuration
 .env
+.env.*
+auth.json
+compose*.yml
+compose*.yaml
+
+# Backups, dumps and archives
+backups
+*.dump
+*.sql
+*.sql.gz
+*.tgz
+*.tar
+*.tar.gz
+*.zip
+
+# Not needed at runtime (installed or built in the image, or host-side)
 vendor
 node_modules
+probe
+docs
+tests
+bin
+phpunit.xml
+.phpunit.cache
+.phpunit.result.cache
+*.log
+
+# Runtime state, created by the container on its volume
 storage/logs/*
 storage/framework/*
-database/database.sqlite
+storage/app/private/*
+storage/app/public/*
+storage/pail
+storage/*.key
+database/*.sqlite
+public/storage
+public/hot
+
+# Developer and assistant guidance
+AGENTS.md
+CLAUDE.md
+boost.json
+.ai
+.mcp.json

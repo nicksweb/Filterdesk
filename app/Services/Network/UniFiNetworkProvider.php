@@ -602,7 +602,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         $base = '/api/s/'.rawurlencode($this->siteReference()).'/rest/user';
         $mac = strtolower($mac);
         $existing = collect($this->client()->timeout(20)->get($this->networkPath($base))->json('data', []))->first(fn ($client) => strtolower((string) ($client['mac'] ?? '')) === $mac);
-        $body = ['mac' => $mac, 'name' => $name, 'use_fixedip' => true, 'fixed_ip' => $ip, 'network_id' => $networkId, 'note' => 'IT Requests probe'];
+        $body = ['mac' => $mac, 'name' => $name, 'use_fixedip' => true, 'fixed_ip' => $ip, 'network_id' => $networkId, 'note' => 'Filterdesk probe'];
 
         $response = $existing && isset($existing['_id'])
             ? $this->client()->timeout(20)->put($this->networkPath($base.'/'.rawurlencode((string) $existing['_id'])), $body)

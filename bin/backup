@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
-# Back up IT Requests: a PostgreSQL dump (all settings, policies, requests and
+# Back up Filterdesk: a PostgreSQL dump (all settings, policies, requests and
 # history) plus a copy of .env, which holds APP_KEY. Without APP_KEY, stored
 # credentials (UniFi key, SMTP and SSO secrets) cannot be decrypted on restore.
 #
-#   bin/backup                 # writes backups/itrequests-<date>.dump and .env copy
+#   bin/backup                 # writes backups/filterdesk-<date>.dump and .env copy
 #   KEEP_DAYS=30 bin/backup    # also deletes backups older than 30 days (default 14)
 #   COMPOSE="docker compose -f compose.yml -f compose.proxy.yml" bin/backup
 #
@@ -17,7 +17,7 @@ STAMP=$(date +%Y-%m-%d-%H%M)
 mkdir -p backups
 chmod 700 backups
 umask 077
-$COMPOSE exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "backups/itrequests-$STAMP.dump"
+$COMPOSE exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "backups/filterdesk-$STAMP.dump"
 cp .env "backups/env-$STAMP"
-find backups -type f \( -name 'itrequests-*.dump' -o -name 'env-*' \) -mtime +"$KEEP_DAYS" -delete
-echo "Backed up to backups/itrequests-$STAMP.dump and backups/env-$STAMP"
+find backups -type f \( -name 'filterdesk-*.dump' -o -name 'itrequests-*.dump' -o -name 'env-*' \) -mtime +"$KEEP_DAYS" -delete
+echo "Backed up to backups/filterdesk-$STAMP.dump and backups/env-$STAMP"

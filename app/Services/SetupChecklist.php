@@ -49,7 +49,7 @@ class SetupChecklist
                 'link' => route('admin.settings.show', 'network'), 'done' => $integration?->mode === 'active'],
             ['key' => 'backups', 'label' => 'Schedule backups', 'optional' => false,
                 'detail' => 'Run bin/backup daily from cron on the host and copy backups/ elsewhere (docs/SETUP.md, Ongoing operation). Mark this done once it is in place.',
-                'link' => 'https://github.com/nicksweb/it-edu-selfservice/blob/main/docs/SETUP.md#12-ongoing-operation', 'done' => false],
+                'link' => 'https://github.com/nicksweb/Filterdesk/blob/main/docs/SETUP.md#12-ongoing-operation', 'done' => false],
         ];
 
         return array_map(fn (array $item) => ['done' => $item['done'] || in_array($item['key'], $dismissed, true)] + $item, $items);

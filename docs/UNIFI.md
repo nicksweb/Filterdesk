@@ -2,7 +2,7 @@
 
 ## Credential and connection
 
-IT Requests sends an official API key in the `X-API-Key` header. Choose the connection that matches the key:
+Filterdesk sends an official API key in the `X-API-Key` header. Choose the connection that matches the key:
 
 - **Local console key** (Network → Settings → Control Plane → Integrations). Called directly at `https://<console>/proxy/network/integration/v1`. Keep TLS verification on and install your internal CA for private PKI.
 - **Site Manager key** (unifi.ui.com → API). Called through Ubiquiti's cloud connector at `https://api.ui.com/v1/connector/consoles/<consoleId>/proxy/network/integration/v1`. The key's owner must be an owner of the console (otherwise `403 forbidden`), and the console must be online (otherwise `404 device_offline`). Use **Discover** to list consoles. The connector needs the full console ID including the `:<number>` suffix; the UniFi web UI shows it without the suffix, so a shortened ID is resolved automatically when saved.
@@ -141,7 +141,7 @@ IDs can be entered by hand.
 
 ## DNS filtering rules
 
-UniFi content filtering is DNS based. IT Requests therefore:
+UniFi content filtering is DNS based. Filterdesk therefore:
 
 - outputs bare hostnames only (no scheme, path, port or `*.` wildcard);
 - recommends the registrable domain plus the subdomains and third-party hosts a page loads;

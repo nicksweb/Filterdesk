@@ -16,7 +16,7 @@ RUN apk add --no-cache icu-libs libpq libzip oniguruma \
     && apk del .build-deps
 WORKDIR /var/www/html
 COPY --from=vendor /app /var/www/html
-COPY docker/php.ini /usr/local/etc/php/conf.d/zz-itrequests.ini
+COPY docker/php.ini /usr/local/etc/php/conf.d/zz-filterdesk.ini
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache \

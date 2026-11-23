@@ -42,7 +42,7 @@ class FreshInstallTest extends TestCase
     {
         $steps = [
             1 => [],
-            2 => ['school_name' => 'Example College', 'timezone' => 'Australia/Brisbane', 'app_url' => 'https://itrequests.example.test'],
+            2 => ['school_name' => 'Example College', 'timezone' => 'Australia/Brisbane', 'app_url' => 'https://filterdesk.example.test'],
             3 => ['admin_name' => 'Ada Admin', 'admin_email' => 'admin@example.test', 'admin_password' => self::PASSWORD, 'admin_password_confirmation' => self::PASSWORD,
                 'emergency_local_login' => '1', 'oidc_enabled' => '0', 'default_role' => 'teacher'],
             4 => ['unifi_enabled' => '0', 'unifi_mode' => 'read_only'],

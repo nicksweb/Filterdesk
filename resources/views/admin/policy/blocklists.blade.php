@@ -26,7 +26,7 @@
                 @foreach(config('blocklists.publishers') as $key => $publisher)
                     <div class="publisher">
                         <p><strong><a href="{{ $publisher['url'] }}" rel="noopener" target="_blank">{{ $publisher['name'] }}</a></strong> · maintained by {{ $publisher['maintainer'] }} · licence <a href="{{ $publisher['licence_url'] }}" rel="noopener" target="_blank">{{ $publisher['licence'] }}</a></p>
-                        <p class="hint">{{ $publisher['summary'] }} {{ $publisher['format'] }} The lists are downloaded from the publisher when you add them and on each refresh; none of their content is shipped with IT Requests. Check a list's description in the repository before blocking with it, and report false positives to the publisher.</p>
+                        <p class="hint">{{ $publisher['summary'] }} {{ $publisher['format'] }} The lists are downloaded from the publisher when you add them and on each refresh; none of their content is shipped with Filterdesk. Check a list's description in the repository before blocking with it, and report false positives to the publisher.</p>
                         <table class="preset-table"><thead><tr><th>Preset</th><th>Type</th><th>Size</th><th>What it blocks</th></tr></thead><tbody>
                             @foreach($presets->where('publisher', $key) as $preset)
                                 <tr><td><strong>{{ str($preset['name'])->after(': ') }}</strong><small>{{ $preset['group'] }} · <a href="{{ $preset['url'] }}" rel="noopener" target="_blank">raw list</a></small></td><td>{{ $preset['type'] === 'ips' ? 'IPs' : 'Domains' }}</td><td>~{{ number_format($preset['size']) }}</td><td>{{ $preset['description'] }}</td></tr>

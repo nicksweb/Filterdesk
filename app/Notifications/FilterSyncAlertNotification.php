@@ -23,7 +23,7 @@ class FilterSyncAlertNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $details = collect($this->policies)->map(fn (array $policy) => ($policy['status'] === 'error' ? 'Cannot check ' : 'Changed outside IT Requests: ')."{$policy['policy']}. {$policy['summary']}")->all();
+        $details = collect($this->policies)->map(fn (array $policy) => ($policy['status'] === 'error' ? 'Cannot check ' : 'Changed outside Filterdesk: ')."{$policy['policy']}. {$policy['summary']}")->all();
 
         return app(EmailTemplates::class)->mail('filter_sync_alert', ['details' => $details], route('admin.policy.index'));
     }

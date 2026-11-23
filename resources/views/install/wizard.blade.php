@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Install IT Requests</title><link rel="stylesheet" href="{{ asset('app.css') }}"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Install Filterdesk</title><link rel="stylesheet" href="{{ asset('app.css') }}"></head>
 <body class="install-page">
 @php($titles = [1 => 'Welcome and system checks', 2 => 'School configuration', 3 => 'Administrator and authentication', 4 => 'UniFi integration', 5 => 'Network access profiles', 6 => 'Email and notifications', 7 => 'Approval policies', 8 => 'Review and complete'])
 <main class="install-shell">
     <aside class="install-aside">
-        <div class="brand"><span class="brand-mark">IT</span><span>IT Requests</span></div>
+        <div class="brand"><span class="brand-mark">IT</span><span>Filterdesk</span></div>
         <p>A secure self-service hub for your school community.</p>
         <ol>@foreach($titles as $number => $label)<li @class(['current' => $number === $step, 'done' => $number < $step])><span>{{ $number }}</span>{{ $label }}</li>@endforeach</ol>
     </aside>
@@ -15,11 +15,11 @@
         @if($errors->any())<div class="alert error"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
         <form method="post" action="{{ route('install.store', $step) }}">@csrf
             @if($step === 1)
-                <p>IT Requests checks website access from staff and student networks, manages approval, and records every decision. Docker migrations must run before this wizard.</p>
+                <p>Filterdesk checks website access from staff and student networks, manages approval, and records every decision. Docker migrations must run before this wizard.</p>
                 <div class="check-list">@foreach($checks as $name => $check)<div><span class="check-icon {{ $check['ok'] ? 'ok' : 'bad' }}">{{ $check['ok'] ? '✓' : '!' }}</span><span><strong>{{ str($name)->replace('_', ' ')->title() }}</strong><small>{{ $check['message'] }}</small></span></div>@endforeach</div>
             @elseif($step === 2)
                 <label>School or organisation name<input name="school_name" required value="{{ old('school_name', $data['school_name'] ?? '') }}"></label>
-                <div class="fields two"><label>Timezone<input name="timezone" required value="{{ old('timezone', $data['timezone'] ?? 'Australia/Brisbane') }}"></label><label>Public application URL<input name="app_url" type="url" required placeholder="https://itrequests.example.edu.au" value="{{ old('app_url', $data['app_url'] ?? '') }}"></label></div>
+                <div class="fields two"><label>Timezone<input name="timezone" required value="{{ old('timezone', $data['timezone'] ?? 'Australia/Brisbane') }}"></label><label>Public application URL<input name="app_url" type="url" required placeholder="https://filterdesk.example.edu.au" value="{{ old('app_url', $data['app_url'] ?? '') }}"></label></div>
                 <label>Schoolbox origin <span class="optional">optional</span><input name="schoolbox_origin" type="url" placeholder="https://schoolbox.example.edu.au" value="{{ old('schoolbox_origin', $data['schoolbox_origin'] ?? '') }}"><small>Allows this application to be embedded only by this exact Schoolbox origin.</small></label>
             @elseif($step === 3)
                 <div class="fields two"><label>Initial administrator name<input name="admin_name" required value="{{ old('admin_name', $data['admin_name'] ?? '') }}"></label><label>Administrator email<input name="admin_email" type="email" required value="{{ old('admin_email', $data['admin_email'] ?? '') }}"></label></div>

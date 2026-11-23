@@ -1,6 +1,6 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "nicksweb/it-edu-selfservice",
+    "name": "nicksweb/filterdesk",
     "type": "project",
     "description": "School IT self-service, website access checks and approval workflows.",
     "keywords": ["education", "unifi", "oidc", "laravel", "self-service"],

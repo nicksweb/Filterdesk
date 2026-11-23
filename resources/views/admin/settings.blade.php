@@ -15,9 +15,9 @@
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'general') }}" enctype="multipart/form-data">@csrf @method('PUT')
             @php($branding = (array) $settings->get('branding', []))
             <div class="fields two">
-                <label>Application name <span class="optional">blank: "{{ $settings->get('school.name') }} IT Requests"</span><input name="app_name" maxlength="60" placeholder="uConnect" value="{{ old('app_name', $branding['app_name'] ?? '') }}"><small>Shown in the header, browser tab and emails.</small></label>
+                <label>Application name <span class="optional">blank: "{{ $settings->get('school.name') }} Filterdesk"</span><input name="app_name" maxlength="60" placeholder="uConnect" value="{{ old('app_name', $branding['app_name'] ?? '') }}"><small>Shown in the header, browser tab and emails.</small></label>
                 <label>Initials in the header <span class="optional">up to 3 letters; used when there is no icon</span><input name="brand_mark" maxlength="3" placeholder="IT" value="{{ old('brand_mark', $branding['mark'] ?? '') }}"></label>
-                <label class="choice compact"><input type="hidden" name="project_link" value="0"><input type="checkbox" name="project_link" value="1" @checked(old('project_link', $branding['project_link'] ?? true))><span><strong>Link to the open-source project in the footer</strong><small>Shows "Built with IT Requests" with a link to the project on GitHub at the foot of every page.</small></span></label>
+                <label class="choice compact"><input type="hidden" name="project_link" value="0"><input type="checkbox" name="project_link" value="1" @checked(old('project_link', $branding['project_link'] ?? true))><span><strong>Link to the open-source project in the footer</strong><small>Shows "Built with Filterdesk" with a link to the project on GitHub at the foot of every page.</small></span></label>
             </div>
             <div class="fields two">
                 <label>Browser and header icon <span class="optional">PNG, SVG, WebP, JPEG or ICO, square, up to 512 KB</span><input type="file" name="icon" accept="image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon"></label>
@@ -43,7 +43,7 @@
             </div>
             <label>Allowed email domains <span class="optional">comma separated; blank allows any</span><input name="oidc_allowed_domains" value="{{ old('oidc_allowed_domains', implode(', ', $oidc?->configuration['allowed_domains'] ?? [])) }}"></label>
             <label>Role rules <span class="optional">one per line, first match wins</span>
-                <textarea name="role_rules" rows="5" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:it-staff-group-object-id=it&#10;group:ITRequests.Admin=admin">{{ old('role_rules', $roleRules) }}</textarea>
+                <textarea name="role_rules" rows="5" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:it-staff-group-object-id=it&#10;group:Filterdesk.Admin=admin">{{ old('role_rules', $roleRules) }}</textarea>
                 <small><code>email_domain:</code> matches the address domain and its subdomains. <code>group:</code> matches a value in the <code>groups</code> or <code>roles</code> claim (Entra: add a groups claim or app roles to the token).</small>
             </label>
             <div class="fields two">
@@ -58,7 +58,7 @@
                 <label>Default role for unmatched users<select name="default_role">@foreach(['teacher' => 'Teacher', 'student' => 'Student', 'deny' => 'Refuse sign-in'] as $value => $label)<option value="{{ $value }}" @selected(old('default_role', $oidc?->configuration['default_role'] ?? 'teacher') === $value)>{{ $label }}</option>@endforeach</select></label>
                 <label class="choice compact"><input type="hidden" name="sync_roles" value="0"><input type="checkbox" name="sync_roles" value="1" @checked(old('sync_roles', $oidc?->configuration['sync_roles'] ?? false))><span><strong>Re-apply rules at every sign-in</strong><small>Never removes IT or administrator access granted by hand.</small></span></label>
             </div>
-            <label class="choice"><input type="hidden" name="emergency_local_login" value="0"><input type="checkbox" name="emergency_local_login" value="1" @checked(old('emergency_local_login', $settings->get('auth.emergency_local_login', true)))><span><strong>Emergency local sign-in</strong><small>Password sign-in for local accounts. Restrict /login at the reverse proxy where possible. Recover from the host with <code>php artisan itrequests:admin-password</code>.</small></span></label>
+            <label class="choice"><input type="hidden" name="emergency_local_login" value="0"><input type="checkbox" name="emergency_local_login" value="1" @checked(old('emergency_local_login', $settings->get('auth.emergency_local_login', true)))><span><strong>Emergency local sign-in</strong><small>Password sign-in for local accounts. Restrict /login at the reverse proxy where possible. Recover from the host with <code>php artisan filterdesk:admin-password</code>.</small></span></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
 
@@ -85,7 +85,7 @@
             <h2>Notifications</h2>
             <label>IT notification address<input name="it_notification_address" type="email" required value="{{ old('it_notification_address', $settings->get('notifications.it_address')) }}"></label>
             <fieldset><legend>Email IT when</legend>
-                @foreach(['new_request' => 'A new request is submitted', 'requester_reply' => 'A requester answers a question (sent to the assignee, or IT if unassigned)', 'assignment' => 'A request is assigned to someone', 'filter_sync' => 'A controller content filter is changed outside IT Requests, or cannot be read'] as $event => $label)
+                @foreach(['new_request' => 'A new request is submitted', 'requester_reply' => 'A requester answers a question (sent to the assignee, or IT if unassigned)', 'assignment' => 'A request is assigned to someone', 'filter_sync' => 'A controller content filter is changed outside Filterdesk, or cannot be read'] as $event => $label)
                     <label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked($settings->get("notifications.events.{$event}", true))><span>{{ $label }}</span></label>
                 @endforeach
             </fieldset>
@@ -125,7 +125,7 @@
             <label data-scope-field="cloud">Console ID <span class="optional">use Discover to list your consoles</span><input name="console_id" list="discovered-consoles" value="{{ old('console_id', $network?->configuration['console_id'] ?? '') }}"><small>The connector requires the key's owner to be an owner of the console, and the console to be online.</small></label>
             @if($discovery && !empty($discovery['consoles']))<datalist id="discovered-consoles">@foreach($discovery['consoles'] as $console)<option value="{{ $console['id'] }}">{{ $console['name'] }}</option>@endforeach</datalist>@endif
             <div class="fields two">
-                <label>API key <span class="optional">{{ $networkHasKey ? 'stored · blank keeps it' : 'not set' }}</span><input name="api_key" type="password" autocomplete="new-password"><small>Use a dedicated key for IT Requests.</small></label>
+                <label>API key <span class="optional">{{ $networkHasKey ? 'stored · blank keeps it' : 'not set' }}</span><input name="api_key" type="password" autocomplete="new-password"><small>Use a dedicated key for Filterdesk.</small></label>
                 <label>Site ID <span class="optional">usually blank</span><input name="site_id" value="{{ old('site_id', $network?->configuration['site_id'] ?? '') }}" list="discovered-sites"><small>Only for a console with more than one site. Blank uses the first site. This is not the console ID. Use Discover to list sites.</small></label>
             </div>
             @if($discovery && $discovery['sites'])<datalist id="discovered-sites">@foreach($discovery['sites'] as $site)<option value="{{ $site['id'] }}">{{ $site['name'] }}</option>@endforeach</datalist>@endif
@@ -302,7 +302,7 @@
         </section>
         <section class="panel" style="margin-top:20px">
             <h2>Webhooks</h2>
-            <p class="section-copy">Send request and policy events to another system: a JSON receiver (a ticketing system, an automation) or a Microsoft Teams channel (an incoming webhook or a Workflows URL). Teams cards for new requests have Approve and Decline buttons that open a confirmation page here. JSON bodies are signed with HMAC-SHA256 of the raw body in <code>X-ITRequests-Signature: sha256=…</code> when a secret is set.</p>
+            <p class="section-copy">Send request and policy events to another system: a JSON receiver (a ticketing system, an automation) or a Microsoft Teams channel (an incoming webhook or a Workflows URL). Teams cards for new requests have Approve and Decline buttons that open a confirmation page here. JSON bodies are signed with HMAC-SHA256 of the raw body in <code>X-Filterdesk-Signature: sha256=…</code> when a secret is set.</p>
             @foreach($webhooks as $webhook)
                 <form method="post" action="{{ route('admin.integrations.webhooks.update', $webhook) }}" class="probe-plan">@csrf @method('PUT')
                     <div class="fields three">

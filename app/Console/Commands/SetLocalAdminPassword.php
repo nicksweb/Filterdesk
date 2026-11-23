@@ -9,10 +9,13 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 
-/** Recover emergency local access from the host: docker compose exec app php artisan itrequests:admin-password you@school */
+/** Recover emergency local access from the host: docker compose exec app php artisan filterdesk:admin-password you@school */
 class SetLocalAdminPassword extends Command
 {
-    protected $signature = 'itrequests:admin-password {email} {--enable-local-login : Also re-enable emergency local sign-in}';
+    protected $signature = 'filterdesk:admin-password {email} {--enable-local-login : Also re-enable emergency local sign-in}';
+
+    /** @var list<string> The name before the rename to Filterdesk, still accepted. */
+    protected $aliases = ['itrequests:admin-password'];
 
     protected $description = 'Set the emergency local sign-in password for an administrator';
 

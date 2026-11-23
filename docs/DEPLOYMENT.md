@@ -10,26 +10,26 @@ named `frontend`, and include the override whenever the stack is started:
 docker compose -f compose.yml -f compose.proxy.yml up -d --build
 ```
 
-Configure the proxy upstream as `http://it-edu-selfservice-web-1:8080`. The
+Configure the proxy upstream as `http://filterdesk-web-1:8080`. The
 override keeps the shared network attachment across container recreations while
-the PHP upstream remains isolated behind the unique `itrequests-php` alias.
+the PHP upstream remains isolated behind the unique `filterdesk-php` alias.
 
 ## Schoolbox embedding
 
 Set the exact Schoolbox origin during installation, for example
-`https://schoolbox.example.edu.au`, then add the IT Requests URL as an embedded
-external page in Schoolbox. IT Requests permits only that configured origin in
+`https://schoolbox.example.edu.au`, then add the Filterdesk URL as an embedded
+external page in Schoolbox. Filterdesk permits only that configured origin in
 its Content Security Policy. When an origin is configured, session cookies are
 automatically secured with `SameSite=None` so authenticated cross-site iframe
 sessions can function.
 
 Schoolbox embedding does not bypass authentication. Users still sign in through
-the configured OIDC provider or an existing IT Requests session. Some identity
+the configured OIDC provider or an existing Filterdesk session. Some identity
 providers do not permit their login page inside an iframe; in that case users
 must complete sign-in in a top-level browser tab before opening the Schoolbox
 embed.
 
-Set `APP_URL=https://itrequests.example.edu.au`, `SESSION_SECURE_COOKIE=true`, and `TRUSTED_PROXIES` to only the proxy container address or subnet. Never use `*` on a port reachable by untrusted clients.
+Set `APP_URL=https://filterdesk.example.edu.au`, `SESSION_SECURE_COOKIE=true`, and `TRUSTED_PROXIES` to only the proxy container address or subnet. Never use `*` on a port reachable by untrusted clients.
 
 Nginx example:
 
@@ -52,7 +52,7 @@ The app emits HSTS for HTTPS requests, CSP, `nosniff`, a restrictive Permissions
 Register a confidential web application and use this redirect URI exactly:
 
 ```text
-https://itrequests.example.edu.au/auth/oidc/callback
+https://filterdesk.example.edu.au/auth/oidc/callback
 ```
 
 For Entra ID, the issuer is normally `https://login.microsoftonline.com/<tenant-id>/v2.0`. Grant `openid profile email`. The app discovers endpoints from the issuer and obtains identity from the TLS-protected userinfo endpoint. Restrict allowed domains in the installer. OIDC users begin as `teacher`; an administrator assigns IT/admin roles.
@@ -139,16 +139,16 @@ Keep probes off the internet-facing side: they only talk to the app over the int
 Retain `.env` (especially `APP_KEY`) separately:
 
 ```bash
-docker compose exec -T db pg_dump -U itrequests -d itrequests -Fc > itrequests.dump
-docker run --rm -v it-edu-selfservice_app_storage:/data -v "$PWD:/backup" alpine \
-  tar -czf /backup/itrequests-storage.tgz -C /data .
+docker compose exec -T db pg_dump -U filterdesk -d filterdesk -Fc > filterdesk.dump
+docker run --rm -v filterdesk_app_storage:/data -v "$PWD:/backup" alpine \
+  tar -czf /backup/filterdesk-storage.tgz -C /data .
 ```
 
 Restore into a clean deployment:
 
 ```bash
 docker compose stop app queue scheduler
-docker compose exec -T db pg_restore -U itrequests -d itrequests --clean --if-exists < itrequests.dump
+docker compose exec -T db pg_restore -U filterdesk -d filterdesk --clean --if-exists < filterdesk.dump
 docker compose up -d
 ```
 
@@ -192,7 +192,7 @@ Password sign-in is for emergencies; day-to-day sign-in should be single sign-on
 
 - **Brute-force protection.** 5 failed attempts for one email address within 15 minutes lock password sign-in for that address for 15 minutes, from any IP. 20 failures from one IP within 15 minutes block that IP. The route is also limited to 5 attempts a minute. Every failure, lockout and block is in the audit log, and a lockout emails the account owner and the IT address.
 - **Turn off the installer's admin account.** Once an SSO administrator can sign in, untick **Password** for the local admin under **Users**, or turn off **Emergency local sign-in** under Settings → Authentication. You cannot turn off your own password sign-in while SSO is disabled.
-- **Break glass.** From the Docker host: `docker compose exec app php artisan itrequests:admin-password admin@example.org --enable-local-login`. This resets the password, re-enables password sign-in for that account and clears its lockout.
+- **Break glass.** From the Docker host: `docker compose exec app php artisan filterdesk:admin-password admin@example.org --enable-local-login`. This resets the password, re-enables password sign-in for that account and clears its lockout.
 - Restrict `/login` at the reverse proxy to staff networks where possible.
 
 ## Emails

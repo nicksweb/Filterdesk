@@ -1,0 +1,31 @@
+# Build Filterdesk from this checkout instead of pulling the published images.
+# Use it on development machines and servers that track the source:
+#   docker compose -f compose.yml -f compose.build.yml build app
+#   docker compose -f compose.yml -f compose.build.yml build web
+#   docker compose -f compose.yml -f compose.build.yml build probe-student
+#   docker compose -f compose.yml -f compose.build.yml up -d
+# Set FILTERDESK_VERSION=local in .env so local builds are not mistaken for releases.
+# Build one image at a time: building several at once can crash some Docker Engine versions.
+
+x-app-build: &app-build
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: runtime
+
+services:
+  migrate: *app-build
+  app: *app-build
+  queue: *app-build
+  scheduler: *app-build
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: webserver
+  probe-student:
+    build:
+      context: probe
+  probe-staff:
+    build:
+      context: probe
