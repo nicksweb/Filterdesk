@@ -42,7 +42,7 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
-## 2026.12.8 → 2026.12.9
+## 2026.12.8 → 2026.12.9 (and 2026.12.10)
 
 - Pull and restart as usual (migrations add baseline filtering and kept names).
 - **Move to one `COMPOSE_FILE` line.** In `.env`, list every compose file you use once, for example `COMPOSE_FILE=compose.yml:compose.proxy.yml:compose.vlan.yml`, then use plain `docker compose …` without `-f`. Remove any duplicate `COMPOSE_FILE` lines.

@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.10
+
+### Fixed
+- The `COMPOSE_FILE` line in Guided setup adds `compose.proxy.yml` only when the page really came through a reverse proxy (it sent `X-Forwarded-For`), not just from a trusted address.
+
 ## 2026.12.9
 
 ### Added
