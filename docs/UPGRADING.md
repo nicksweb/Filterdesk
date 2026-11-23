@@ -57,7 +57,17 @@ IT Requests is now **Filterdesk**, and releases are published as container image
 2. Replace `APP_IMAGE_TAG` in `.env`, if present, with `FILTERDESK_VERSION`.
 3. If you generated `compose.vlan.yml`, regenerate it (`docker compose exec -T app php artisan probes:compose > compose.vlan.yml`) or change each probe's `image:` to `${FILTERDESK_IMAGE_PREFIX:-ghcr.io/nicksweb/filterdesk}-probe:${FILTERDESK_VERSION:-latest}`.
 4. Pull and start as in *Standard upgrade*. With `COMPOSE_PROJECT_NAME` kept, your reverse proxy still reaches `it-edu-selfservice-web-1`.
-5. Changed names: commands are `filterdesk:upgrade` and `filterdesk:admin-password` (the old `itrequests:` names still work); webhook headers are `X-Filterdesk-Signature` and `X-Filterdesk-Event` (update any receiver that checks the signature); metrics start `filterdesk_`; new API tokens start `fd_` (existing tokens keep working); `bin/backup` writes `filterdesk-*.dump`.
+5. Optional, **moving to the new container names** (`filterdesk-*`): back up (`bin/backup`), stop the old project (`docker compose … down`, which keeps its volumes), copy each volume into a new one, remove `COMPOSE_PROJECT_NAME` from `.env`, and start again:
+
+   ```bash
+   for v in db_data app_storage; do
+     docker volume create --label com.docker.compose.project=filterdesk --label com.docker.compose.volume=$v filterdesk_$v
+     docker run --rm -v it-edu-selfservice_$v:/from:ro -v filterdesk_$v:/to alpine cp -a /from/. /to/
+   done
+   ```
+
+   Point your reverse proxy at `filterdesk-web-1:8080`, or keep it unchanged by giving the web container the old name as an alias in `compose.proxy.yml` (`networks: reverse_proxy: aliases: [it-edu-selfservice-web-1]`). Remove the old `it-edu-selfservice_*` volumes once you are sure everything is there.
+6. Changed names: commands are `filterdesk:upgrade` and `filterdesk:admin-password` (the old `itrequests:` names still work); webhook headers are `X-Filterdesk-Signature` and `X-Filterdesk-Event` (update any receiver that checks the signature); metrics start `filterdesk_`; new API tokens start `fd_` (existing tokens keep working); `bin/backup` writes `filterdesk-*.dump`.
 
 ## 2026.11.0 → 2026.12.0
 
