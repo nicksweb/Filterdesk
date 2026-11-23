@@ -44,7 +44,7 @@ jobs:
             target: ''
             description: Filterdesk website probe (Chromium; checks sites from a filtered network)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
