@@ -60,8 +60,15 @@ class AuthController extends Controller
 
     public function oidcRedirect(Request $request, OidcClient $client): RedirectResponse
     {
-        [$url, $state] = $client->authorizationUrl();
+        try {
+            [$url, $state, $pkce] = $client->authorizationUrl();
+        } catch (Throwable $exception) {
+            OidcClient::recordFailure($exception);
+
+            return redirect()->route('login')->withErrors(['email' => 'Single sign-on is not available right now. Use the emergency sign-in, or contact IT.']);
+        }
         $request->session()->put('oidc.state', $state);
+        $request->session()->put('oidc.pkce', $pkce);
 
         return redirect()->away($url);
     }
@@ -73,13 +80,17 @@ class AuthController extends Controller
         }
 
         try {
-            $user = $users->provision($client->claims($client->exchange((string) $request->query('code'))));
+            if (filled($request->query('error'))) {
+                throw new \RuntimeException('The identity provider returned '.$request->query('error').': '.str((string) $request->query('error_description'))->limit(300));
+            }
+            $user = $users->provision($client->claims($client->exchange((string) $request->query('code'), $request->session()->pull('oidc.pkce'))));
             Auth::login($user, true);
             $request->session()->regenerate();
 
             return redirect()->intended(route('dashboard'));
         } catch (Throwable $exception) {
             Log::warning('OIDC sign-in failed', ['message' => $exception->getMessage()]);
+            OidcClient::recordFailure($exception);
 
             return redirect()->route('login')->withErrors(['email' => 'Single sign-on failed. Contact IT if this continues.']);
         }

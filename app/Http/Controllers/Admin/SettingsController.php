@@ -22,6 +22,7 @@ use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ReadsContentFilters;
 use App\Services\Network\UniFiNetworkProvider;
 use App\Services\Notifications\EmailTemplates;
+use App\Services\Oidc\OidcClient;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
@@ -33,6 +34,7 @@ use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -74,6 +76,10 @@ class SettingsController extends Controller
             'settings' => $settings,
             'oidc' => $oidc,
             'oidcHasSecret' => filled($oidc?->credentials['client_secret'] ?? null),
+            'oidcLastError' => $section === 'authentication' ? Cache::get(OidcClient::LAST_ERROR_KEY) : null,
+            'oidcLastClaims' => $section === 'authentication' ? Cache::get(OidcClient::LAST_CLAIMS_KEY) : null,
+            'oidcProvider' => $section === 'authentication' && filled($oidc?->configuration['issuer'] ?? null)
+                ? rescue(fn () => app(OidcDiscoveryService::class)->discover((string) $oidc->configuration['issuer']), null, false) : null,
             'roleRules' => UserProvisioningService::formatRules($oidc?->configuration['role_rules'] ?? []),
             'typeRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['type_rules'] ?? []),
             'departmentRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['department_rules'] ?? []),
@@ -215,6 +221,9 @@ class SettingsController extends Controller
             'oidc_allowed_domains' => ['nullable', 'string', 'max:1000'],
             'role_rules' => ['nullable', 'string', 'max:5000'],
             'type_rules' => ['nullable', 'string', 'max:5000'],
+            'oidc_scopes' => ['nullable', 'string', 'max:500'],
+            'oidc_group_claims' => ['nullable', 'string', 'max:300'],
+            'oidc_token_auth' => ['nullable', 'in:auto,basic,post'],
             'department_rules' => ['nullable', 'string', 'max:5000'],
             'default_role' => ['required', 'in:student,teacher,deny'],
             'sync_roles' => ['nullable', 'boolean'],
@@ -222,7 +231,7 @@ class SettingsController extends Controller
         ]);
 
         if ($request->boolean('oidc_enabled')) {
-            app(OidcDiscoveryService::class)->discover($validated['oidc_issuer']);
+            app(OidcDiscoveryService::class)->check($validated['oidc_issuer'], 'oidc_issuer');
         }
 
         if (! $request->boolean('emergency_local_login') && ! $request->boolean('oidc_enabled')) {
@@ -233,7 +242,11 @@ class SettingsController extends Controller
         $oidc->fill([
             'enabled' => $request->boolean('oidc_enabled'),
             'configuration' => [
-                'issuer' => $validated['oidc_issuer'] ?? ($oidc->configuration['issuer'] ?? null),
+                'issuer' => filled($validated['oidc_issuer'] ?? null) ? OidcDiscoveryService::normalise($validated['oidc_issuer']) : ($oidc->configuration['issuer'] ?? null),
+                // Extra scopes (for example CloudWork's https://scopes.cloudwork.id/profile) and the claims that carry groups or roles.
+                'scopes' => array_values(array_filter(preg_split('/[\s,]+/', (string) ($validated['oidc_scopes'] ?? '')) ?: [])),
+                'group_claims' => array_values(array_filter(preg_split('/[\s,]+/', (string) ($validated['oidc_group_claims'] ?? 'groups roles')) ?: [])) ?: ['groups', 'roles'],
+                'token_auth' => $validated['oidc_token_auth'] ?? 'auto',
                 'client_id' => $validated['oidc_client_id'] ?? ($oidc->configuration['client_id'] ?? null),
                 'allowed_domains' => $this->commaList($validated['oidc_allowed_domains'] ?? ''),
                 'role_rules' => UserProvisioningService::parseRules($validated['role_rules'] ?? ''),

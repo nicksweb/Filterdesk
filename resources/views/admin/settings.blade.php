@@ -42,6 +42,21 @@
                 <label>Client secret <span class="optional">{{ $oidcHasSecret ? 'stored · blank keeps it' : 'not set' }}</span><input name="oidc_client_secret" type="password" autocomplete="new-password"></label>
             </div>
             <label>Allowed email domains <span class="optional">comma separated; blank allows any</span><input name="oidc_allowed_domains" value="{{ old('oidc_allowed_domains', implode(', ', $oidc?->configuration['allowed_domains'] ?? [])) }}"></label>
+            <details class="hint oidc-advanced" @if($oidcLastError) open @endif><summary>Provider details and advanced options</summary>
+                @if($oidcProvider)
+                    <p>Provider: token endpoint authentication {{ implode(', ', (array) ($oidcProvider['token_endpoint_auth_methods_supported'] ?? ['client_secret_basic (default)'])) }} · PKCE {{ in_array('S256', (array) ($oidcProvider['code_challenge_methods_supported'] ?? []), true) ? 'supported (used)' : 'not advertised' }} · userinfo {{ filled($oidcProvider['userinfo_endpoint'] ?? null) ? 'yes' : 'no (ID token only)' }} · scopes {{ implode(' ', array_slice((array) ($oidcProvider['scopes_supported'] ?? []), 0, 12)) ?: 'not listed' }}</p>
+                @endif
+                <div class="fields three">
+                    <label>Extra scopes <span class="optional">space separated</span><input name="oidc_scopes" value="{{ old('oidc_scopes', implode(' ', $oidc?->configuration['scopes'] ?? [])) }}" placeholder="https://scopes.cloudwork.id/profile"><small>openid, profile and email are always requested. CloudWork ID: add <code>https://scopes.cloudwork.id/profile</code> for its custom claims.</small></label>
+                    <label>Claims holding groups or roles <span class="optional">space separated</span><input name="oidc_group_claims" value="{{ old('oidc_group_claims', implode(' ', $oidc?->configuration['group_claims'] ?? ['groups', 'roles'])) }}"><small>Used by the role, network type and department rules (<code>group:</code> matches a value in any of these).</small></label>
+                    <label>Client authentication<select name="oidc_token_auth">@foreach(['auto' => 'Automatic (from the provider)', 'basic' => 'client_secret_basic (header)', 'post' => 'client_secret_post (form body)'] as $value => $label)<option value="{{ $value }}" @selected(old('oidc_token_auth', $oidc?->configuration['token_auth'] ?? 'auto') === $value)>{{ $label }}</option>@endforeach</select></label>
+                </div>
+                @if($oidcLastClaims)
+                    <p>Claims in the last sign-in ({{ \Illuminate\Support\Carbon::parse($oidcLastClaims['at'])->local()->format('j M Y g:i a') }}), for writing rules; personal values are not shown:</p>
+                    <ul class="claim-list">@foreach($oidcLastClaims['claims'] as $claim => $value)<li><code>{{ $claim }}</code> {{ $value }}</li>@endforeach</ul>
+                @endif
+                @if($oidcLastError)<div class="alert error">Last sign-in failure ({{ \Illuminate\Support\Carbon::parse($oidcLastError['at'])->local()->format('j M Y g:i a') }}): {{ $oidcLastError['message'] }}</div>@endif
+            </details>
             <label>Role rules <span class="optional">one per line, first match wins</span>
                 <textarea name="role_rules" rows="5" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:it-staff-group-object-id=it&#10;group:Filterdesk.Admin=admin">{{ old('role_rules', $roleRules) }}</textarea>
                 <small><code>email_domain:</code> matches the address domain and its subdomains. <code>group:</code> matches a value in the <code>groups</code> or <code>roles</code> claim (Entra: add a groups claim or app roles to the token).</small>

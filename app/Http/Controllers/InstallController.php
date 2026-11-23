@@ -119,7 +119,7 @@ class InstallController extends Controller
         $request->session()->put('installation', $data);
 
         if ($step === 3 && ($data['oidc_enabled'] ?? false)) {
-            app(OidcDiscoveryService::class)->discover($data['oidc_issuer']);
+            app(OidcDiscoveryService::class)->check($data['oidc_issuer'], 'oidc_issuer');
         }
 
         if ($step === 8) {
@@ -259,7 +259,7 @@ class InstallController extends Controller
                 IntegrationConfig::query()->create([
                     'provider' => 'oidc', 'name' => 'OpenID Connect', 'mode' => 'active', 'enabled' => true,
                     'configuration' => [
-                        'issuer' => $data['oidc_issuer'], 'client_id' => $data['oidc_client_id'],
+                        'issuer' => OidcDiscoveryService::normalise($data['oidc_issuer']), 'client_id' => $data['oidc_client_id'],
                         'allowed_domains' => array_values(array_filter(array_map(fn ($value) => strtolower(trim($value)), explode(',', $data['oidc_allowed_domains'] ?? '')))),
                         'role_rules' => UserProvisioningService::parseRules($data['role_rules'] ?? ''),
                         'default_role' => $data['default_role'] ?? 'teacher',

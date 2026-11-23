@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.6
+
+### Fixed
+- **Single sign-on with providers other than Entra ID** (for example CloudWork ID): the userinfo endpoint is optional, client authentication follows the provider (`client_secret_post` or `_basic`, or set it), PKCE is used when advertised, extra scopes can be added, and the claims that carry groups or roles are configurable. The display name falls back to given and family name.
+- Sign-in calls to the identity provider now have timeouts.
+- A wrong issuer shows a readable error instead of a server error; a pasted `/.well-known/openid-configuration` URL is accepted.
+- Settings → Authentication → *Provider details* shows the provider's capabilities, the reason for the last failed sign-in, and the claims of the last sign-in (personal values hidden) for writing role rules. SETUP lists issuers and redirect URIs for Entra ID, CloudWork ID and Google.
+
 ## 2026.12.5
 
 ### Added

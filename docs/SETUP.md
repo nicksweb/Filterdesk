@@ -277,6 +277,18 @@ Sign in as the administrator. The home page shows **Finish setting up**: a check
 
 **Check:** Settings → Network provider → **Test connection** succeeds and redirects you to Guided setup. Health → Diagnostics is all green except probes you have not set up yet.
 
+### Single sign-on providers
+
+Any standard OpenID Connect provider works. The **redirect URI** to register is exactly `https://<hostname>/auth/oidc/callback` (shown under Settings → Authentication). Filterdesk reads the provider's discovery document and follows it: PKCE when advertised, the client authentication method it accepts, and the ID token when there is no userinfo endpoint.
+
+| Provider | Issuer | Notes |
+| --- | --- | --- |
+| Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | Add a *groups* claim or app roles to use `group:` role rules. |
+| CloudWork ID | `https://<school>-id.cloudworkengine.net`, as shown under Single Sign On → Manage OpenID Connect Apps → Identity Provider | Create the app under Single Sign On → Manage OpenID Connect Apps → Add New Service, with the redirect URI above (not `/auth/callback`). CloudWork sends `email`, `given_name`, `family_name` and `preferred_username`; for its custom claims (such as SIS ID) add the extra scope `https://scopes.cloudwork.id/profile` under Settings → Authentication → Provider details. |
+| Google Workspace | `https://accounts.google.com` | Restrict sign-in with *Allowed email domains*. |
+
+If sign-in fails, Settings → Authentication → *Provider details* shows the provider's reason (for example a redirect URI that is not registered) and, after a successful sign-in, the claims it sends, for writing role rules.
+
 ## 8. Bring UniFi in
 
 On **Policies → Guided setup** (the dashboard links to it), choose **Bring everything in**. It:
