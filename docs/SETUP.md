@@ -50,6 +50,16 @@ Also install `git`, `openssl` and, for checking VLAN tags later, `tcpdump`:
 sudo apt install -y git openssl tcpdump
 ```
 
+Turn on Docker's **live restore**, so containers keep running if the Docker daemon restarts or crashes (otherwise every container on the host stops with it):
+
+```bash
+echo '{ "live-restore": true }' | sudo tee /etc/docker/daemon.json
+sudo systemctl reload docker
+docker info --format '{{.LiveRestoreEnabled}}'   # true
+```
+
+If the host already has a `/etc/docker/daemon.json`, add the `"live-restore": true` line to it instead.
+
 **Check:** `docker run --rm hello-world` prints its greeting.
 
 ## 3. Get the code and create .env
@@ -186,8 +196,9 @@ In Nginx Proxy Manager: add a proxy host for your hostname with that upstream, r
 Then set `TRUSTED_PROXIES` to the proxy's address:
 
 - Proxy on the host: `127.0.0.1` (the default).
-- Proxy in Docker: its IP on the shared network, from
-  `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' <proxy-container>`.
+- Proxy in Docker: the shared network's subnet, for example `172.18.0.0/16`, from
+  `docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' <shared-network>`.
+  Use the subnet rather than the proxy's own address: Docker can give the proxy a new address when it is recreated, and pages then load without styles.
 
 Apply it with `docker compose … up -d --force-recreate`.
 
@@ -203,18 +214,18 @@ Open `https://<hostname>`. The wizard has eight steps and locks itself once fini
 | 2. School | Name, timezone, the URL (same as `APP_URL`), Schoolbox origin | Fill in the Schoolbox origin (for example `https://schoolbox.example.edu.au`) only if the app will be embedded in Schoolbox. |
 | 3. Administrator and sign-in | The first local admin's name, email and password (14+ characters). Optionally OIDC: issuer, client ID, secret, allowed email domains, role rules, default role. | For Entra ID the issuer is `https://login.microsoftonline.com/<tenant-id>/v2.0`. Role rules map groups or emails to *student*, *teacher*, *IT* and *admin*. Leave **Emergency local sign-in** on until SSO is proven. |
 | 4. UniFi | Connection type, then the console URL (local key) or console ID (Site Manager key), the API key and site, **Read-only** mode, entry matching *Explicit* | Start read-only. You can test and change all of this later under Settings → Network provider. |
-| 5. Network access profiles | Keep `http://probe-student:3000` and `http://probe-staff:3000` | Network IDs are filled in later by Guided setup. |
+| 5. Network access profiles | Keep `http://probe-student:3000` and `http://probe-staff:3000`; optionally the Student and Staff VLAN numbers (for example 20 and 10) | The VLANs are matched to UniFi networks once connected, and Guided setup plans a probe on each (step 9). |
 | 6. Email | SMTP host, port, username, password, from address, IT notification address | The IT address receives new requests, alerts and the daily digest. Settings → Email has a test button. |
-| 7. Approval policy | Auto-approval for trusted networks, whether students may request, default access length, request categories | Defaults are sensible for a trial. |
+| 7. Approval policy | Auto-approval for trusted networks, whether students may request, default access length, request categories, **two-person approval** (site-wide changes need two IT officers; on), approving alone when no other officer is available (on), **sensitive categories**, and how often exceptions are **reviewed** (12 months) and how long an unreviewed one stays (14 days) | Defaults are sensible. Two-person approval only takes effect once two IT officers are enabled. All of this can be changed later under Settings → Approval policy. |
 | 8. Review | Check, then **Complete** | |
 
-Sign in as the administrator.
+Sign in as the administrator. The home page shows **Finish setting up**: a checklist of what is left (Guided setup, probes on their VLANs, a second IT officer, the school calendar, website categories, Active mode and backups). Items tick themselves off as you complete them; mark the rest done by hand.
 
-**Check:** Settings → Network provider → **Test connection** succeeds and redirects you to Guided setup. Settings → Diagnostics is all green except probes you have not set up yet.
+**Check:** Settings → Network provider → **Test connection** succeeds and redirects you to Guided setup. Health → Diagnostics is all green except probes you have not set up yet.
 
 ## 8. Bring UniFi in
 
-On **Policy lists → Guided setup** (the dashboard links to it), choose **Bring everything in**. It:
+On **Policies → Guided setup** (the dashboard links to it), choose **Bring everything in**. It:
 
 - creates a policy for each UniFi content filter, reusing the default *Students* and *Staff* policies where the network type fits;
 - recognises a second filter on the same networks that is named or shaped like a blocklist as a *layer*;
@@ -258,29 +269,49 @@ A check is only meaningful if the probe resolves DNS from the same network as th
 
 ## 10. Test end to end
 
-Still in read-only mode:
+Still in read-only mode (two IT officers make step 6 possible):
 
 1. **Check a website** from the dashboard and compare the Staff and Student results.
 2. As a teacher (Users → *Preview as staff*, or a second account), **request access** to a blocked site.
 3. As IT, **approve** it. The policy page shows the hostnames waiting to be added.
-4. Try a **block request**, a **timed** request, and the **domain scanner** (Policy lists → Domain scanner).
-5. Check the emails arrive and the **Audit log** (in the admin menu) records each step.
+4. Try a **block request**, a **timed** request, and the **domain scanner** (Policies → Domain scanner).
+5. Check the emails arrive and the **Audit log** (Admin → Audit log) records each step.
+6. **Two-person approval:** approve a *site-wide* request as one IT officer; it waits under **Changes** until a second officer approves it. Try *No other IT officer is available?* with a reason, and check the other officer is emailed.
+7. **Explain access:** Policies → Access explorer for a site you know is blocked; it names the step that decides. As a teacher, try **Why is this blocked?**.
+8. **Access guide:** as a teacher, request a staff-only site with auto-approval on; you land on *Your access is on its way* (Settings → Approval policy changes its wording).
 
 ## 11. Go live
 
 1. Settings → Network provider: set **Active**, save, and use **Verify write access** on a policy page (it saves the filter back unchanged).
-2. On a policy, **Push** one change and confirm it in UniFi. If anything looks wrong, use **Roll back** in the push history.
+2. Open **Changes**: it lists what publishing would write to each filter. **Publish** it, confirm the change in UniFi, then try **Roll back** on that version under *Versions*.
 3. Turn on **Push automatically** if you want approvals, expiries and timed windows applied without a person. Large automatic changes still wait for someone (Settings → *Largest automatic push*).
-4. Optional: turn on **Settings → Website categories** (a free Cloudflare API token with Radar read access). Website checks and requests then show what kind of site each domain is, the UniFi category it probably falls in and which filters already block that category, which helps choose between a category block and a list of hostnames. It sends looked-up domains to Cloudflare; see [hardening](SECURITY_HARDENING.md#data).
-5. Optional: add blocklists under Policy lists → Blocklists & firewall. Give a policy a layer first if you add large domain feeds.
+4. Recommended: turn on **Settings → Website categories** (a free Cloudflare API token; add your account ID and the *Account → Intel → Read* permission so any site can be categorised, as Radar alone only knows popular sites). Sensitive-category approvals, smart approval and the category guard need it. Website checks and requests then show what kind of site each domain is, the UniFi category it probably falls in and which filters already block that category, which helps choose between a category block and a list of hostnames. It sends looked-up domains to Cloudflare; see [hardening](SECURITY_HARDENING.md#data).
+5. Optional: add blocklists under Protection. Give a policy a layer first if you add large domain feeds.
 6. Harden the install: [SECURITY_HARDENING.md](SECURITY_HARDENING.md).
+7. Policy settings worth a look before go-live:
+   - **Users:** add (or give the IT role to) a second IT officer, so two-person approval works.
+   - **Settings → Approval policy:** two-person approval for site-wide changes (on by default), approving alone when no other officer is available, the sensitive categories that need two IT officers, how often exceptions are reviewed (12 months) and how long an unreviewed one stays (14 days), and the wording of *Your access is on its way*, the page staff see after access is approved (close the browser, restart if needed).
+   - **Settings → School:** the application name, icon, and whether the footer links to the open-source project.
+   - **Settings → School calendar:** terms, holidays, exam periods and bell times, for recurring requests that follow the calendar and for exam mode (Settings → Network types).
+   - **Settings → Authentication:** network type and department rules from sign-in groups.
+   - **Settings → Integrations:** API tokens, and webhooks to a Teams channel or a service desk ([API.md](API.md)).
+   - Publish waiting changes, and roll versions back, under **Changes**. Check **Health** for the coverage score.
 
 ## 12. Ongoing operation
 
+Schedule backups first: `crontab -e` on the host, then add (with your own path and compose files):
+
+```cron
+30 2 * * * cd /opt/itrequests && COMPOSE="docker compose -f compose.yml -f compose.proxy.yml" bin/backup >> backups/backup.log 2>&1
+```
+
+Copy `backups/` to another machine; it holds the database and `.env` (with `APP_KEY`), so protect it like a password store.
+
 | Task | How |
 | --- | --- |
-| Back up | Daily `pg_dump` and the storage volume, plus `.env`, kept separately; see [DEPLOYMENT.md](DEPLOYMENT.md#backups). Test a restore. |
+| Back up | `bin/backup` (a `pg_dump` and a copy of `.env`, kept 14 days in `backups/`); schedule it daily with cron and copy `backups/` off the host. See [DEPLOYMENT.md](DEPLOYMENT.md#backups). Test a restore. |
 | Update | `git pull --ff-only`, then `docker compose … build --pull` and `docker compose … up -d`. Read [CHANGELOG.md](../CHANGELOG.md) and [UPGRADING.md](UPGRADING.md) first. Rebuild monthly even without a release, for PHP, Chromium and OS patches. |
-| Health | Settings → Diagnostics; `docker compose ps`; the dashboard warns when a filter drifts from UniFi. |
+| Health | **Health** (coverage score), Health → Diagnostics, `docker compose ps`; `GET /api/v1/metrics` for Prometheus. The dashboard warns when a filter drifts from UniFi. |
+| Before a UniFi upgrade | `docker compose exec app php artisan unifi:compat` on a test console (or straight after upgrading): it checks, read-only, that every call the app uses still answers as expected. |
 | Locked out | `docker compose exec app php artisan itrequests:admin-password <email> --enable-local-login` |
 | Start again | See [Starting again in the README](../README.md#starting-again). |

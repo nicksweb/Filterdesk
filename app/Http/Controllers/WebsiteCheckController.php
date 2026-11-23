@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PolicyEntry;
 use App\Models\WebsiteCheck;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
@@ -55,6 +56,7 @@ class WebsiteCheckController extends Controller
                 ]);
             }
         });
+        PolicyEntry::markSeen(array_column($result['checks'], 'hostname'));
 
         return view('checks.create', [
             'checks' => $result['checks'], 'duration' => $result['duration_ms'],

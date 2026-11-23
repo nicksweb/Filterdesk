@@ -1,10 +1,10 @@
-<x-layouts.app title="Policy lists">
+<x-layouts.app title="Policies">
     <x-slot:head><link rel="stylesheet" href="{{ asset('admin.css') }}"></x-slot:head>
 
     <div class="page-heading">
         <div>
             <p class="eyebrow">Web filtering</p>
-            <h1>Policy lists</h1>
+            <h1>Policies &amp; lists</h1>
             <p>Manage allow and block lists site-wide, per network type and per policy, then reconcile each controller policy.</p>
         </div>
     </div>

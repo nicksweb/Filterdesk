@@ -17,6 +17,7 @@
             <div class="fields two">
                 <label>Application name <span class="optional">blank: "{{ $settings->get('school.name') }} IT Requests"</span><input name="app_name" maxlength="60" placeholder="uConnect" value="{{ old('app_name', $branding['app_name'] ?? '') }}"><small>Shown in the header, browser tab and emails.</small></label>
                 <label>Initials in the header <span class="optional">up to 3 letters; used when there is no icon</span><input name="brand_mark" maxlength="3" placeholder="IT" value="{{ old('brand_mark', $branding['mark'] ?? '') }}"></label>
+                <label class="choice compact"><input type="hidden" name="project_link" value="0"><input type="checkbox" name="project_link" value="1" @checked(old('project_link', $branding['project_link'] ?? true))><span><strong>Link to the open-source project in the footer</strong><small>Shows "Built with IT Requests" with a link to the project on GitHub at the foot of every page.</small></span></label>
             </div>
             <div class="fields two">
                 <label>Browser and header icon <span class="optional">PNG, SVG, WebP, JPEG or ICO, square, up to 512 KB</span><input type="file" name="icon" accept="image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon"></label>
@@ -45,6 +46,14 @@
                 <textarea name="role_rules" rows="5" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:it-staff-group-object-id=it&#10;group:ITRequests.Admin=admin">{{ old('role_rules', $roleRules) }}</textarea>
                 <small><code>email_domain:</code> matches the address domain and its subdomains. <code>group:</code> matches a value in the <code>groups</code> or <code>roles</code> claim (Entra: add a groups claim or app roles to the token).</small>
             </label>
+            <div class="fields two">
+                <label>Network type rules <span class="optional">one per line · every match adds its types</span>
+                    <textarea name="type_rules" rows="4" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:staff=staff&#10;group:boarding=student,boarding">{{ old('type_rules', $typeRules) }}</textarea>
+                    <small>The networks a person uses, by type key. New requests choose these networks by default.</small></label>
+                <label>Department rules <span class="optional">one per line · first match wins</span>
+                    <textarea name="department_rules" rows="4" class="mono" placeholder="group:science-faculty=Science&#10;group:english-faculty=English">{{ old('department_rules', $departmentRules) }}</textarea>
+                    <small>Shown on requests and used to group them in Insights.</small></label>
+            </div>
             <div class="fields two">
                 <label>Default role for unmatched users<select name="default_role">@foreach(['teacher' => 'Teacher', 'student' => 'Student', 'deny' => 'Refuse sign-in'] as $value => $label)<option value="{{ $value }}" @selected(old('default_role', $oidc?->configuration['default_role'] ?? 'teacher') === $value)>{{ $label }}</option>@endforeach</select></label>
                 <label class="choice compact"><input type="hidden" name="sync_roles" value="0"><input type="checkbox" name="sync_roles" value="1" @checked(old('sync_roles', $oidc?->configuration['sync_roles'] ?? false))><span><strong>Re-apply rules at every sign-in</strong><small>Never removes IT or administrator access granted by hand.</small></span></label>
@@ -102,7 +111,7 @@
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'network') }}">@csrf @method('PUT')
             <div class="fields two">
                 <label>Provider<select name="provider"><option value="unifi" @selected(($network?->provider ?? 'unifi') === 'unifi')>Ubiquiti UniFi Network</option><option value="mock" @selected($network?->provider === 'mock')>Simulation (testing only)</option></select></label>
-                <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: push list changes to linked content filters</option></select><small>Active lets IT push allow and block list changes to the content filters linked under Policy lists → Networks &amp; filters. Each push only changes those lists, is read back, recorded and can be rolled back.</small></label>
+                <label>Mode<select name="mode"><option value="read_only" @selected(($network?->mode ?? 'read_only') === 'read_only')>Read-only (recommended)</option><option value="active" @selected($network?->mode === 'active')>Active: push list changes to linked content filters</option></select><small>Active lets IT push allow and block list changes to the content filters linked under Policies → Networks &amp; filters. Each push only changes those lists, is read back, recorded and can be rolled back.</small></label>
             </div>
             @php($connection = old('connection', $network?->configuration['connection'] ?? 'local'))
             <label>Connection
@@ -241,7 +250,7 @@
             <p class="section-copy">A network type is a kind of network the tool manages, such as Staff, Students, CCTV or Exam rooms. Each type has its own shared allow and block lists; every filter policy of that type inherits them, along with the site-wide lists and the policy's own. Requests choose which types they are for. Names can change freely; the key stays the same.</p>
             @error('types')<div class="alert error">{{ $message }}</div>@enderror
             <div class="table-wrap"><table>
-                <thead><tr><th>Name</th><th>Description</th><th>Requestable</th><th>Auto-approve</th><th>Policies</th><th>Order</th><th>Delete</th></tr></thead>
+                <thead><tr><th>Name</th><th>Description</th><th>Requestable</th><th>Auto-approve</th><th>Exam mode</th><th>Policies</th><th>Order</th><th>Delete</th></tr></thead>
                 <tbody>
                     @foreach($networkTypes as $type)
                         <tr>
@@ -249,6 +258,8 @@
                             <td><input name="types[{{ $type->id }}][description]" value="{{ old("types.{$type->id}.description", $type->description) }}" maxlength="255"></td>
                             <td><input type="hidden" name="types[{{ $type->id }}][requestable]" value="0"><input type="checkbox" name="types[{{ $type->id }}][requestable]" value="1" @checked($type->requestable) aria-label="{{ $type->name }} can be chosen on requests"></td>
                             <td><input type="hidden" name="types[{{ $type->id }}][auto_approve]" value="0"><input type="checkbox" name="types[{{ $type->id }}][auto_approve]" value="1" @checked($type->auto_approve) aria-label="Auto-approve requests only for {{ $type->name }}"></td>
+                            <td><select name="types[{{ $type->id }}][exam_mode]" aria-label="Exam mode for {{ $type->name }}">@foreach(\App\Models\NetworkType::EXAM_MODES as $mode => $label)<option value="{{ $mode }}" @selected(($type->exam_mode ?? 'off') === $mode)>{{ $label }}</option>@endforeach</select>
+                                @if($examLists->has($type->key))<small><a href="{{ route('admin.policy.lists.show', $examLists[$type->key]) }}">{{ $examLists[$type->key]->entries_count }} blocked site(s)</a>@if($type->examActive()) · <strong>active now</strong>@endif</small>@endif</td>
                             <td>{{ $type->filter_policies_count }}</td>
                             <td><input type="number" class="narrow" name="types[{{ $type->id }}][sort_order]" value="{{ $type->sort_order }}"></td>
                             <td>@if($type->inUse())<span class="hint">In use</span>@else<input type="hidden" name="types[{{ $type->id }}][delete]" value="0"><input type="checkbox" name="types[{{ $type->id }}][delete]" value="1" aria-label="Delete {{ $type->name }}">@endif @error("types.{$type->id}.delete")<small class="field-error">{{ $message }}</small>@enderror</td>
@@ -256,14 +267,122 @@
                     @endforeach
                 </tbody>
             </table></div>
-            <p class="hint"><strong>Requestable</strong>: shown as a choice when someone requests access or a block. <strong>Auto-approve</strong>: with <em>Auto-approve</em> on under Approval policy, an access request is approved straight away when every network it is for has this ticked.</p>
+            <p class="hint"><strong>Exam mode</strong>: a block list for the type that only applies while exam mode is on, either switched on now or during the exam periods in Settings → School calendar. Choosing a mode creates the list; add the sites to block during exams to it. Changes are pushed automatically when exam periods start and end. <strong>Requestable</strong>: shown as a choice when someone requests access or a block. <strong>Auto-approve</strong>: with <em>Auto-approve</em> on under Approval policy, an access request is approved straight away when every network it is for has this ticked.</p>
             <h3>Add a network type</h3>
             <div class="fields two">
                 <label>Name<input name="new[name]" maxlength="80" placeholder="Exam rooms"></label>
                 <label>Description <span class="optional">optional</span><input name="new[description]" maxlength="255" placeholder="Locked down during exams"></label>
             </div>
-            <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policy lists) or a probe (Network profiles).</p>
+            <p class="hint">A new type gets its own allow and block lists straight away. Then set it on a policy (Policies) or a probe (Network profiles).</p>
             <div class="form-actions"><button class="button primary">Save network types</button></div>
+        </form>
+
+    @elseif($section === 'integrations')
+        <section class="panel">
+            <h2>API tokens</h2>
+            <p class="section-copy">For scripts, ticketing systems and dashboards: <code>{{ url('/api/v1') }}</code> with <code>Authorization: Bearer &lt;token&gt;</code>. A token acts as the IT officer who created it, so its actions are recorded against them and the usual rules apply (two-person approval included). Endpoints: <code>GET /requests</code>, <code>GET /requests/{reference}</code>, <code>POST /requests</code>, <code>POST /requests/{reference}/decision</code>, <code>GET /versions</code>, <code>GET /explain?site=&amp;type=</code>. See docs/API.md.</p>
+            @if(session('new_token'))<div class="alert success"><strong>New token</strong> (shown once): <code class="select-all">{{ session('new_token') }}</code></div>@endif
+            <div class="table-wrap"><table>
+                <thead><tr><th>Name</th><th>Acts as</th><th>Can</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+                <tbody>
+                    @forelse($apiTokens as $token)
+                        <tr><td>{{ $token->name }}</td><td>{{ $token->user?->name }}</td><td>{{ implode(', ', $token->abilities) }}</td><td>{{ $token->last_used_at?->diffForHumans() ?? 'Never' }}</td><td>{{ $token->expires_at?->local()->format('j M Y') ?? 'Never' }}</td>
+                            <td><form method="post" action="{{ route('admin.integrations.tokens.destroy', $token) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Revoke {{ $token->name }}? Anything using it stops working.">Revoke</button></form></td></tr>
+                    @empty
+                        <tr><td colspan="6" class="empty">No tokens.</td></tr>
+                    @endforelse
+                </tbody>
+            </table></div>
+            <form method="post" action="{{ route('admin.integrations.tokens.store') }}" class="fields three">@csrf
+                <label>Name<input name="name" required maxlength="80" placeholder="Service desk"></label>
+                <fieldset><legend>Can</legend>@foreach(\App\Models\ApiToken::ABILITIES as $ability => $label)<label class="choice compact"><input type="checkbox" name="abilities[]" value="{{ $ability }}" @checked($ability === 'read')><span>{{ $label }}</span></label>@endforeach</fieldset>
+                <label>Expires after (days) <span class="optional">blank = never</span><input type="number" name="expires_days" min="1" max="730" value="365"></label>
+                <div class="form-actions"><button class="button primary">Create token</button></div>
+            </form>
+        </section>
+        <section class="panel" style="margin-top:20px">
+            <h2>Webhooks</h2>
+            <p class="section-copy">Send request and policy events to another system: a JSON receiver (a ticketing system, an automation) or a Microsoft Teams channel (an incoming webhook or a Workflows URL). Teams cards for new requests have Approve and Decline buttons that open a confirmation page here. JSON bodies are signed with HMAC-SHA256 of the raw body in <code>X-ITRequests-Signature: sha256=…</code> when a secret is set.</p>
+            @foreach($webhooks as $webhook)
+                <form method="post" action="{{ route('admin.integrations.webhooks.update', $webhook) }}" class="probe-plan">@csrf @method('PUT')
+                    <div class="fields three">
+                        <label>Name<input name="name" value="{{ $webhook->name }}" required maxlength="80"></label>
+                        <label>URL<input name="url" value="{{ $webhook->url }}" required></label>
+                        <label>Format<select name="format">@foreach(\App\Models\WebhookEndpoint::FORMATS as $format => $label)<option value="{{ $format }}" @selected($webhook->format === $format)>{{ $label }}</option>@endforeach</select></label>
+                    </div>
+                    <div class="category-grid">@foreach(\App\Models\WebhookEndpoint::EVENTS as $event => $label)<label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked(in_array($event, $webhook->events ?? [], true))><span>{{ $label }}</span></label>@endforeach</div>
+                    <div class="fields two">
+                        <label>Secret <span class="optional">{{ filled($webhook->secret) ? 'stored · blank keeps it' : 'optional' }}</span><input name="secret" type="password" autocomplete="new-password"></label>
+                        <label class="choice compact"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($webhook->enabled)><span>Enabled<small>Last delivery: {{ $webhook->last_status ?? 'none yet' }}{{ $webhook->last_delivered_at ? ' · '.$webhook->last_delivered_at->diffForHumans() : '' }}</small></span></label>
+                    </div>
+                    <div class="button-row"><button class="button secondary">Save</button></div>
+                </form>
+                <div class="button-row webhook-actions">
+                    <form method="post" action="{{ route('admin.integrations.webhooks.test', $webhook) }}">@csrf<button class="button small secondary">Send a test</button></form>
+                    <form method="post" action="{{ route('admin.integrations.webhooks.destroy', $webhook) }}">@csrf @method('DELETE')<button class="link-button danger-text" data-confirm="Remove {{ $webhook->name }}?">Remove</button></form>
+                </div>
+            @endforeach
+            <h3>Add a webhook</h3>
+            <form method="post" action="{{ route('admin.integrations.webhooks.store') }}">@csrf
+                <div class="fields three">
+                    <label>Name<input name="name" required maxlength="80" placeholder="IT Teams channel"></label>
+                    <label>URL<input name="url" required placeholder="https://…"></label>
+                    <label>Format<select name="format">@foreach(\App\Models\WebhookEndpoint::FORMATS as $format => $label)<option value="{{ $format }}">{{ $label }}</option>@endforeach</select></label>
+                </div>
+                <div class="category-grid">@foreach(\App\Models\WebhookEndpoint::EVENTS as $event => $label)<label class="choice compact"><input type="checkbox" name="events[]" value="{{ $event }}" @checked(in_array($event, ['request.submitted', 'request.awaiting_second'], true))><span>{{ $label }}</span></label>@endforeach</div>
+                <label>Secret <span class="optional">optional · JSON only</span><input name="secret" type="password" autocomplete="new-password"></label>
+                <div class="form-actions"><button class="button primary">Add webhook</button></div>
+            </form>
+        </section>
+
+    @elseif($section === 'calendar')
+        <form class="panel" method="post" action="{{ route('admin.settings.update', 'calendar') }}">@csrf @method('PUT')
+            <p class="section-copy">Terms, holidays and exam periods, and the bell times of the school day. Recurring requests can follow the calendar ("Term 2, Mondays, periods 3–4"), skipping holidays, and network types can switch to exam mode during exam periods. Times are school time.</p>
+            <h3>Terms, holidays and exam periods</h3>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Name</th><th>Kind</th><th>First day</th><th>Last day</th><th>Delete</th></tr></thead>
+                <tbody>
+                    @foreach($calendarPeriods as $period)
+                        <tr>
+                            <td><input name="periods[{{ $period->id }}][name]" value="{{ $period->name }}" required maxlength="80" aria-label="Name"></td>
+                            <td><select name="periods[{{ $period->id }}][kind]" aria-label="Kind">@foreach(\App\Models\CalendarPeriod::KINDS as $kind => $label)<option value="{{ $kind }}" @selected($period->kind === $kind)>{{ $label }}</option>@endforeach</select></td>
+                            <td><input type="date" name="periods[{{ $period->id }}][start_date]" value="{{ $period->start_date->format('Y-m-d') }}" required aria-label="First day"></td>
+                            <td><input type="date" name="periods[{{ $period->id }}][end_date]" value="{{ $period->end_date->format('Y-m-d') }}" required aria-label="Last day"></td>
+                            <td><input type="hidden" name="periods[{{ $period->id }}][delete]" value="0"><input type="checkbox" name="periods[{{ $period->id }}][delete]" value="1" aria-label="Delete {{ $period->name }}"></td>
+                        </tr>
+                    @endforeach
+                    <tr>
+                        <td><input name="new_period[name]" maxlength="80" placeholder="Term 1 2027" aria-label="New period name"></td>
+                        <td><select name="new_period[kind]" aria-label="New period kind">@foreach(\App\Models\CalendarPeriod::KINDS as $kind => $label)<option value="{{ $kind }}">{{ $label }}</option>@endforeach</select></td>
+                        <td><input type="date" name="new_period[start_date]" aria-label="New period first day"></td>
+                        <td><input type="date" name="new_period[end_date]" aria-label="New period last day"></td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table></div>
+            <p class="hint">Holidays inside a term (a public holiday, a pupil-free day) are skipped by calendar schedules. Add one row at a time and save.</p>
+            <h3>Bell times</h3>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Period</th><th>Starts</th><th>Ends</th><th>Delete</th></tr></thead>
+                <tbody>
+                    @foreach($bellPeriods as $bell)
+                        <tr>
+                            <td><input name="bells[{{ $bell->id }}][name]" value="{{ $bell->name }}" required maxlength="60" aria-label="Period name"></td>
+                            <td><input type="time" name="bells[{{ $bell->id }}][starts_at]" value="{{ $bell->starts_at }}" required aria-label="Starts"></td>
+                            <td><input type="time" name="bells[{{ $bell->id }}][ends_at]" value="{{ $bell->ends_at }}" required aria-label="Ends"></td>
+                            <td><input type="hidden" name="bells[{{ $bell->id }}][delete]" value="0"><input type="checkbox" name="bells[{{ $bell->id }}][delete]" value="1" aria-label="Delete {{ $bell->name }}"></td>
+                        </tr>
+                    @endforeach
+                    <tr>
+                        <td><input name="new_bell[name]" maxlength="60" placeholder="Period 1" aria-label="New period name"></td>
+                        <td><input type="time" name="new_bell[starts_at]" aria-label="New period starts"></td>
+                        <td><input type="time" name="new_bell[ends_at]" aria-label="New period ends"></td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table></div>
+            <p class="hint">Periods next to each other (within 10 minutes) are treated as one block, so choosing periods 3 and 4 does not include the gap between them, but choosing periods 2 and 5 does not include lunch either.</p>
+            <div class="form-actions"><button class="button primary">Save school calendar</button></div>
         </form>
 
     @elseif($section === 'templates')
@@ -319,6 +438,24 @@
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'approval') }}">@csrf @method('PUT')
             <label class="choice"><input type="hidden" name="auto_approve_staff" value="0"><input type="checkbox" name="auto_approve_staff" value="1" @checked($settings->get('approval.auto_approve_staff', false))><span><strong>Auto-approve requests for trusted networks</strong><small>Access requests whose networks are all marked <em>Auto-approve</em> under Network types (by default Staff) are approved straight away. IT still applies them in the controller unless the provider can do it automatically.</small></span></label>
             <label class="choice"><input type="hidden" name="students_can_request" value="0"><input type="checkbox" name="students_can_request" value="1" @checked($settings->get('approval.students_can_request', false))><span><strong>Students may submit requests</strong><small>Students can always run website checks.</small></span></label>
+            <h3>Two-person approval</h3>
+            <label class="choice"><input type="hidden" name="two_person_site_wide" value="0"><input type="checkbox" name="two_person_site_wide" value="1" @checked($settings->get('approval.two_person_site_wide', true))><span><strong>Site-wide changes need two IT officers</strong><small>Approving site-wide access or a block, and adding or removing entries in a site-wide list by hand, waits until a second IT officer confirms it (Policy → Changes). The officer who made the change cannot confirm it. Skipped while only one IT officer is enabled.</small></span></label>
+            <label class="choice"><input type="hidden" name="two_person_override" value="0"><input type="checkbox" name="two_person_override" value="1" @checked($settings->get('approval.two_person_override', true))><span><strong>Allow approving alone when no other IT officer is available</strong><small>The officer ticks a box and gives a reason. The other IT officers (and the IT address) are emailed to review it, and it is recorded in the audit log and the Insights report.</small></span></label>
+            <label>Sensitive categories <span class="optional">comma or line separated · requests in these need two IT officers</span><textarea name="sensitive_categories" rows="4">{{ implode("\n", $settings->get('approval.sensitive_categories', \App\Services\Approval\TwoPersonRule::DEFAULT_SENSITIVE)) }}</textarea><small>Matched against the website category service (Cloudflare) and UniFi category names, for example Gambling or Adult Themes. Needs Settings → Website categories. Leave empty to turn this off.</small></label>
+            @php($guide = app(\App\Services\Requests\AccessGuide::class)->settings())
+            <h3>After access is approved</h3>
+            <label class="choice"><input type="hidden" name="guide[enabled]" value="0"><input type="checkbox" name="guide[enabled]" value="1" @checked($guide['enabled'])><span><strong>Show what to do next</strong><small>Staff whose request is approved straight away go to this page, and it appears on approved requests and in the approval email. Filtering works on website names, so a computer can keep the old answer for a few minutes.</small></span></label>
+            <label class="choice compact"><input type="hidden" name="guide[students]" value="0"><input type="checkbox" name="guide[students]" value="1" @checked($guide['students'])><span>Show it to students too</span></label>
+            <div class="fields two">
+                <label>Heading<input name="guide[title]" maxlength="120" value="{{ $guide['title'] }}"></label>
+                <label>Introduction<textarea name="guide[intro]" rows="3" maxlength="600">{{ $guide['intro'] }}</textarea></label>
+            </div>
+            <label>Steps <span class="optional">one per line · blank restores the defaults</span><textarea name="guide[steps]" rows="5" maxlength="3000">{{ $guide['steps'] }}</textarea></label>
+            <h3>Exception reviews</h3>
+            <div class="fields two">
+                <label>Review exceptions every (months)<input name="review_months" type="number" min="1" max="36" value="{{ $settings->get('governance.review_months', 12) }}"><small>Allow and block entries made by IT or from requests get a review date this far ahead. Owners and IT are emailed when one is due.</small></label>
+                <label>Remove unreviewed exceptions after (days)<input name="grace_days" type="number" min="1" max="90" value="{{ $settings->get('governance.grace_days', 14) }}"><small>An exception nobody keeps is removed this long after its review date.</small></label>
+            </div>
             <label>Default temporary access (days)<input name="default_temporary_days" type="number" min="1" max="365" value="{{ $settings->get('approval.default_temporary_days', 30) }}"></label>
             <div class="fields two">
                 <label>Open timed access early (minutes)<input name="window_lead_minutes" type="number" min="0" max="60" value="{{ $settings->get('approval.window_lead_minutes', 5) }}"><small>Allow or block entries go live this long before their start, so the controller has them in place on time.</small></label>

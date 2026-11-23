@@ -17,7 +17,7 @@ class WebsiteRequest extends Model
         'reference', 'request_type', 'domain_categories', 'access_plan', 'schedule', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
         'category', 'use_case', 'standards_confirmed', 'status', 'requested_from',
         'requested_until', 'approved_at', 'access_from', 'expires_at', 'expiry_reminded_at', 'resolved_at', 'resolution',
-        'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at',
+        'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at', 'first_approval', 'department',
     ];
 
     protected function casts(): array
@@ -32,6 +32,7 @@ class WebsiteRequest extends Model
             'access_scope' => AsReach::class,
             'domain_categories' => 'array',
             'access_plan' => 'array',
+            'first_approval' => 'array',
             'schedule' => 'array',
             'status' => RequestStatus::class,
             'standards_confirmed' => 'boolean',

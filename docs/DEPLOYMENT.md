@@ -84,7 +84,7 @@ If a network reaches the host some other way (a separate NIC on an access port, 
 
 ### Generating the file
 
-After **Policy lists → Guided setup → Bring everything in**, the *Probe containers* section plans one probe per policy and writes the whole `compose.vlan.yml`:
+After **Policies → Guided setup → Bring everything in**, the *Probe containers* section plans one probe per policy and writes the whole `compose.vlan.yml`:
 
 - **Download compose.vlan.yml** on that page, or on the Docker host:
 
@@ -98,7 +98,7 @@ After **Policy lists → Guided setup → Bring everything in**, the *Probe cont
   docker compose -f compose.yml -f compose.proxy.yml -f compose.vlan.yml up -d
   ```
 
-- **Create and link probe profiles** adds a disabled network profile per probe. Enable each one under *Settings → Network profiles* once its container is healthy, then check a hostname you know is blocked on that network. *Settings → Diagnostics* checks every enabled probe.
+- **Create and link probe profiles** adds a disabled network profile per probe. Enable each one under *Settings → Network profiles* once its container is healthy, then check a hostname you know is blocked on that network. *Health → Diagnostics* checks every enabled probe.
 
 ### More than staff and students
 
@@ -158,7 +158,7 @@ Without the original `APP_KEY`, encrypted credentials cannot be recovered.
 
 - Pages appear without styling behind a reverse proxy: the proxy is not in `TRUSTED_PROXIES`, so the app links `http://` stylesheets from an `https://` page and the browser blocks them. Set `TRUSTED_PROXIES` to the proxy's address (the installer's first page shows it) and run `docker compose up -d --force-recreate`.
 
-- *Settings → Diagnostics* checks the database, version, scheduler heartbeat, queue backlog, email, SSO, network provider and each probe.
+- *Health → Diagnostics* checks the database, version, scheduler heartbeat, queue backlog, email, SSO, network provider and each probe.
 - `GET /health` returns `{"status":"ok","database":"ok","version":"…"}` for uptime monitors, with no configuration details.
 - A check shows *DNS blocked* hosts that should be allowed: the probe is probably resolving through the Docker host's DNS rather than the VLAN gateway. Set `*_PROBE_DNS_SERVERS` or attach the probe to the VLAN.
 - A re-run still shows the old result: check Diagnostics reports *fresh browser per run* and that `PROBE_REUSE_BROWSER` is not `true`. Remember UniFi may take a few seconds to push a filter change.

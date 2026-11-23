@@ -13,6 +13,7 @@ use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\FeedParser;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\RequestWorkflow;
+use App\Services\SettingsRepository;
 use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -61,6 +62,8 @@ class BlocklistTest extends TestCase
         $this->travel(1)->minute();
         $this->engine->upsertEntry($this->engine->defaultAllowList('staff'), 'news2.example.org', ['source' => 'manual']);
         $siteBlock = PolicyList::query()->where('scope', ListScope::Site)->where('kind', ListKind::Block)->firstOrFail();
+        // Without two-person approval, so the block goes live straight away (TwoPersonApprovalTest covers proposals).
+        app(SettingsRepository::class)->set('approval.two_person_site_wide', false);
         $this->actingAs($this->admin)->post(route('admin.policy.entries.store'), ['policy_list_id' => $siteBlock->id, 'domains' => 'news2.example.org'])
             ->assertSessionHas('success', fn (string $message) => str_contains($message, 'stay allowed'));
     }

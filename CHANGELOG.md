@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.0
+
+The strategic roadmap: the app moves from pushing lists to managing policy.
+
+### Added
+- **Changes** (Policy → Changes): what is waiting for a second IT officer, what publishing would change in each controller filter and firewall IP list, a *Publish* button, and every published **version** with a rollback. Every controller write (manual, automatic, scheduled, feed refresh, rollback) belongs to a numbered version; versions that changed nothing are not kept.
+- **Two-person approval**: approving site-wide access or a site in a sensitive category, and hand-made changes to site-wide lists, wait until a second IT officer confirms them; the first officer cannot confirm their own. Sensitive categories are configurable (Settings → Approval policy). Skipped, with a note, while only one IT officer is enabled.
+- **Approving alone when no other IT officer is available**: where two officers are needed, an officer can tick *Approve without a second IT officer* and give a reason (or confirm their own site-wide list change). The other officers and the IT address are emailed to review it, it is audited, and Insights counts it. Can be turned off under Settings → Approval policy.
+- **"Your access is on its way"**: staff whose request is approved straight away land on a page that explains DNS filtering can take a few minutes, with steps (close the browser, restart if needed); the steps also appear on approved requests and in the approval email. Wording editable, students optional (Settings → Approval policy).
+- **Setup**: the wizard asks for two-person approval, sensitive categories and review periods; the admin home shows a *Finish setting up* checklist; a footer link to the open-source project can be turned off (Settings → School). docs/SETUP.md covers every step from an empty host, including Docker live restore and scheduled backups.
+- **School calendar** (Settings → School calendar): terms, holidays, exam periods and bell times. Recurring requests can follow the calendar (chosen terms, weekdays, all day or chosen periods, skipping holidays). **Exam mode** per network type (off, on, during exam periods) with its own block list, pushed automatically when exam periods start and end.
+- **Access explorer** (Policies → Access explorer): the steps that decide whether a network type reaches a site at a time (filter, category, every entry with schedules, exam mode and proposals, the outcome, what the controller has now, firewall IP lists and the latest probe check). **What-if** for blocking or unblocking a category. **Why is this blocked?** for everyone, with an *Ask for access* button and a bookmarklet. Request pages show where each site stands now.
+- A **policy page per network type**: its filters, blocked categories, sync, exam mode and the lists that apply.
+- **Exception reviews** (Inbox → Reviews): entries made by IT or from requests have an owner and a review date (12 months by default). `exceptions:review` (daily) emails owners and IT when they fall due and removes those not kept 14 days later. Entries not seen in a check or request for a year are flagged.
+- **Insights**: a termly report (requests, median decision time, decline reasons, versions, reviews, coverage gaps, departments) with CSV export and print, and suggestions drawn from requests.
+- **Health**: a coverage score (networks filtered, filters in sync, zones covered by IP lists, probes, publishes, reviews), each part linked to its fix. Home pages by role.
+- **Identity mapping**: sign-in rules set a person's network types (request defaults) and department.
+- **Integrations** (Settings → Integrations): API v1 with hashed bearer tokens, webhooks (signed JSON or Microsoft Teams cards with Approve and Decline buttons), and signed one-click decision links in IT emails. See [docs/API.md](docs/API.md).
+- `GET /api/v1/metrics` (Prometheus), `php artisan unifi:compat` (read-only controller compatibility check) and `bin/backup`.
+- Navigation by job: Home, Inbox, Check, Policies, Changes, Insights, Health, Protection, Admin.
+
+### Fixed
+- A site-wide access request was approved automatically when auto-approval was on (its network-type check passed with no types listed).
+
 ## 2026.11.0
 
 The release previously planned as 0.2.0, shipped under the new calendar versioning.

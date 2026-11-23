@@ -38,4 +38,5 @@ Schedule::command('policy:digest')
     })())
     ->withoutOverlapping();
 Schedule::command('probes:check')->everyTenMinutes()->withoutOverlapping()->runInBackground();
+Schedule::command('exceptions:review')->dailyAt('06:15')->withoutOverlapping();
 Schedule::command('categories:guard --refresh')->dailyAt('05:30')->withoutOverlapping()->runInBackground();

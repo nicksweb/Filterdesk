@@ -6,13 +6,16 @@ use App\Enums\RequestStatus;
 use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
+use App\Services\Approval\TwoPersonRule;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Network\DomainRules;
+use App\Services\Policy\AccessExplorer;
 use App\Services\Policy\AccessPlanner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Requests\AccessGuide;
 use App\Services\Requests\InvalidRequestTransition;
 use App\Services\Requests\RequestFormSettings;
 use App\Services\Requests\RequestWorkflow;
@@ -148,6 +151,7 @@ class WebsiteRequestController extends Controller
             'request_type' => $block ? 'block' : 'allow',
             'domains' => $normalizer->many($validated['domains']),
             'access_scope' => $scope,
+            'department' => $request->user()->department,
             'category' => $validated['category'],
             'use_case' => $validated['use_case'] ?? null,
             // Stored in UTC like every other time (Laravel keeps a Carbon's clock time as given).
@@ -158,17 +162,36 @@ class WebsiteRequestController extends Controller
 
         // Auto-approval applies when every chosen network type allows it (by default only Staff).
         $autoTypes = NetworkType::query()->where('auto_approve', true)->pluck('key')->all();
-        $automaticallyApproved = ! $block && array_diff($scope->types, $autoTypes) === []
-            && (bool) $settings->get('approval.auto_approve_staff', false);
+        // Never for site-wide access or a sensitive category: those need two IT officers.
+        $automaticallyApproved = ! $block && ! $scope->siteWide && $scope->types !== [] && array_diff($scope->types, $autoTypes) === []
+            && (bool) $settings->get('approval.auto_approve_staff', false)
+            && app(TwoPersonRule::class)->reasonsForRequest($websiteRequest->refresh(), $scope, $websiteRequest->domains) === [];
 
         if ($automaticallyApproved) {
             $workflow->approve($websiteRequest, $request->user(), 'Automatically approved under the configured staff-only access policy.');
+        }
+
+        // Approved straight away: show staff what to do while the change reaches the network.
+        if ($automaticallyApproved && app(AccessGuide::class)->appliesTo($websiteRequest->refresh(), $request->user())) {
+            return redirect()->route('requests.ready', $websiteRequest);
         }
 
         return redirect()->route('requests.show', $websiteRequest)->with(
             'success',
             $automaticallyApproved ? 'Staff-only request approved under the configured policy.' : ($block ? 'Block request submitted to IT.' : 'Request submitted to IT.')
         );
+    }
+
+    /** "Your access is on its way": what to do while the change reaches the network. */
+    public function ready(Request $request, WebsiteRequest $websiteRequest, AccessGuide $guide): View|RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user->isIt() || $websiteRequest->requester_id === $user->id, 403);
+        if (! $guide->appliesTo($websiteRequest, $user->isIt() ? $websiteRequest->requester : $user)) {
+            return redirect()->route('requests.show', $websiteRequest);
+        }
+
+        return view('requests.ready', ['websiteRequest' => $websiteRequest, 'guide' => $guide->settings(), 'steps' => $guide->steps()]);
     }
 
     public function show(Request $request, WebsiteRequest $websiteRequest, PolicyEngine $policy, DomainRecommender $recommender): View
@@ -194,10 +217,31 @@ class WebsiteRequestController extends Controller
                     ? rescue(fn () => app(AccessPlanner::class)->plan($websiteRequest->domains, $websiteRequest->access_scope, timed: $websiteRequest->requested_until !== null), null, false)
                     : null,
                 'entries' => $websiteRequest->policyEntries()->with('policyList')->get(),
+                // Why each requested site is (or is not) reachable now, for the networks it was requested for.
+                // Whether approving needs a second IT officer, so the form can offer the override.
+                'twoPerson' => $websiteRequest->status->isOpen() ? app(TwoPersonRule::class)->reasonsForRequest($websiteRequest, $websiteRequest->access_scope, $websiteRequest->domains) : [],
+                'explained' => $websiteRequest->status->isOpen() ? rescue(fn () => $this->explainNow($websiteRequest), [], false) : [],
             ];
         }
 
         return view('requests.show', $data);
+    }
+
+    /** @return list<array{domain: string, type: string, verdict: string, reason: string}> */
+    private function explainNow(WebsiteRequest $websiteRequest): array
+    {
+        $explorer = app(AccessExplorer::class);
+        $scope = $websiteRequest->access_scope;
+        $types = NetworkType::query()->ordered()->get()->filter(fn (NetworkType $type) => $scope->siteWide ? $type->requestable : $scope->includes($type->key));
+        $rows = [];
+        foreach (array_slice($websiteRequest->domains, 0, 3) as $domain) {
+            foreach ($types as $type) {
+                $explained = $explorer->explain($domain, $type);
+                $rows[] = ['domain' => $domain, 'type' => $type->name, 'verdict' => $explained['verdict'], 'reason' => $explained['reason']];
+            }
+        }
+
+        return $rows;
     }
 
     /**

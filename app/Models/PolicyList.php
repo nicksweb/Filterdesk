@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 class PolicyList extends Model
 {
-    protected $fillable = ['name', 'kind', 'scope', 'audience', 'filter_policy_id', 'description', 'is_default', 'sort_order'];
+    protected $fillable = ['name', 'kind', 'scope', 'audience', 'filter_policy_id', 'description', 'is_default', 'sort_order', 'purpose'];
 
     protected function casts(): array
     {

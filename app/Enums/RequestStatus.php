@@ -6,6 +6,7 @@ enum RequestStatus: string
 {
     case Pending = 'pending';
     case NeedsInformation = 'needs_information';
+    case AwaitingSecondApproval = 'awaiting_second';
     case Approved = 'approved';
     case Rejected = 'rejected';
     case ActionRequired = 'action_required';
@@ -16,13 +17,13 @@ enum RequestStatus: string
 
     public function label(): string
     {
-        return str($this->value)->replace('_', ' ')->title()->toString();
+        return $this === self::AwaitingSecondApproval ? 'Awaiting Second Approval' : str($this->value)->replace('_', ' ')->title()->toString();
     }
 
     /** Statuses still awaiting an IT decision. */
     public static function open(): array
     {
-        return [self::Pending, self::NeedsInformation];
+        return [self::Pending, self::NeedsInformation, self::AwaitingSecondApproval];
     }
 
     /** Approved statuses whose domains belong in the desired policy. */

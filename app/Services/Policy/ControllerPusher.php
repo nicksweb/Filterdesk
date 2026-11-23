@@ -130,11 +130,19 @@ class ControllerPusher
             return ['ok' => false, 'message' => 'Pushing is off. An admin can turn it on under Settings → Network provider (Mode: Active).'];
         }
 
-        try {
-            return Cache::lock('controller-push:'.$policy->provider_reference, 60)->block(30, fn () => $this->pushLocked($policy, $actor, $trigger));
-        } catch (LockTimeoutException) {
-            return ['ok' => false, 'message' => "Another push to {$policy->name} is still running. Try again in a minute."];
-        }
+        // Every write belongs to a policy version (joining one already open, such as "publish everything").
+        return $this->publisher()->within($trigger, $actor, function () use ($policy, $actor, $trigger): array {
+            try {
+                return Cache::lock('controller-push:'.$policy->provider_reference, 60)->block(30, fn () => $this->pushLocked($policy, $actor, $trigger));
+            } catch (LockTimeoutException) {
+                return ['ok' => false, 'message' => "Another push to {$policy->name} is still running. Try again in a minute."];
+            }
+        });
+    }
+
+    private function publisher(): PolicyPublisher
+    {
+        return app(PolicyPublisher::class);
     }
 
     /**
@@ -143,6 +151,12 @@ class ControllerPusher
      * @return Collection<int, array{policy: FilterPolicy, ok: bool, message: string}>
      */
     public function pushAll(?User $actor, string $trigger = 'manual', ?Reach $scope = null): Collection
+    {
+        return $this->publisher()->within($trigger, $actor, fn (): Collection => $this->pushAllNow($actor, $trigger, $scope));
+    }
+
+    /** @return Collection<int, array{policy: FilterPolicy, ok: bool, message: string}> */
+    private function pushAllNow(?User $actor, string $trigger, ?Reach $scope): Collection
     {
         $this->sync->forget();
         $policies = $scope
@@ -162,6 +176,12 @@ class ControllerPusher
      * @return array{ok: bool, message: string}
      */
     public function rollback(ControllerPush $push, ?User $actor): array
+    {
+        return $this->publisher()->within('rollback', $actor, fn (): array => $this->rollbackNow($push, $actor));
+    }
+
+    /** @return array{ok: bool, message: string} */
+    private function rollbackNow(ControllerPush $push, ?User $actor): array
     {
         $writer = $this->writer();
         if (! $writer || ! $this->enabled()) {
@@ -194,6 +214,7 @@ class ControllerPusher
             ]])->save();
         }
         ControllerPush::query()->create([
+            'policy_release_id' => $this->publisher()->current()?->id,
             'filter_policy_id' => $push->filter_policy_id, 'user_id' => $actor?->id, 'provider_reference' => $push->provider_reference,
             'provider_name' => $push->provider_name, 'trigger' => 'rollback', 'status' => 'ok',
             'before_allow' => $live['allow'], 'before_block' => $live['block'],
@@ -243,6 +264,7 @@ class ControllerPusher
         }
 
         $record = [
+            'policy_release_id' => $this->publisher()->current()?->id,
             'filter_policy_id' => $policy->id, 'user_id' => $actor?->id, 'provider_reference' => $plan['filter']['id'],
             'provider_name' => $plan['filter']['name'], 'trigger' => $trigger,
             'before_allow' => $plan['filter']['allow'], 'before_block' => $plan['filter']['block'],

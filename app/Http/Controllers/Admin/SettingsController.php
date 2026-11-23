@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\ListScope;
 use App\Http\Controllers\Controller;
+use App\Models\ApiToken;
+use App\Models\BellPeriod;
+use App\Models\CalendarPeriod;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
 use App\Models\NetworkType;
 use App\Models\PolicyList;
+use App\Models\WebhookEndpoint;
 use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
 use App\Services\Auth\UserProvisioningService;
@@ -23,10 +27,12 @@ use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
 use App\Services\Requests\RequestFormSettings;
+use App\Services\SchoolCalendar;
 use App\Services\SettingsRepository;
 use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -47,9 +53,11 @@ class SettingsController extends Controller
         'templates' => 'Email templates',
         'network' => 'Network provider',
         'types' => 'Network types',
+        'calendar' => 'School calendar',
         'categories' => 'Website categories',
         'profiles' => 'Network profiles',
         'approval' => 'Approval policy',
+        'integrations' => 'Integrations',
     ];
 
     public function show(Request $request, string $section, SettingsRepository $settings, NetworkProviderManager $providers): View
@@ -67,6 +75,8 @@ class SettingsController extends Controller
             'oidc' => $oidc,
             'oidcHasSecret' => filled($oidc?->credentials['client_secret'] ?? null),
             'roleRules' => UserProvisioningService::formatRules($oidc?->configuration['role_rules'] ?? []),
+            'typeRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['type_rules'] ?? []),
+            'departmentRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['department_rules'] ?? []),
             'smtp' => $smtp,
             'smtpHasPassword' => filled($smtp?->credentials['password'] ?? null),
             'network' => $network,
@@ -74,6 +84,11 @@ class SettingsController extends Controller
             'discovery' => session('discovery'),
             'categoryLookup' => $section === 'categories' ? IntegrationConfig::query()->where('provider', DomainCategorizer::PROVIDER)->first() : null,
             'networkTypes' => $section === 'types' ? NetworkType::query()->ordered()->withCount('filterPolicies')->get() : collect(),
+            'examLists' => $section === 'types' ? PolicyList::query()->where('purpose', 'exam')->withCount('entries')->get()->keyBy('audience') : collect(),
+            'apiTokens' => $section === 'integrations' ? ApiToken::query()->with('user')->latest()->get() : collect(),
+            'webhooks' => $section === 'integrations' ? WebhookEndpoint::query()->orderBy('name')->get() : collect(),
+            'calendarPeriods' => $section === 'calendar' ? CalendarPeriod::query()->orderBy('start_date')->get() : collect(),
+            'bellPeriods' => $section === 'calendar' ? BellPeriod::query()->orderBy('sort_order')->orderBy('starts_at')->get() : collect(),
             'profiles' => $profiles = NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
             'diagnostics' => $diagnostics = $section === 'profiles' ? collect(app(ProbeDiagnostics::class)->forAll($profiles, $request->boolean('refresh'))) : collect(),
             'identities' => $diagnostics->map(fn (array $result) => $result['identity'] ? ['ok' => true, 'gateway' => $result['identity']['gateway'] ?? null] : ['ok' => false]),
@@ -95,6 +110,8 @@ class SettingsController extends Controller
             'profiles' => $this->updateProfiles($request, $policy),
             'types' => $this->updateTypes($request, $policy),
             'categories' => $this->updateCategories($request),
+            'calendar' => $this->updateCalendar($request),
+            'integrations' => null,
             'templates' => $this->updateTemplates($request, $settings),
             'approval' => $this->updateApproval($request, $settings),
         };
@@ -169,6 +186,7 @@ class SettingsController extends Controller
         $branding = (array) $settings->get('branding', []);
         $branding['app_name'] = trim((string) ($validated['app_name'] ?? ''));
         $branding['mark'] = trim((string) ($validated['brand_mark'] ?? ''));
+        $branding['project_link'] = $request->boolean('project_link', true);
         if ($request->boolean('remove_icon')) {
             unset($branding['icon_data'], $branding['icon_mime']);
         }
@@ -196,6 +214,8 @@ class SettingsController extends Controller
             'oidc_client_secret' => ['nullable', Rule::requiredIf(fn () => $request->boolean('oidc_enabled') && blank($existing?->credentials['client_secret'] ?? null)), 'string', 'max:1000'],
             'oidc_allowed_domains' => ['nullable', 'string', 'max:1000'],
             'role_rules' => ['nullable', 'string', 'max:5000'],
+            'type_rules' => ['nullable', 'string', 'max:5000'],
+            'department_rules' => ['nullable', 'string', 'max:5000'],
             'default_role' => ['required', 'in:student,teacher,deny'],
             'sync_roles' => ['nullable', 'boolean'],
             'emergency_local_login' => ['nullable', 'boolean'],
@@ -217,6 +237,8 @@ class SettingsController extends Controller
                 'client_id' => $validated['oidc_client_id'] ?? ($oidc->configuration['client_id'] ?? null),
                 'allowed_domains' => $this->commaList($validated['oidc_allowed_domains'] ?? ''),
                 'role_rules' => UserProvisioningService::parseRules($validated['role_rules'] ?? ''),
+                'type_rules' => $this->typeRules($validated['type_rules'] ?? ''),
+                'department_rules' => UserProvisioningService::parseMappingRules($validated['department_rules'] ?? '', 'department_rules'),
                 'default_role' => $validated['default_role'],
                 'sync_roles' => $request->boolean('sync_roles'),
             ],
@@ -364,7 +386,12 @@ class SettingsController extends Controller
                 'unifi_network_id' => $values['unifi_network_id'] ?? null,
                 'enabled' => (bool) ($values['enabled'] ?? false),
                 'sort_order' => (int) ($values['sort_order'] ?? 0),
+                'exam_mode' => $values['exam_mode'] ?? $type->exam_mode ?? 'off',
             ]);
+            // Exam mode needs somewhere to put the sites it blocks.
+            if ($type->exam_mode !== 'off') {
+                $policy->examList($type->key);
+            }
         }
 
         if (filled($validated['new']['name'] ?? null)) {
@@ -393,6 +420,7 @@ class SettingsController extends Controller
             'types.*.auto_approve' => ['nullable', 'boolean'],
             'types.*.sort_order' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'types.*.delete' => ['nullable', 'boolean'],
+            'types.*.exam_mode' => ['nullable', Rule::in(array_keys(NetworkType::EXAM_MODES))],
             'new.name' => ['nullable', 'string', 'max:80'],
             'new.description' => ['nullable', 'string', 'max:255'],
         ]);
@@ -415,7 +443,12 @@ class SettingsController extends Controller
                 'name' => $values['name'], 'description' => $values['description'] ?? null,
                 'requestable' => (bool) ($values['requestable'] ?? false), 'auto_approve' => (bool) ($values['auto_approve'] ?? false),
                 'sort_order' => (int) ($values['sort_order'] ?? 0),
+                'exam_mode' => $values['exam_mode'] ?? $type->exam_mode ?? 'off',
             ]);
+            // Exam mode needs somewhere to put the sites it blocks.
+            if ($type->exam_mode !== 'off') {
+                $policy->examList($type->key);
+            }
         }
         if (NetworkType::query()->where('requestable', true)->doesntExist()) {
             throw ValidationException::withMessages(['types' => 'At least one network type must be requestable, or nobody can submit a request.']);
@@ -434,6 +467,54 @@ class SettingsController extends Controller
             $policy->ensureAudienceLists($key);
         }
         NetworkType::flushCache();
+    }
+
+    /**
+     * Terms, holidays and exam periods (dates) and bell times. Rows can be
+     * edited, added (the blank "new" row) or deleted.
+     */
+    private function updateCalendar(Request $request): void
+    {
+        $validated = $request->validate([
+            'periods' => ['array'],
+            'periods.*.name' => ['required', 'string', 'max:80'],
+            'periods.*.kind' => ['required', Rule::in(array_keys(CalendarPeriod::KINDS))],
+            'periods.*.start_date' => ['required', 'date'],
+            'periods.*.end_date' => ['required', 'date', 'after_or_equal:periods.*.start_date'],
+            'periods.*.delete' => ['nullable', 'boolean'],
+            'new_period.name' => ['nullable', 'string', 'max:80'],
+            'new_period.kind' => ['nullable', Rule::in(array_keys(CalendarPeriod::KINDS))],
+            'new_period.start_date' => ['nullable', 'required_with:new_period.name', 'date'],
+            'new_period.end_date' => ['nullable', 'required_with:new_period.name', 'date', 'after_or_equal:new_period.start_date'],
+            'bells' => ['array'],
+            'bells.*.name' => ['required', 'string', 'max:60'],
+            'bells.*.starts_at' => ['required', 'date_format:H:i'],
+            'bells.*.ends_at' => ['required', 'date_format:H:i', 'after:bells.*.starts_at'],
+            'bells.*.delete' => ['nullable', 'boolean'],
+            'new_bell.name' => ['nullable', 'string', 'max:60'],
+            'new_bell.starts_at' => ['nullable', 'required_with:new_bell.name', 'date_format:H:i'],
+            'new_bell.ends_at' => ['nullable', 'required_with:new_bell.name', 'date_format:H:i', 'after:new_bell.starts_at'],
+        ], ['periods.*.end_date.after_or_equal' => 'Each period must end on or after its start.', 'bells.*.ends_at.after' => 'Each period must end after it starts.']);
+
+        foreach ($validated['periods'] ?? [] as $id => $values) {
+            $period = CalendarPeriod::query()->find($id);
+            if ($period) {
+                ! empty($values['delete']) ? $period->delete() : $period->update(Arr::only($values, ['name', 'kind', 'start_date', 'end_date']));
+            }
+        }
+        if (filled($validated['new_period']['name'] ?? null)) {
+            CalendarPeriod::query()->create(['kind' => $validated['new_period']['kind'] ?? 'term'] + Arr::only($validated['new_period'], ['name', 'start_date', 'end_date']));
+        }
+        foreach ($validated['bells'] ?? [] as $id => $values) {
+            $bell = BellPeriod::query()->find($id);
+            if ($bell) {
+                ! empty($values['delete']) ? $bell->delete() : $bell->update(Arr::only($values, ['name', 'starts_at', 'ends_at']));
+            }
+        }
+        if (filled($validated['new_bell']['name'] ?? null)) {
+            BellPeriod::query()->create(Arr::only($validated['new_bell'], ['name', 'starts_at', 'ends_at']) + ['sort_order' => (int) BellPeriod::query()->max('sort_order') + 1]);
+        }
+        app(SchoolCalendar::class)->forget();
     }
 
     /** Email wording. Blank fields, or "reset", fall back to the built-in text. */
@@ -512,6 +593,16 @@ class SettingsController extends Controller
             'auto_approve_staff' => ['nullable', 'boolean'],
             'students_can_request' => ['nullable', 'boolean'],
             'default_temporary_days' => ['required', 'integer', 'min:1', 'max:365'],
+            'two_person_site_wide' => ['nullable', 'boolean'],
+            'two_person_override' => ['nullable', 'boolean'],
+            'guide.enabled' => ['nullable', 'boolean'],
+            'guide.students' => ['nullable', 'boolean'],
+            'guide.title' => ['nullable', 'string', 'max:120'],
+            'guide.intro' => ['nullable', 'string', 'max:600'],
+            'guide.steps' => ['nullable', 'string', 'max:3000'],
+            'review_months' => ['nullable', 'integer', 'min:1', 'max:36'],
+            'grace_days' => ['nullable', 'integer', 'min:1', 'max:90'],
+            'sensitive_categories' => ['nullable', 'string', 'max:4000'],
             'categories' => ['required', 'string', 'max:2000'],
             'window_lead_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
             'window_lag_minutes' => ['nullable', 'integer', 'min:0', 'max:60'],
@@ -543,7 +634,40 @@ class SettingsController extends Controller
             'window_lead_minutes' => (int) ($validated['window_lead_minutes'] ?? 5),
             'window_lag_minutes' => (int) ($validated['window_lag_minutes'] ?? 5),
             'schedule_margin_minutes' => (int) ($validated['schedule_margin_minutes'] ?? 60),
+            'two_person_site_wide' => $request->boolean('two_person_site_wide', true),
+            'two_person_override' => $request->boolean('two_person_override', true),
+            'sensitive_categories' => $this->commaList((string) ($validated['sensitive_categories'] ?? ''), lower: false),
         ]);
+        $settings->set('access_guide', [
+            'enabled' => $request->boolean('guide.enabled', true),
+            'students' => $request->boolean('guide.students'),
+            'title' => trim((string) ($validated['guide']['title'] ?? '')),
+            'intro' => trim((string) ($validated['guide']['intro'] ?? '')),
+            'steps' => trim((string) ($validated['guide']['steps'] ?? '')),
+        ]);
+        $settings->set('governance', [
+            'review_months' => (int) ($validated['review_months'] ?? 12),
+            'grace_days' => (int) ($validated['grace_days'] ?? 14),
+        ]);
+    }
+
+    /**
+     * Network type rules, each naming existing type keys.
+     *
+     * @return list<array{type: string, value: string, target: string}>
+     */
+    private function typeRules(string $text): array
+    {
+        $rules = UserProvisioningService::parseMappingRules($text, 'type_rules');
+        $keys = NetworkType::keys();
+        foreach ($rules as $rule) {
+            $unknown = array_diff(array_map('trim', explode(',', $rule['target'])), $keys);
+            if ($unknown !== []) {
+                throw ValidationException::withMessages(['type_rules' => 'Unknown network type '.implode(', ', $unknown).'. Use the keys under Settings → Network types: '.implode(', ', $keys).'.']);
+            }
+        }
+
+        return $rules;
     }
 
     /** @return list<string> */

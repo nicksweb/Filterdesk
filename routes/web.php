@@ -1,13 +1,19 @@
 <?php
 
+use App\Http\Controllers\AccessExplorerController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\BlocklistController;
+use App\Http\Controllers\Admin\ChangesController;
 use App\Http\Controllers\Admin\ControllerSetupController;
+use App\Http\Controllers\Admin\CoverageController;
 use App\Http\Controllers\Admin\DiagnosticsController;
 use App\Http\Controllers\Admin\DomainScanController;
 use App\Http\Controllers\Admin\FilterPolicyController;
 use App\Http\Controllers\Admin\ImpersonationController;
+use App\Http\Controllers\Admin\InsightsController;
+use App\Http\Controllers\Admin\IntegrationController;
 use App\Http\Controllers\Admin\NetworkMapController;
+use App\Http\Controllers\Admin\NetworkTypePolicyController;
 use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\PolicyLayerController;
 use App\Http\Controllers\Admin\PolicyListController;
@@ -17,10 +23,12 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BrandIconController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ExceptionReviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstallController;
 use App\Http\Controllers\ItRequestActionController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuickDecisionController;
 use App\Http\Controllers\WebsiteCheckController;
 use App\Http\Controllers\WebsiteRequestController;
 use Illuminate\Support\Facades\Route;
@@ -44,6 +52,7 @@ Route::middleware('installed')->group(function (): void {
         Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
         Route::post('/impersonation/stop', [ImpersonationController::class, 'stop'])->name('impersonation.stop');
         Route::get('/', DashboardController::class)->name('dashboard');
+        Route::post('/setup-checklist', [DashboardController::class, 'setup'])->middleware('role:admin')->name('setup.done');
         Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
         Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
         Route::get('/check', [WebsiteCheckController::class, 'create'])->name('checks.create');
@@ -52,9 +61,17 @@ Route::middleware('installed')->group(function (): void {
             ->parameters(['requests' => 'websiteRequest'])
             ->only(['index', 'create', 'store', 'show']);
         Route::post('/requests/{websiteRequest}/reply', [WebsiteRequestController::class, 'reply'])->name('requests.reply');
+        Route::get('/requests/{websiteRequest}/ready', [WebsiteRequestController::class, 'ready'])->name('requests.ready');
+        Route::get('/why', [AccessExplorerController::class, 'why'])->middleware('throttle:30,1')->name('why');
+        Route::get('/reviews', [ExceptionReviewController::class, 'index'])->name('reviews.index');
+        Route::post('/reviews/keep', [ExceptionReviewController::class, 'keep'])->name('reviews.keep');
 
         Route::middleware('role:it,admin')->group(function (): void {
             Route::post('/it/requests/{websiteRequest}/action', ItRequestActionController::class)->name('it.requests.action');
+            Route::get('/it/requests/{websiteRequest}/quick/{decision}', QuickDecisionController::class)->middleware('signed')->name('it.requests.quick');
+            Route::get('/coverage', CoverageController::class)->name('admin.health');
+            Route::get('/insights', [InsightsController::class, 'show'])->name('admin.insights');
+            Route::get('/insights/requests.csv', [InsightsController::class, 'csv'])->name('admin.insights.csv');
 
             Route::prefix('admin/policy')->name('admin.policy.')->group(function (): void {
                 Route::get('/', [PolicyController::class, 'index'])->name('index');
@@ -77,6 +94,13 @@ Route::middleware('installed')->group(function (): void {
                 Route::post('/policies/{policy}/adopt', [FilterPolicyController::class, 'adopt'])->name('policies.adopt');
                 Route::post('/policies/{policy}/push', [FilterPolicyController::class, 'push'])->middleware('throttle:20,1')->name('policies.push');
                 Route::post('/pushes/{push}/rollback', [FilterPolicyController::class, 'rollback'])->middleware('throttle:10,1')->name('pushes.rollback');
+                Route::get('/explorer', [AccessExplorerController::class, 'show'])->middleware('throttle:60,1')->name('explorer');
+                Route::get('/types/{type:key}', [NetworkTypePolicyController::class, 'show'])->name('types.show');
+                Route::get('/changes', [ChangesController::class, 'index'])->name('changes.index');
+                Route::post('/changes/publish', [ChangesController::class, 'publish'])->middleware('throttle:10,1')->name('changes.publish');
+                Route::post('/changes/decide', [ChangesController::class, 'decide'])->name('changes.decide');
+                Route::get('/versions/{release}', [ChangesController::class, 'show'])->name('versions.show');
+                Route::post('/versions/{release}/rollback', [ChangesController::class, 'rollback'])->middleware('throttle:6,1')->name('versions.rollback');
                 Route::post('/networks/push', [NetworkMapController::class, 'pushAll'])->middleware('throttle:10,1')->name('networks.push');
                 Route::post('/networks/check', [NetworkMapController::class, 'checkSync'])->middleware('throttle:10,1')->name('networks.check');
                 Route::post('/policies/{policy}/restore', [FilterPolicyController::class, 'restore'])->name('policies.restore');
@@ -118,6 +142,12 @@ Route::middleware('installed')->group(function (): void {
 
         Route::prefix('admin')->middleware('role:admin')->name('admin.')->group(function (): void {
             Route::get('/users', [UserController::class, 'index'])->name('users.index');
+            Route::post('/integrations/tokens', [IntegrationController::class, 'storeToken'])->name('integrations.tokens.store');
+            Route::delete('/integrations/tokens/{token}', [IntegrationController::class, 'destroyToken'])->name('integrations.tokens.destroy');
+            Route::post('/integrations/webhooks', [IntegrationController::class, 'storeWebhook'])->name('integrations.webhooks.store');
+            Route::put('/integrations/webhooks/{webhook}', [IntegrationController::class, 'updateWebhook'])->name('integrations.webhooks.update');
+            Route::delete('/integrations/webhooks/{webhook}', [IntegrationController::class, 'destroyWebhook'])->name('integrations.webhooks.destroy');
+            Route::post('/integrations/webhooks/{webhook}/test', [IntegrationController::class, 'testWebhook'])->middleware('throttle:10,1')->name('integrations.webhooks.test');
             Route::post('/users', [UserController::class, 'store'])->name('users.store');
             Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
             Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])->name('users.impersonate');

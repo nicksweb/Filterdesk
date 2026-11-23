@@ -57,6 +57,50 @@ class FirewallListPusher
      */
     public function push(FirewallList $list, ?User $actor, bool $force = false): array
     {
+        return app(PolicyPublisher::class)->within('firewall', $actor, function () use ($list, $actor, $force): array {
+            $result = $this->pushNow($list, $actor, $force);
+            app(PolicyPublisher::class)->recordFirewall($list, $result);
+
+            return $result;
+        });
+    }
+
+    /**
+     * Why the list differs from what was last pushed, or null when it does not.
+     */
+    public function pendingReason(FirewallList $list): ?string
+    {
+        if (! $list->pushed_hash) {
+            return 'Not pushed yet.';
+        }
+        ['hash' => $hash, 'count' => $count] = $this->desiredHash($list);
+
+        return $hash !== $list->pushed_hash || count($list->groups ?? []) !== $count ? 'Its addresses or blocking rules changed since the last push.' : null;
+    }
+
+    /**
+     * Fingerprint of what a push would write: the chunks, their group names,
+     * the chosen zones and the rule options.
+     *
+     * @return array{hash: string, count: int, chunks: list<list<string>>, names: list<string>, entries: list<string>, total: int}
+     */
+    private function desiredHash(FirewallList $list): array
+    {
+        ['entries' => $entries, 'total' => $total] = $list->desiredEntries();
+        $chunks = array_chunk($entries, $this->groupLimit());
+        $count = count($chunks);
+        $names = array_map(fn (int $index) => $count === 1 ? $list->name : "{$list->name} (".($index + 1)." of {$count})", array_keys($chunks));
+        $parts = [$chunks, $names, array_values($list->rule_zones ?? []), (bool) $list->block_incoming];
+        if ($list->rules_first) {
+            $parts[] = 'first';
+        }
+
+        return ['hash' => hash('sha256', json_encode($parts)), 'count' => $count, 'chunks' => $chunks, 'names' => $names, 'entries' => $entries, 'total' => $total];
+    }
+
+    /** @return array{ok: bool, message: string, skipped?: bool} */
+    private function pushNow(FirewallList $list, ?User $actor, bool $force): array
+    {
         $manager = $this->manager();
         if (! $manager || ! $this->canWrite()) {
             return ['ok' => false, 'message' => 'Pushing is off. Set the network provider to Active under Settings → Network provider.'];
@@ -64,19 +108,11 @@ class FirewallListPusher
 
         try {
             return Cache::lock('firewall-push:'.$list->id, 300)->block(30, function () use ($list, $manager, $actor, $force): array {
-                ['entries' => $entries, 'total' => $total] = $list->desiredEntries();
+                ['hash' => $hash, 'count' => $count, 'chunks' => $chunks, 'names' => $names, 'entries' => $entries, 'total' => $total] = $this->desiredHash($list);
                 if ($entries === []) {
                     return $this->record($list, 'failed', 'There are no addresses to push yet. Refresh its feeds or add manual entries first.', $actor);
                 }
-                $chunks = array_chunk($entries, $this->groupLimit());
-                $count = count($chunks);
-                $names = array_map(fn (int $index) => $count === 1 ? $list->name : "{$list->name} (".($index + 1)." of {$count})", array_keys($chunks));
                 $wantRules = $list->rule_zones !== null && $list->rule_zones !== [];
-                $parts = [$chunks, $names, array_values($list->rule_zones ?? []), (bool) $list->block_incoming];
-                if ($list->rules_first) {
-                    $parts[] = 'first';
-                }
-                $hash = hash('sha256', json_encode($parts));
                 $groups = array_values($list->groups ?? []);
                 $rules = array_values($list->rules ?? []);
 

@@ -22,7 +22,7 @@ The app **reads** (never writes) two endpoints of the Network application itself
 
 `<site>` is the site's short name (`default` unless a different site is configured). These are not part of Ubiquiti's published API and may change; if a release changes them, the app says so and the lists can still be pasted by hand.
 
-With them, **Policy lists → Networks & filters** shows each controller filter and the VLANs it is attached to, lets an admin link a filter to a filter policy and map each VLAN to a policy (and so to staff, student or guest filtering), and flags VLANs whose controller filter differs from the mapping. Each policy gets **Fetch from controller**, and entries added in the controller by hand are listed as *Only in the controller* with an option to import them into a managed list.
+With them, **Policies → Networks & filters** shows each controller filter and the VLANs it is attached to, lets an admin link a filter to a filter policy and map each VLAN to a policy (and so to staff, student or guest filtering), and flags VLANs whose controller filter differs from the mapping. Each policy gets **Fetch from controller**, and entries added in the controller by hand are listed as *Only in the controller* with an option to import them into a managed list.
 
 ## Allow and block precedence
 
@@ -30,7 +30,7 @@ When a hostname is in both an allow list and a block list that apply to a filter
 
 ## Blocklists and firewall IP lists
 
-**Policy lists → Blocklists & firewall** (admins) subscribes to third-party lists, with presets for [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists) (DNS bypass, encrypted DNS, threat intelligence, social, gambling and more) or any https URL in hosts, adblock, wildcard or plain format.
+**Protection** (blocklists and firewall IP lists) (admins) subscribes to third-party lists, with presets for [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists) (DNS bypass, encrypted DNS, threat intelligence, social, gambling and more) or any https URL in hosts, adblock, wildcard or plain format.
 
 - **Domain lists** fill their own list (site-wide, a network type or one policy, allow or block), refreshed on a schedule, and reach content filters through the normal push. Content filters are not built for very large lists: start with the bypass list (about 17,000 domains) or smaller, and check the push reports no shortfall. Lists of 100,000+ domains belong on a DNS resolver.
 - **IP lists** (and your own addresses) keep a UniFi IP group (traffic matching list) up to date through the official API. Create the group from the app or link an existing one, then let the app create the blocking rules (below) or add your own in UniFi, for example *Block · Internal → External · destination: the group*. The app shows which firewall rules use each group.
@@ -56,7 +56,7 @@ Feeds refresh on their schedule (hourly check); with *Push automatically* on, ea
 
 ## Guided setup
 
-After the connection test succeeds (and on the dashboard until it is done), the app sends admins to **Policy lists → Guided setup**. **Bring everything in** reads every content filter and sets the tool up to match it in one step:
+After the connection test succeeds (and on the dashboard until it is done), the app sends admins to **Policies → Guided setup**. **Bring everything in** reads every content filter and sets the tool up to match it in one step:
 
 - each filter becomes a policy with a network type guessed from its name and networks; the default *Students* and *Staff* policies are linked rather than duplicated;
 - a filter that covers the same networks as exactly one other filter and is named like a blocklist (or has no allows and more blocks than the other) becomes that policy's [layer](#layers);
@@ -176,9 +176,13 @@ The built-in provider currently reports:
 - domain allowlisting: unavailable;
 - scheduled domain allowlisting: unavailable.
 
-Approval records the decision, adds the hostnames to the managed policy lists and moves the request to `Action required`. IT copies the change from **Policy lists** into each UniFi content filter and clicks **Mark applied**. This is deliberate. Automatic writes should be enabled only when Ubiquiti publishes a supported reversible resource for the relevant release.
+Approval records the decision, adds the hostnames to the managed policy lists and moves the request to `Action required`. IT copies the change from **Policies** into each UniFi content filter and clicks **Mark applied**. This is deliberate. Automatic writes should be enabled only when Ubiquiti publishes a supported reversible resource for the relevant release.
 
 ## Compatibility procedure
+
+`php artisan unifi:compat` checks, read-only, that the controller still answers every call this app uses in the shape it expects: networks, content filters and categories (outside the official API), IP groups, firewall zones and firewall rules. It exits non-zero if any fails. Run it on a test console before upgrading UniFi Network, or straight after an upgrade; `--json` prints the result for monitoring.
+
+Release 2026.12.0 passed every check against the live console it was tested on. If you run it on another Network version, note the result in an issue so this page can list it.
 
 UniFi local API documentation is version-specific. Open **Network → Control Plane → Integrations** on the target controller, compare its resources with this adapter, then use the read-only connection test. Test all write behavior in a non-production site before active mode.
 

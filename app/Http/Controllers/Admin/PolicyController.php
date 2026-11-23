@@ -10,6 +10,7 @@ use App\Models\FilterPolicy;
 use App\Models\PolicyEntry;
 use App\Models\PolicyList;
 use App\Models\WebsiteRequest;
+use App\Services\Approval\TwoPersonRule;
 use App\Services\AuditLogger;
 use App\Services\Domains\PublicSuffixList;
 use App\Services\Policy\PolicyEngine;
@@ -83,6 +84,8 @@ class PolicyController extends Controller
             }
         }
 
+        // Hand-made changes to a site-wide list wait for a second IT officer.
+        $proposal = app(TwoPersonRule::class)->appliesToList($list);
         foreach ($parsed['entries'] as $domain) {
             $engine->upsertEntry($list, $domain, [
                 'source' => EntrySource::Manual,
@@ -90,12 +93,15 @@ class PolicyController extends Controller
                 'note' => $validated['note'] ?? null,
                 'starts_at' => $startsAt,
                 'expires_at' => $expiresAt,
-            ]);
+            ] + ($proposal ? ['pending_action' => 'add', 'proposed_by_id' => $request->user()->id, 'proposed_at' => now()] : []));
         }
 
-        $audit->log('policy.entries_added', $list, ['domains' => $parsed['entries']]);
+        $audit->log($proposal ? 'policy.entries_proposed' : 'policy.entries_added', $list, ['domains' => $parsed['entries']]);
 
         $added = count($parsed['entries']) - count($alreadyInList);
+        if ($proposal) {
+            return redirect()->route('admin.policy.lists.show', $list)->with('success', "{$added} hostname(s) proposed for {$list->name}. Site-wide changes need a second IT officer: they go live once another officer confirms them under Changes.");
+        }
         $messages = ["{$added} hostname(s) added to {$list->name}."];
         if ($alreadyInList) {
             $messages[] = 'Already in this list: '.implode(', ', $alreadyInList).'.';
@@ -154,6 +160,16 @@ class PolicyController extends Controller
     public function destroyEntry(Request $request, PolicyEntry $entry, AuditLogger $audit): RedirectResponse
     {
         $entry->load('policyList');
+        // A proposed addition is not live, so withdrawing it needs nobody else.
+        if ($entry->pending_action === null && app(TwoPersonRule::class)->appliesToList($entry->policyList)) {
+            $entry->forceFill(['pending_action' => 'remove', 'proposed_by_id' => $request->user()->id, 'proposed_at' => now()])->save();
+            $audit->log('policy.entry_removal_proposed', $entry->policyList, ['domain' => $entry->domain]);
+
+            return back()->with('success', "Removing {$entry->domain} from {$entry->policyList->name} is proposed. It stays in place until another IT officer confirms it under Changes.");
+        }
+        if ($entry->pending_action === 'remove') {
+            return back()->with('error', "Removing {$entry->domain} is already waiting for a second IT officer under Changes.");
+        }
         $audit->log('policy.entry_removed', $entry->policyList, ['domain' => $entry->domain, 'source' => $entry->source->value]);
         $entry->delete();
 

@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\SchoolCalendar;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -14,7 +16,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class NetworkType extends Model
 {
-    protected $fillable = ['key', 'name', 'description', 'requestable', 'auto_approve', 'sort_order'];
+    protected $fillable = ['key', 'name', 'description', 'requestable', 'auto_approve', 'sort_order', 'exam_mode'];
+
+    public const EXAM_MODES = ['off' => 'Off', 'calendar' => 'During exam periods', 'on' => 'On now'];
 
     /** @var array<string, self>|null */
     private static ?array $byKey = null;
@@ -87,6 +91,24 @@ class NetworkType extends Model
         self::$byKey = null;
 
         return $type;
+    }
+
+    /**
+     * Whether this type's exam-mode blocks apply: switched on, or set to
+     * follow the calendar and inside an exam period.
+     */
+    public function examActive(?CarbonInterface $at = null): bool
+    {
+        return match ($this->exam_mode) {
+            'on' => true,
+            'calendar' => app(SchoolCalendar::class)->isExamPeriod($at ?? now()),
+            default => false,
+        };
+    }
+
+    public static function examActiveFor(?string $key, ?CarbonInterface $at = null): bool
+    {
+        return $key !== null && (self::byKey($key)?->examActive($at) ?? false);
     }
 
     public function inUse(): bool

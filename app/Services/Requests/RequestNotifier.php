@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Notifications\RequestActivityNotification;
 use App\Notifications\RequestDecisionNotification;
+use App\Notifications\TwoPersonOverrideNotification;
 use App\Services\SettingsRepository;
 use Illuminate\Notifications\Notification as BaseNotification;
 use Illuminate\Support\Facades\Notification;
@@ -48,6 +49,31 @@ class RequestNotifier
         }
 
         $this->send($assignee, new RequestActivityNotification($request, "Assigned to you by {$actor->name}"));
+    }
+
+    /** Ask the other IT officers to confirm a first approval. */
+    public function secondApprovalNeeded(WebsiteRequest $request, User $first, array $reasons): void
+    {
+        $notification = new RequestActivityNotification($request, "Second approval needed ({$first->name} approved)", [
+            'Needs two IT officers: '.implode('; ', $reasons).'.',
+        ]);
+        User::query()->itStaff()->whereKeyNot($first->id)->each(fn (User $user) => $this->send($user, $notification));
+    }
+
+    /**
+     * An officer approved alone where two were needed: tell the other
+     * officers and the IT address, so someone reviews it afterwards.
+     *
+     * @param  list<string>  $reasons
+     */
+    public function twoPersonOverride(User $actor, string $subject, array $reasons, string $why, string $url): void
+    {
+        $notification = new TwoPersonOverrideNotification($actor->name, $subject, $reasons, $why, $url);
+        User::query()->itStaff()->whereKeyNot($actor->id)->each(fn (User $user) => $this->send($user, $notification));
+        $address = $this->settings->get('notifications.it_address');
+        if (filled($address) && strtolower((string) $address) !== strtolower($actor->email)) {
+            rescue(fn () => Notification::route('mail', $address)->notify($notification), null, true);
+        }
     }
 
     public function decision(WebsiteRequest $request, string $message): void

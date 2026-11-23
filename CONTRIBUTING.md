@@ -1,12 +1,30 @@
 # Contributing
 
-Open an issue before a large change. Keep school-specific names, domains, branding and policy out of source. New integrations must implement `NetworkProvider`, expose capabilities honestly, start read-only and include failure/reversal tests.
+Thank you for helping. IT Requests is built for schools, so changes should keep it simple to run, safe by default and free of school-specific details.
 
-Before a pull request:
+## Getting started
 
 ```bash
-vendor/bin/pint --test
-php artisan test
+git clone https://github.com/nicksweb/it-edu-selfservice.git && cd it-edu-selfservice
+docker run --rm -v "$PWD":/app -w /app composer:2 install
+docker run --rm -v "$PWD":/app -w /app php:8.5-cli php vendor/bin/phpunit
 ```
 
-Never commit `.env`, database dumps, real school screenshots, identifying API responses or secrets. Use focused commits and update `CHANGELOG.md` for user-visible changes. Contributions are licensed under MIT.
+The **simulation provider** (Settings → Network provider → Simulation) stands in for UniFi, so most work needs no controller.
+
+## Before opening a pull request
+
+- Add or update tests in `tests/Feature` for the behaviour you change. The whole suite must pass.
+- Run Pint: `docker run --rm -v "$PWD":/app -w /app php:8.5-cli php vendor/bin/pint`.
+- Keep pages working with the controller, probes and category service offline (`tests/Feature/OfflineResilienceTest.php` loads every page that way; add new pages to it).
+- Never commit `.env`, override compose files, database dumps, screenshots of real schools, or any school name, domain, address or credential.
+- Update `CHANGELOG.md` under the next version, and the docs a user would read.
+- Writing: short sentences, plain words, and say what the user sees.
+
+## Versions
+
+Calendar versions `YYYY.MM.N`: the year and month of the release, then the release number in that month.
+
+## Reporting a security problem
+
+Do not open a public issue. Email the maintainer listed on the repository, with the steps to reproduce.

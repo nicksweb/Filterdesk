@@ -8,6 +8,7 @@ use App\Enums\ListScope;
 use App\Http\Controllers\Controller;
 use App\Models\FilterPolicy;
 use App\Models\PolicyList;
+use App\Services\Approval\TwoPersonRule;
 use App\Services\AuditLogger;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\PolicyListParser;
@@ -75,13 +76,24 @@ class PolicyListController extends Controller
         }
         $parsed = $parser->parseDetailed($validated['domains'] ?? '', 'domains');
 
+        // Site-wide lists: the import is a proposal a second IT officer confirms.
+        $proposal = app(TwoPersonRule::class)->appliesToList($list);
+        $pending = $proposal ? ['pending_action' => 'add', 'proposed_by_id' => $request->user()->id, 'proposed_at' => now()] : [];
         $removed = 0;
         if ($validated['mode'] === 'replace') {
-            $removed = $list->entries()->where('source', '!=', EntrySource::Request)->whereNotIn('domain', $parsed['entries'])->delete();
+            $leaving = $list->entries()->where('source', '!=', EntrySource::Request)->whereNotIn('domain', $parsed['entries']);
+            $removed = $proposal
+                ? $leaving->whereNull('pending_action')->update(['pending_action' => 'remove', 'proposed_by_id' => $request->user()->id, 'proposed_at' => now()])
+                : $leaving->delete();
         }
 
         foreach ($parsed['entries'] as $domain) {
-            $engine->upsertEntry($list, $domain, ['source' => EntrySource::Import, 'added_by_id' => $request->user()->id]);
+            $engine->upsertEntry($list, $domain, ['source' => EntrySource::Import, 'added_by_id' => $request->user()->id] + $pending);
+        }
+        if ($proposal) {
+            $audit->log('policy.list_import_proposed', $list, ['mode' => $validated['mode'], 'count' => count($parsed['entries']), 'removed' => $removed]);
+
+            return back()->with('success', count($parsed['entries'])." hostname(s) and {$removed} removal(s) proposed. Site-wide changes go live once another IT officer confirms them under Changes.");
         }
 
         $audit->log('policy.list_imported', $list, ['mode' => $validated['mode'], 'count' => count($parsed['entries']), 'removed' => $removed]);

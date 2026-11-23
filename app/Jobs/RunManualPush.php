@@ -4,9 +4,11 @@ namespace App\Jobs;
 
 use App\Models\FilterPolicy;
 use App\Models\FirewallList;
+use App\Models\PolicyRelease;
 use App\Models\User;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\FirewallListPusher;
+use App\Services\Policy\PolicyPublisher;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -28,7 +30,7 @@ class RunManualPush implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 300;
 
-    /** @param 'policy'|'all'|'firewall' $kind */
+    /** @param 'policy'|'all'|'firewall'|'release'|'rollback' $kind */
     public function __construct(public readonly string $kind, public readonly ?int $targetId, public readonly ?int $actorId, public readonly bool $force = false) {}
 
     public static function statusKey(string $kind, ?int $targetId = null): string
@@ -62,10 +64,12 @@ class RunManualPush implements ShouldBeUnique, ShouldQueue
         return self::statusKey($this->kind, $this->targetId);
     }
 
-    public function handle(ControllerPusher $pusher, FirewallListPusher $firewall): void
+    public function handle(ControllerPusher $pusher, FirewallListPusher $firewall, PolicyPublisher $publisher): void
     {
         $actor = $this->actorId ? User::query()->find($this->actorId) : null;
         $messages = match ($this->kind) {
+            'release' => [$publisher->publishAll($actor)],
+            'rollback' => ($release = PolicyRelease::query()->find($this->targetId)) ? [$publisher->rollback($release, $actor)] : [],
             'policy' => ($policy = FilterPolicy::query()->find($this->targetId)) ? [$pusher->push($policy, $actor)] : [],
             'all' => $pusher->pushAll($actor)->all(),
             'firewall' => ($list = FirewallList::query()->find($this->targetId)) ? [$firewall->push($list, $actor, $this->force)] : [],
