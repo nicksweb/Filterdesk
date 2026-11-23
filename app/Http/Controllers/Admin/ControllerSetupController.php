@@ -28,7 +28,7 @@ class ControllerSetupController extends Controller
     {
         // Remember whether people reach the app through a reverse proxy, so the
         // COMPOSE_FILE line (here and from probes:compose) includes compose.proxy.yml.
-        $proxy = $request->isFromTrustedProxy();
+        $proxy = $this->behindProxy($request);
         if ((bool) $settings->get('probes.behind_proxy', false) !== $proxy) {
             $settings->set('probes.behind_proxy', $proxy);
         }
@@ -178,7 +178,7 @@ class ControllerSetupController extends Controller
     /** The planned compose.vlan.yml for every probe, as a file. */
     public function compose(Request $request, ProbePlanner $planner): Response
     {
-        return response($planner->composeFile($planner->plan($this->parentOverride($request), $this->extraNetworks($request)), $request->isFromTrustedProxy()), 200, [
+        return response($planner->composeFile($planner->plan($this->parentOverride($request), $this->extraNetworks($request)), $this->behindProxy($request)), 200, [
             'Content-Type' => 'text/yaml; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="compose.vlan.yml"',
         ]);
@@ -239,6 +239,12 @@ class ControllerSetupController extends Controller
         $this->prepareProfiles($planner, null, null);
 
         return redirect()->route('admin.policy.setup.show')->withFragment('host')->with('success', 'Saved. Now run the steps on the Docker host below. If you changed an address, remove that probe\'s Docker network first (docker network rm) and create it again.');
+    }
+
+    /** Reached through a trusted reverse proxy: it sent X-Forwarded-For (a trusted address alone is not enough). */
+    private function behindProxy(Request $request): bool
+    {
+        return $request->isFromTrustedProxy() && $request->headers->has('X-Forwarded-For');
     }
 
     private function parentOverride(Request $request): ?string
