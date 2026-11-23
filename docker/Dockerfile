@@ -31,6 +31,6 @@ USER www-data
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["php-fpm"]
 
-FROM nginx:1.29-alpine AS webserver
+FROM nginx:1.31-alpine AS webserver
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=vendor /app/public /var/www/html/public
