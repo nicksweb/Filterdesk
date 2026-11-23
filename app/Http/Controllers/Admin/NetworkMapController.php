@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Jobs\RunManualPush;
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
+use App\Models\NetworkType;
 use App\Services\AuditLogger;
+use App\Services\Network\ProviderRequestFailed;
 use App\Services\Policy\BaselineGuard;
 use App\Services\Policy\ControllerLearner;
 use App\Services\Policy\ControllerPusher;
@@ -16,6 +18,7 @@ use App\Services\Policy\SyncChecker;
 use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -45,10 +48,59 @@ class NetworkMapController extends Controller
             ]),
             'pushStatus' => Cache::get(RunManualPush::statusKey('all')),
             'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
-            'unfiltered' => $baseline->unfiltered($state),
-            'learned' => app(ControllerLearner::class)->learn($state)['networks'],
+            'unfiltered' => $unfiltered = $baseline->unfiltered($state),
+            'learned' => $learned = app(ControllerLearner::class)->learn($state),
+            'rows' => $this->rows($networks, $learned, $unfiltered, $baseline->policy()),
+            'filterRoles' => $learned['filters'],
             'baselinePolicy' => $baseline->policy(),
         ]);
+    }
+
+    /**
+     * One row per network: the filters it has in UniFi, its kind, the policy
+     * it belongs to here, and one plain status with the action that fixes it.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function rows(Collection $networks, array $learned, Collection $unfiltered, ?FilterPolicy $baselinePolicy): array
+    {
+        $baselineName = $baselinePolicy?->name ?? 'Students';
+        $byNetwork = $unfiltered->keyBy(fn (array $item) => $item['network']->provider_network_id);
+        $rows = [];
+        foreach ($networks as $network) {
+            $lesson = $learned['networks'][$network['id']] ?? null;
+            $baselineItem = $byNetwork->get($network['id']);
+            $advice = $lesson['advice'] ?? null;
+            $status = match (true) {
+                ($baselineItem['state'] ?? null) === 'allowed' => ['level' => 'muted', 'text' => 'Allowed unfiltered: '.$baselineItem['network']->unfiltered_reason, 'actions' => ['stop_allowing']],
+                ($baselineItem['state'] ?? null) === 'paused' => ['level' => 'bad', 'text' => 'Unfiltered: '.implode(', ', $baselineItem['paused']).(count($baselineItem['paused']) === 1 ? ' is' : ' are').' paused in UniFi.', 'actions' => ['protect', 'allow']],
+                ($baselineItem['state'] ?? null) === 'decide' => ['level' => 'warn', 'text' => "No filter. Add {$baselineName}, or allow it unfiltered and say why.", 'actions' => ['protect', 'allow']],
+                ($baselineItem['state'] ?? null) === 'enforce' => ['level' => 'bad', 'text' => "No filter: gets {$baselineName} at the next check.", 'actions' => ['protect', 'allow']],
+                ($advice['action'] ?? null) === 'remap' => ['level' => 'warn', 'text' => $advice['text'], 'actions' => ['remap'], 'policy' => $advice['policy']],
+                $advice !== null => ['level' => $advice['level'] === 'warn' ? 'warn' : 'info', 'text' => $advice['text'], 'actions' => $advice['action'] ? [$advice['action']] : []],
+                in_array($network['status'], ['missing_filter', 'wrong_filter', 'policy_unlinked', 'layer_missing'], true) => ['level' => 'warn', 'text' => match ($network['status']) {
+                    'missing_filter' => 'Mapped to '.$network['policy']->name.' here, but its filter is not on this network in UniFi.',
+                    'wrong_filter' => 'Mapped to '.$network['policy']->name.' here, but UniFi uses other filters.',
+                    'layer_missing' => 'Missing the layer '.($network['layer']->provider_name ?: $network['layer']->name).', so its feeds are not blocked here.',
+                    default => $network['policy']->name.' is not linked to a UniFi filter yet.',
+                }, 'actions' => []],
+                $network['status'] === 'multiple_filters' => ['level' => 'info', 'text' => 'Also in '.collect($network['others'])->pluck('name')->join(', ').': a site '.($network['policy']->provider_name ?: $network['policy']->name).' allows can still be blocked there.', 'actions' => []],
+                default => ['level' => 'ok', 'text' => $lesson && $lesson['types'] ? collect($lesson['types'])->map(fn ($type) => NetworkType::labelFor($type))->join(' and ').' filtering' : 'Filtered', 'actions' => []],
+            };
+            $rows[] = [
+                'id' => $network['id'], 'assignment' => $network['assignment'], 'name' => $network['name'], 'vlan' => $network['vlan'], 'subnet' => $network['subnet'] ?? null,
+                'kind' => $lesson['kind'] ?? 'device', 'kind_confirmed' => $lesson['kind_confirmed'] ?? false, 'policy' => $network['policy'],
+                'filters' => collect($network['attached'])->map(fn (array $filter) => [
+                    'id' => $filter['id'], 'name' => $filter['name'], 'paused' => ! ($filter['enabled'] ?? true),
+                    'role' => $learned['filters'][$filter['id']]['role'] ?? 'group',
+                ])->sortBy(fn (array $filter) => [$filter['role'] === 'sitewide' ? 1 : 0, $filter['name']])->values()->all(),
+                'status' => $status,
+                'attention' => in_array($status['level'], ['warn', 'bad'], true),
+                'unfiltered' => $network['attached'] === [] || collect($network['attached'])->every(fn (array $filter) => ! ($filter['enabled'] ?? true)),
+            ];
+        }
+
+        return collect($rows)->sortBy(fn (array $row) => [$row['attention'] ? 0 : 1, $row['vlan'] ?? 0])->values()->all();
     }
 
     /** Give unfiltered networks the baseline filter now: all that are due, or the ones picked. */
@@ -58,6 +110,35 @@ class NetworkMapController extends Controller
         $result = $baseline->enforce($request->user(), $validated['networks'] ?? null);
 
         return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    /** Put a UniFi content filter on this network, or take one off it. */
+    public function filter(Request $request, NetworkAssignment $network, ControllerSync $sync, ControllerPusher $pusher, AuditLogger $audit): RedirectResponse
+    {
+        $validated = $request->validate(['filter_id' => ['required', 'string', 'max:190'], 'remove' => ['nullable', 'boolean']]);
+        $filter = collect($sync->state()['filters'])->firstWhere('id', $validated['filter_id']);
+        if (! $filter) {
+            return back()->with('error', 'That content filter is no longer in UniFi. Refresh and try again.');
+        }
+        if (! $pusher->enabled() || ! $pusher->writer()) {
+            return back()->with('error', 'Changing which filters a network has needs the network provider in Active mode (Settings → Network provider). Or change it in UniFi → Content Filter.');
+        }
+        $remove = $request->boolean('remove');
+        try {
+            $remove
+                ? $pusher->writer()->detachNetworksFromContentFilter($filter['id'], [$network->provider_network_id])
+                : $pusher->writer()->attachNetworksToContentFilter($filter['id'], [$network->provider_network_id]);
+        } catch (ProviderRequestFailed $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+        // Taking off the filter of the policy this network is mapped to leaves it unmapped.
+        if ($remove && $network->filterPolicy?->provider_reference === $filter['id']) {
+            $network->update(['filter_policy_id' => null]);
+        }
+        $sync->forget();
+        $audit->log($remove ? 'policy.network_filter_removed' : 'policy.network_filter_added', $network->filterPolicy, ['network' => $network->name, 'filter' => $filter['name']]);
+
+        return back()->with('success', $remove ? "{$filter['name']} is no longer on {$network->name}." : "{$filter['name']} now filters {$network->name}.");
     }
 
     /** Add networks to the Students (baseline) filter: protection for device networks, or a user network missing its group. */
@@ -134,6 +215,15 @@ class NetworkMapController extends Controller
      */
     public function link(Request $request, ControllerSync $sync, PolicyEngine $engine, AuditLogger $audit): RedirectResponse
     {
+        // One control: "policy:<id>" (an existing policy), "new:<type>" (a new policy of that type) or "sitewide".
+        $managedBy = (string) $request->input('managed_by', '');
+        if (preg_match('/^policy:(\d+)$/', $managedBy, $match)) {
+            $request->merge(['filter_policy_id' => (int) $match[1]]);
+        } elseif (preg_match('/^new:([a-z0-9_]+)$/', $managedBy, $match)) {
+            $request->merge(['audience' => $match[1]]);
+        } elseif ($managedBy === 'sitewide') {
+            $request->merge(['audience' => NetworkType::byKey('other') ? 'other' : NetworkType::query()->ordered()->value('key'), 'sitewide' => true]);
+        }
         $validated = $request->validate([
             'filter_id' => ['required', 'string', 'max:190'],
             'filter_policy_id' => ['nullable', 'required_without:audience', 'integer', 'exists:filter_policies,id'],
@@ -155,8 +245,11 @@ class NetworkMapController extends Controller
             ]);
             $engine->ensureAudienceLists($audience);
         }
+        if ($request->boolean('sitewide')) {
+            $policy->update(['role' => 'sitewide']);
+        }
 
-        $pulled = $sync->link($filter, $policy, $request->user());
+        $pulled = $sync->link($filter, $policy->refresh(), $request->user());
         $audit->log('policy.filter_linked', $policy, ['filter' => $filter['name']]);
 
         return back()->with('success', "{$filter['name']} is linked to {$policy->name}. ".$pulled['message']);

@@ -46,7 +46,10 @@ class ControllerLearner
         $learned = $filters->mapWithKeys(function (array $filter) use ($filters, $report, $total): array {
             $count = count($filter['network_ids']);
             $named = (bool) preg_match('/site\s*-?\s*wide|global|whole\s*site|all\s*networks|everyone/i', $filter['name']);
-            $sitewide = $named || ($count >= 3 && $count / $total >= self::SITEWIDE_SHARE);
+            // A filter whose name says who it is for ("Student - School Time") is a group, however
+            // many networks it is on: putting the Students filter on device networks is deliberate.
+            $forSomeone = $this->importer->suggestAudience($filter['name'], collect()) !== 'other';
+            $sitewide = $named || (! $forSomeone && $count >= 3 && $count / $total >= self::SITEWIDE_SHARE);
             $parent = $sitewide ? null : $this->importer->layerParent($filter, $filters);
             $networks = $report->only($filter['network_ids'])->values();
 
@@ -111,7 +114,7 @@ class ControllerLearner
             }
             $mapped = $assignment?->filterPolicy;
             if (! $advice && $mapped && $types->isNotEmpty() && ! $types->contains($mapped->audience)) {
-                $match = $policies->only($groups->pluck('id')->all())->first();
+                $match = $policies->toBase()->only($groups->pluck('id')->all())->first();
                 $advice = ['level' => 'warn', 'action' => $match ? 'remap' : null, 'policy' => $match,
                     'text' => 'Mapped to '.$mapped->name.' ('.NetworkType::labelFor($mapped->audience).') here, but filtered as '.$types->map(fn ($type) => NetworkType::labelFor($type))->join(' and ').' in UniFi.'];
             }

@@ -7,6 +7,7 @@ use App\Models\NetworkAssignment;
 use App\Models\User;
 use App\Services\Network\InspectionCertificate;
 use App\Services\Network\MockNetworkProvider;
+use App\Services\Policy\BaselineGuard;
 use App\Services\Policy\ControllerLearner;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
@@ -98,7 +99,7 @@ class LearnUniFiTest extends TestCase
 
         $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
         $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()
-            ->assertSee('Network check')->assertSee('A user network with only site-wide filtering');
+            ->assertSee('A user network with only site-wide filtering')->assertSee('Needs attention');
 
         $this->actingAs($this->admin)->post(route('admin.policy.networks.protect'), ['networks' => ['sim-guest']])->assertSessionHas('success');
         $students = collect(app(MockNetworkProvider::class)->contentFilters())->firstWhere('id', 'sim-filter-students');
@@ -121,5 +122,39 @@ class LearnUniFiTest extends TestCase
         $this->get(route('certificate.download', 'crt'))->assertOk()->assertHeader('Content-Type', 'application/x-x509-ca-cert');
         $this->assertTrue(app(InspectionCertificate::class)->matches('UniFi SSL Certificate Authority, Ubiquiti Inc.'));
         $this->assertFalse(app(InspectionCertificate::class)->matches('WE2, Google Trust Services'));
+    }
+
+    public function test_a_named_group_on_most_networks_stays_a_group_and_baseline_prefers_the_always_on_filter(): void
+    {
+        $filters = app(MockNetworkProvider::class)->contentFilters();
+        $filters[] = ['id' => 'sim-school-time', 'name' => 'Student - School Time', 'enabled' => true, 'allow' => [], 'block' => [], 'network_ids' => ['sim-staff', 'sim-student', 'sim-guest'], 'categories' => ['ADULT'], 'safe_search' => [], 'schedule' => 'CUSTOM'];
+        Cache::forever('mock.content_filters', $filters);
+
+        $learned = app(ControllerLearner::class)->learn(app(ControllerSync::class)->state(true));
+        $this->assertSame('group', $learned['filters']['sim-school-time']['role'], 'Named for students, so a group, not site-wide');
+        $this->assertTrue($learned['filters']['sim-school-time']['scheduled']);
+
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        $this->assertSame('sim-filter-students', app(BaselineGuard::class)->policy()?->provider_reference, 'The always-on Students filter protects unfiltered networks');
+    }
+
+    public function test_filters_are_added_to_and_removed_from_a_network_and_mismatches_offer_the_fix(): void
+    {
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        $guest = NetworkAssignment::query()->where('provider_network_id', 'sim-guest')->sole();
+        $onGuest = fn () => collect(app(MockNetworkProvider::class)->contentFilters())->filter(fn (array $filter) => in_array('sim-guest', $filter['network_ids'], true))->pluck('id')->all();
+
+        $this->actingAs($this->admin)->post(route('admin.policy.networks.filter', $guest), ['filter_id' => 'sim-filter-staff'])->assertSessionHas('success');
+        $this->assertContains('sim-filter-staff', $onGuest());
+        $this->actingAs($this->admin)->post(route('admin.policy.networks.filter', $guest), ['filter_id' => 'sim-filter-staff', 'remove' => '1'])->assertSessionHas('success');
+        $this->assertNotContains('sim-filter-staff', $onGuest());
+
+        // Mapped to Staff here but filtered as Students in UniFi: the row offers "Map to Students".
+        NetworkAssignment::query()->where('provider_network_id', 'sim-student')->update(['filter_policy_id' => FilterPolicy::query()->where('provider_reference', 'sim-filter-staff')->value('id')]);
+        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('filtered as Students in UniFi')->assertSee('Map to Students');
+
+        // One "Managed by" control: an existing policy, or a new one for a type.
+        $this->actingAs($this->admin)->post(route('admin.policy.networks.link'), ['filter_id' => 'sim-block-site', 'managed_by' => 'new:guest'])->assertSessionHas('success');
+        $this->assertSame('guest', FilterPolicy::query()->where('provider_reference', 'sim-block-site')->value('audience'));
     }
 }

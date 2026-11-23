@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.14
+
+### Changed
+- **Networks & filters is one table, a row per VLAN**: the filters on it in UniFi (group, site-wide, layer and paused filters told apart), its kind (user or device), the policy it belongs to here, and one plain status with the button that fixes it. Tabs: *Needs attention*, *All*, *User networks*, *Device networks*, *No filter*. It replaces the separate Network check, Baseline filtering and Networks sections.
+- **Changes happen in place**: adding Students filtering, mapping, allowing unfiltered and changing a network's kind or policy update the page without a reload, with the result message. Actions that change UniFi ask on the button itself ("… Confirm") instead of a browser dialog.
+- **Content filters on that page use one "Managed by" control**: an existing policy, a new policy for a type (Staff, Students, Guests…), or a new site-wide layer, with what each means.
+- **"+N" on networks and categories opens in place**, and *to add / to remove on publish* on the Policies table opens the actual hostnames.
+
+### Added
+- **Add or remove a filter on a VLAN** from its row (× on a filter, *+ Add filter*), in Active mode.
+
+### Fixed
+- A filter named for a type of user (for example *Student - School Time*) is learned as that group even when it is on most networks, instead of as a site-wide layer. This removed the flood of "add Students filtering" suggestions on device networks that already had it.
+- Baseline filtering prefers an always-on Students filter over one on a school-hours schedule.
+- "Mapped to … here, but filtered as … in UniFi" now offers *Map to …* (the fix button was never shown).
+
 ## 2026.12.13
 
 ### Added

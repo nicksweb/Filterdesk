@@ -115,7 +115,7 @@ class SetupFlowTest extends TestCase
         $guest = NetworkAssignment::query()->where('provider_network_id', 'sim-guest')->sole();
         $this->assertTrue($guest->needsBaselineDecision());
         $this->assertSame([], $this->guestFilters(), 'Nothing filtered without a decision');
-        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Needs a decision');
+        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('No filter. Add');
 
         // Allowed with a reason: left alone at every check.
         $this->actingAs($this->admin)->put(route('admin.policy.networks.unfiltered', $guest), ['allow' => '1', 'reason' => ''])->assertSessionHasErrors('reason');
@@ -216,7 +216,7 @@ class SetupFlowTest extends TestCase
 
         $staffFilters = collect(app(MockNetworkProvider::class)->contentFilters())->filter(fn (array $filter) => in_array('sim-staff', $filter['network_ids'], true))->pluck('name')->all();
         $this->assertSame(['Staff'], $staffFilters, 'A paused network is not moved to Students automatically');
-        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Staff is paused in UniFi')->assertSee('the filter is paused in UniFi');
+        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Staff is paused in UniFi')->assertSee('chip-paused', false);
     }
 
     public function test_no_probe_removes_the_profile_setup_made_and_the_file_says_what_to_remove(): void

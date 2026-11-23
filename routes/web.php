@@ -134,6 +134,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::put('/networks/baseline-policy', [NetworkMapController::class, 'baselinePolicy'])->name('networks.baseline-policy');
                     Route::put('/networks/{network}/unfiltered', [NetworkMapController::class, 'allowUnfiltered'])->name('networks.unfiltered');
                     Route::post('/networks/protect', [NetworkMapController::class, 'protect'])->middleware('throttle:10,1')->name('networks.protect');
+                    Route::post('/networks/{network}/filter', [NetworkMapController::class, 'filter'])->middleware('throttle:20,1')->name('networks.filter');
                     Route::put('/networks/{network}/kind', [NetworkMapController::class, 'kind'])->name('networks.kind');
                     Route::post('/policies/{policy}/categories', [FilterPolicyController::class, 'categories'])->middleware('throttle:10,1')->name('policies.categories');
                     Route::post('/policies/{policy}/layer', [PolicyLayerController::class, 'store'])->middleware('throttle:6,1')->name('policies.layer.store');

@@ -1,7 +1,7 @@
 @props(['rows', 'preview' => false])
 {{-- Laid out like UniFi's Content Filter page, so it reads the same as the console. --}}
 <div class="table-wrap filter-table"><table>
-    <thead><tr><th>Name</th><th>Filterdesk manages it as</th><th>Networks</th><th>Categories blocked</th><th>SafeSearch</th><th>Schedule</th><th>{{ $preview ? 'Entries' : 'Entries · on publish' }}</th></tr></thead>
+    <thead><tr><th>Name</th><th>Filterdesk manages it as</th><th>Networks</th><th>Categories blocked</th><th>SafeSearch</th><th>Schedule</th><th>{{ $preview ? 'Entries' : 'Entries, and what publishing changes' }}</th></tr></thead>
     <tbody>
         @foreach($rows as $row)
             <tr @class(['paused' => $row['paused']])>
@@ -9,8 +9,8 @@
                     @if($row['paused'])<small>Paused in UniFi</small>@endif
                     @if(!$preview && $row['policy']?->sync_status)<x-sync-status :policy="$row['policy']" />@endif</td>
                 <td>{{ $row['role'] }}</td>
-                <td><span class="chips">@foreach(array_slice($row['networks'], 0, 2) as $network)<span class="chip">{{ $network }}</span>@endforeach @if(count($row['networks']) > 2)<span class="chip more" title="{{ implode(', ', array_slice($row['networks'], 2)) }}">+{{ count($row['networks']) - 2 }}</span>@endif</span></td>
-                <td><span class="chips">@foreach(array_slice($row['categories'], 0, 3) as $category)<span class="chip">{{ $category }}</span>@endforeach @if(count($row['categories']) > 3)<span class="chip more" title="{{ implode(', ', array_slice($row['categories'], 3)) }}">+{{ count($row['categories']) - 3 }}</span>@endif</span></td>
+                <td><x-chips :items="$row['networks']" :max="2" /></td>
+                <td><x-chips :items="$row['categories']" :max="3" /></td>
                 <td>{{ $row['safe_search'] ? implode(', ', $row['safe_search']) : '–' }}</td>
                 <td>{{ $row['schedule'] ?: '–' }}</td>
                 <td>
@@ -18,7 +18,16 @@
                     @if(!$preview && $row['report'])
                         @php($adds = count($row['report']['allow_add']) + count($row['report']['block_add']))
                         @php($removes = count($row['report']['allow_remove']) + count($row['report']['block_remove']))
-                        <small @class(['network-status', 'warn' => $removes > 0])>{{ $adds || $removes ? "+{$adds} / −{$removes} waiting" : 'Nothing waiting' }}</small>
+                        @if($adds || $removes)
+                            <details class="pending"><summary @class(['network-status', 'warn' => $removes > 0])>{{ $adds ? $adds.' to add' : '' }}{{ $adds && $removes ? ', ' : '' }}{{ $removes ? $removes.' to remove' : '' }} on publish</summary>
+                                @foreach(['allow_add' => 'Allow +', 'block_add' => 'Block +', 'allow_remove' => 'Allow −', 'block_remove' => 'Block −'] as $key => $label)
+                                    @if($row['report'][$key])<small><strong>{{ $label }}</strong> {{ implode(', ', array_slice($row['report'][$key], 0, 12)) }}{{ count($row['report'][$key]) > 12 ? ' and '.(count($row['report'][$key]) - 12).' more' : '' }}</small>@endif
+                                @endforeach
+                                @if($row['policy'])<a href="{{ route('admin.policy.policies.show', $row['policy']) }}">See why, on the policy page</a>@endif
+                            </details>
+                        @else
+                            <small class="network-status">Nothing waiting</small>
+                        @endif
                     @endif
                 </td>
             </tr>

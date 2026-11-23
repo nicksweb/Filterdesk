@@ -76,7 +76,7 @@ class PolicyLayerTest extends TestCase
         $this->assertSame('in_sync', $layer->refresh()->sync_status);
 
         $this->actingAs(User::factory()->it()->create())->get(route('admin.policy.networks.index'))->assertOk()
-            ->assertSee('with layer Students - Blocklists', false)->assertDontSee('In 2 filters', false);
+            ->assertSee('Students - Blocklists<em>blocklist layer</em>', false)->assertDontSee('Also in', false);
         $this->actingAs(User::factory()->it()->create())->get(route('admin.policy.policies.show', $layer))->assertOk()->assertSee('Layer of Students');
     }
 

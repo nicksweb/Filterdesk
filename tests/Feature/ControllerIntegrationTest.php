@@ -77,7 +77,7 @@ class ControllerIntegrationTest extends TestCase
         $this->assertSame(['wanted.example.org'], $report['block_remove']);
         $this->assertSame(['wanted.example.org'], $report['controller_blocks_allowed']);
 
-        $this->actingAs($admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Matches');
+        $this->actingAs($admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Students filtering');
     }
 
     public function test_hand_made_controller_entries_can_be_imported_into_a_managed_list(): void

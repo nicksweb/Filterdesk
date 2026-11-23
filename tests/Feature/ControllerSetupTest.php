@@ -99,7 +99,7 @@ class ControllerSetupTest extends TestCase
         NetworkAssignment::query()->where('provider_network_id', 'sim-student')->update(['filter_policy_id' => $student->id]);
 
         $this->actingAs(User::factory()->it()->create())->get(route('admin.policy.networks.index'))->assertOk()
-            ->assertSee('In 2 filters', false)->assertSee('can still be blocked by Staff', false);
+            ->assertSee('Also in Staff', false)->assertSee('can still be blocked there', false);
 
         $this->artisan('policy:check-sync')->assertSuccessful();
         $this->assertNotSame('drift', $student->refresh()->sync_status, 'Stacked filters are reported, not drift');

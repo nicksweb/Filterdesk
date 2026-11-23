@@ -51,6 +51,16 @@ interface WritesContentFilters
     public function attachNetworksToContentFilter(string $filterId, array $networkIds): void;
 
     /**
+     * Take networks off a filter (keeping the rest), then read it back and
+     * confirm they are gone.
+     *
+     * @param  list<string>  $networkIds
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function detachNetworksFromContentFilter(string $filterId, array $networkIds): void;
+
+    /**
      * Save the filter back unchanged to prove the key may write it.
      *
      * @return array{ok: bool, message: string}

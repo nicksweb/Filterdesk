@@ -85,3 +85,70 @@
     });
   });
 })();
+
+// In-place updates: a form with data-async="#region" posts in the background, then the
+// region is replaced with the same region of the page the server sends back (with its
+// success or error message), so the result shows without a reload. Without JavaScript
+// the form posts normally. data-confirm-inline asks on the button itself, not in a dialog.
+(() => {
+  let activeTab = null;
+  const applyTabs = root => {
+    root.querySelectorAll('[data-row-tabs]').forEach(tabs => {
+      const table = document.querySelector(tabs.dataset.rowTabs);
+      if (!table) return;
+      const current = activeTab || tabs.querySelector('.tab.active')?.dataset.tab || 'all';
+      tabs.querySelectorAll('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === current));
+      let shown = 0;
+      table.querySelectorAll('tbody tr').forEach(row => {
+        const visible = current === 'all' || (current === 'attention' && row.dataset.attention === '1') || (current === 'unfiltered' && row.dataset.unfiltered === '1') || row.dataset.kind === current;
+        row.hidden = !visible;
+        if (visible) shown++;
+      });
+      const empty = tabs.closest('section')?.querySelector('.empty-tab');
+      if (empty) empty.hidden = shown > 0;
+    });
+  };
+  document.addEventListener('click', event => {
+    const tab = event.target.closest('[data-row-tabs] [data-tab]');
+    if (!tab) return;
+    activeTab = tab.dataset.tab;
+    applyTabs(document);
+  });
+  applyTabs(document);
+
+  document.addEventListener('change', event => {
+    const select = event.target.closest('select[data-autosubmit]');
+    if (select?.form) select.form.requestSubmit();
+  });
+
+  document.addEventListener('submit', async event => {
+    const form = event.target.closest('form[data-async]');
+    if (!form || !window.fetch || !window.DOMParser) return;
+    event.preventDefault();
+    const button = event.submitter || form.querySelector('button');
+    if (form.dataset.confirmInline && form.dataset.armed !== '1') {
+      form.dataset.armed = '1';
+      if (button) { button.dataset.label = button.textContent; button.textContent = form.dataset.confirmInline + ' Confirm'; button.classList.add('confirming'); }
+      setTimeout(() => { form.dataset.armed = ''; if (button?.dataset.label) { button.textContent = button.dataset.label; button.classList.remove('confirming'); } }, 5000);
+      return;
+    }
+    form.dataset.armed = '';
+    const region = document.querySelector(form.dataset.async);
+    region?.classList.add('is-busy');
+    if (button) { button.disabled = true; button.textContent = 'Working…'; }
+    try {
+      const response = await fetch(form.action, { method: 'POST', body: new FormData(form), headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'text/html' }, credentials: 'same-origin' });
+      const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const fresh = page.querySelector(form.dataset.async);
+      if (!region || !fresh) { window.location.reload(); return; }
+      region.innerHTML = fresh.innerHTML;
+      const slot = region.querySelector('[data-flash-slot]');
+      if (slot) page.querySelectorAll('main .alert').forEach(alert => slot.appendChild(document.importNode(alert, true)));
+      applyTabs(region);
+    } catch (error) {
+      form.submit();
+    } finally {
+      region?.classList.remove('is-busy');
+    }
+  });
+})();

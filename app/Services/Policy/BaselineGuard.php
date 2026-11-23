@@ -49,8 +49,15 @@ class BaselineGuard
         $linked = FilterPolicy::query()->main()->where('enabled', true)->whereNotNull('provider_reference')->ordered();
         $chosen = $this->settings->get(self::POLICY_KEY);
 
-        return ($chosen ? (clone $linked)->whereKey($chosen)->first() : null)
-            ?? (clone $linked)->where('audience', 'student')->first();
+        if ($chosen && ($policy = (clone $linked)->whereKey($chosen)->first())) {
+            return $policy;
+        }
+        // Prefer an always-on Students filter: a school-hours one filters nothing out of hours.
+        $state = $this->sync->state();
+        $schedules = collect($state['filters'] ?? [])->pluck('schedule', 'id');
+
+        return (clone $linked)->where('audience', 'student')->where('role', 'group')->get()
+            ->sortBy(fn (FilterPolicy $policy) => ($schedules[$policy->provider_reference] ?? 'ALWAYS') === 'ALWAYS' ? 0 : 1)->first();
     }
 
     /**

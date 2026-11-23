@@ -1,19 +1,23 @@
 <x-layouts.app title="Networks & filters">
     <x-slot:head><link rel="stylesheet" href="{{ asset('admin.css') }}"></x-slot:head>
-    @php($isAdmin = auth()->user()->isAdmin())
+    @php
+        $isAdmin = auth()->user()->isAdmin();
+        $baselineName = $baselinePolicy?->name ?? 'Students';
+        $roleLabel = ['sitewide' => 'site-wide', 'layer' => 'blocklist layer', 'group' => null];
+        $writable = $canPush;
+    @endphp
 
     <div class="page-heading">
         <div>
             <p class="eyebrow">Web filtering</p>
             <h1>Networks &amp; filters</h1>
-            <p>Which controller content filter each VLAN uses, and whether it gets staff, student or guest filtering here.</p>
+            <p>Every VLAN, the UniFi filters on it, and whether that's right. Fix things here and the row updates in place.</p>
         </div>
         <div class="button-row">
-            @if(auth()->user()->isAdmin() && $available)<a class="button secondary" href="{{ route('admin.policy.setup.show') }}">Guided setup</a>@endif
-            <a class="button secondary" href="{{ route('admin.policy.networks.index', ['refresh' => 1]) }}">Refresh from controller</a>
+            @if($isAdmin && $available)<a class="button secondary" href="{{ route('admin.policy.setup.show') }}">Guided setup</a>@endif
+            <a class="button secondary" href="{{ route('admin.policy.networks.index', ['refresh' => 1]) }}">Read UniFi again</a>
             @if($available)
                 <form method="post" action="{{ route('admin.policy.networks.check') }}">@csrf<button class="button secondary">Check sync now</button></form>
-                <form method="post" action="{{ route('admin.policy.networks.pull') }}">@csrf<button class="button {{ $canPush ? 'secondary' : 'primary' }}">Fetch all linked lists</button></form>
             @endif
             @if($canPush)
                 <form method="post" action="{{ route('admin.policy.networks.push') }}">@csrf<button class="button primary" data-confirm="Push pending changes to every linked content filter?">Push all linked policies</button></form>
@@ -23,190 +27,178 @@
     <x-push-status :status="$pushStatus ?? null" />
 
     @if($state['error'])
-        <div class="alert error"><strong>Live controller data is unavailable.</strong> {{ $state['error'] }} @if($isAdmin)<a href="{{ route('admin.settings.show', 'network') }}">Network provider settings</a>@endif</div>
-    @elseif($state['fetched_at'])
-        <p class="hint">Read from the controller {{ \Illuminate\Support\Carbon::parse($state['fetched_at'])->diffForHumans() }}. Mapping and linking only change this app; pushing changes only the allow and block lists of linked filters.</p>
+        <div class="alert error"><strong>UniFi could not be read.</strong> {{ $state['error'] }} @if($isAdmin)<a href="{{ route('admin.settings.show', 'network') }}">Network provider settings</a>@endif</div>
     @endif
 
-    @if($filters->isNotEmpty())
-        <section class="policy-section">
-            <div class="section-heading"><h2>Controller content filters</h2><p>Link each one to a filter policy so its lists can be fetched and reconciled automatically.</p></div>
-            <div class="filter-cards">
-                @foreach($filters as $filter)
-                    <article class="panel filter-card">
-                        <div class="policy-card-top"><span><strong>{{ $filter['name'] }}</strong><small>{{ count($filter['allow']) }} allowed · {{ count($filter['block']) }} blocked · {{ count($filter['categories']) }} categories</small></span>
-                            @if(!$filter['enabled'])<span class="status status-disabled">Disabled</span>@elseif($filter['policy'])<x-sync-status :policy="$filter['policy']" />@else<span class="status status-pending">Not linked</span>@endif</div>
-                        <p class="hint">Applied to: {{ $filter['network_names'] ? implode(', ', $filter['network_names']) : 'no networks' }}</p>
-                        @php($overlaps = $networks->filter(fn ($network) => in_array($network['id'], $filter['network_ids'], true) && in_array($network['status'], ['multiple_filters', 'unmapped'], true) && count($network['attached']) > 1))
-                        @if($overlaps->isNotEmpty())<p class="network-status warn">Shares {{ $overlaps->pluck('name')->join(', ') }} with {{ $overlaps->flatMap(fn ($network) => collect($network['attached'])->pluck('name'))->unique()->reject(fn ($name) => $name === $filter['name'])->join(', ') }}. Clients there get both filters.</p>@endif
-                        @if($filter['policy']?->isLayer())
-                            <p>Layer of <a href="{{ route('admin.policy.policies.show', $filter['policy']->layerOf) }}"><strong>{{ $filter['policy']->layerOf->name }}</strong></a>: carries its blocklist feeds. <a href="{{ route('admin.policy.policies.show', $filter['policy']) }}">Open the layer</a></p>
-                        @elseif($filter['policy'])
-                            <p>Managed by <a href="{{ route('admin.policy.policies.show', $filter['policy']) }}"><strong>{{ $filter['policy']->name }}</strong></a> · {{ $filter['policy']->typeLabel() }} filtering</p>
-                            @if($filter['policy']->sync_checked_at)<p class="hint">{{ $filter['policy']->sync_details['summary'] ?? '' }} Checked {{ $filter['policy']->sync_checked_at->diffForHumans() }}.</p>@endif
-                        @endif
-                        @if($isAdmin && !$filter['policy']?->isLayer())
-                            <form method="post" action="{{ route('admin.policy.networks.link') }}">@csrf
-                                <input type="hidden" name="filter_id" value="{{ $filter['id'] }}">
-                                <label>{{ $filter['policy'] ? 'Link to a different policy' : 'Link to policy' }}
-                                    <select name="filter_policy_id">
-                                        <option value="">Create a new policy…</option>
-                                        @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($filter['policy']?->is($policy))>{{ $policy->name }} ({{ $policy->typeLabel() }})</option>@endforeach
-                                    </select>
-                                </label>
-                                <label>New policy's network type <span class="optional">only when creating</span>
-                                    <select name="audience">@foreach(\App\Models\NetworkType::options() as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select>
-                                </label>
-                                <button class="button small secondary">Save link and fetch lists</button>
-                            </form>
-                        @endif
-                    </article>
-                @endforeach
-            </div>
-        </section>
-    @endif
+    <div id="networks-live">
+        <div data-flash-slot></div>
 
-
-    @if($learned->isNotEmpty())
-        <section class="panel policy-section" id="learned">
-            <div class="panel-heading"><div><h2>Network check</h2><p>Learned from UniFi: whether each network is for people's devices or for infrastructure, and what filters it. Device networks are fine without a group filter; adding Students filtering means anyone who gets onto one is filtered.</p></div>
-                @php($protectable = $learned->filter(fn ($item) => ($item['advice']['action'] ?? null) === 'protect'))
-                @if($isAdmin && $baselinePolicy && $protectable->isNotEmpty())
-                    <form method="post" action="{{ route('admin.policy.networks.protect') }}">@csrf @foreach($protectable as $item)<input type="hidden" name="networks[]" value="{{ $item['network']['id'] }}">@endforeach
-                        <button class="button secondary" data-confirm="Add {{ $baselinePolicy->name }}'s filter in UniFi to all {{ $protectable->count() }} networks listed with a suggestion?">Add {{ $baselinePolicy->name }} filtering to all {{ $protectable->count() }}</button></form>
-                @endif
-            </div>
-            @foreach($learned->sortBy(fn ($item) => [$item['advice'] ? ($item['advice']['level'] === 'warn' ? 0 : 1) : 2, $item['network']['vlan'] ?? 0]) as $item)
-                @php($row = $item['network'])
-                @php($assignment = $row['assignment'] ?? null)
-                <div class="learned-row">
-                    <span><strong>{{ $row['name'] }}</strong><small>{{ $row['vlan'] ? 'VLAN '.$row['vlan'] : 'Untagged' }}</small></span>
-                    <span>
-                        @if($isAdmin && $assignment)
-                            <form method="post" action="{{ route('admin.policy.networks.kind', $assignment) }}">@csrf @method('PUT')
-                                <select name="kind" onchange="this.form.submit()" aria-label="Kind of network for {{ $row['name'] }}">
-                                    <option value="user" @selected($item['kind'] === 'user')>User network{{ $item['kind_confirmed'] ? '' : ' (learned)' }}</option>
-                                    <option value="device" @selected($item['kind'] === 'device')>Device network{{ $item['kind_confirmed'] ? '' : ' (learned)' }}</option>
-                                    @if($item['kind_confirmed'])<option value="auto">Learn it again</option>@endif
-                                </select>
-                            </form>
-                        @else
-                            {{ $item['kind'] === 'user' ? 'User network' : 'Device network' }}
-                        @endif
-                    </span>
-                    <span>
-                        <small>{{ $item['groups'] ? 'Groups: '.implode(', ', $item['groups']) : 'No group filter' }}{{ $item['sitewide'] ? ' · site-wide: '.implode(', ', $item['sitewide']) : '' }}</small>
-                        @if($item['advice'])<span class="network-status {{ $item['advice']['level'] === 'warn' ? 'warn' : 'info' }}">{{ $item['advice']['text'] }}</span>@endif
-                    </span>
-                    <span>
-                        @if($isAdmin && ($item['advice']['action'] ?? null) === 'protect' && $baselinePolicy)
-                            <form method="post" action="{{ route('admin.policy.networks.protect') }}">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary" data-confirm="Add {{ $baselinePolicy->name }}'s filter to {{ $row['name'] }} in UniFi?">Add {{ $baselinePolicy->name }}</button></form>
-                        @elseif($isAdmin && ($item['advice']['action'] ?? null) === 'remap')
-                            <form method="post" action="{{ route('admin.policy.networks.update') }}">@csrf @method('PUT')<input type="hidden" name="assignments[{{ $row['id'] }}]" value="{{ $item['advice']['policy']->id }}"><button class="button small secondary">Map to {{ $item['advice']['policy']->name }}</button></form>
-                        @endif
-                    </span>
+        @if($rows !== [])
+            @php
+                $counts = ['all' => count($rows), 'attention' => collect($rows)->where('attention', true)->count(), 'user' => collect($rows)->where('kind', 'user')->count(),
+                    'device' => collect($rows)->where('kind', 'device')->count(), 'unfiltered' => collect($rows)->where('unfiltered', true)->count()];
+            @endphp
+            <section class="panel policy-section">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Networks</h2>
+                        <p>How it works: each network gets the filters attached to it in UniFi. <strong>Group</strong> filters are for one type of user (Staff, Students, Guests); <strong>site-wide</strong> filters are on every network. A network with no filter at all gets {{ $baselineName }} at the next check, unless you allow it unfiltered. Device networks don't need a group filter, but {{ $baselineName }} protects them if a student gets on.</p>
+                    </div>
                 </div>
-            @endforeach
-        </section>
-    @endif
-
-    @if($unfiltered->isNotEmpty() || !$state['error'])
-        <section class="panel policy-section baseline" id="baseline">
-            <div class="panel-heading"><div><h2>Baseline filtering</h2><p>No network is left without a filter by accident. A network with no content filter in UniFi is added to <strong>{{ $baselinePolicy?->name ?? 'the Students policy' }}</strong>'s filter, so it gets at least that level of filtering. To keep one unfiltered (a server or management network, say), allow it and say why.</p></div>
-                @if($isAdmin && $unfiltered->where('state', 'enforce')->isNotEmpty())<form method="post" action="{{ route('admin.policy.networks.baseline') }}">@csrf<button class="button primary" data-confirm="Add every unfiltered network that is not allowed to {{ $baselinePolicy?->name ?? 'the Students policy' }}'s filter in UniFi?">Filter them now</button></form>@endif
-            </div>
-            @if(!$baselinePolicy)
-                <p class="network-status warn">No Students policy is linked to a UniFi content filter yet, so there is nothing to add unfiltered networks to. Link one in <a href="{{ route('admin.policy.setup.show') }}">Guided setup</a>.</p>
-            @endif
-            @if($unfiltered->isEmpty())
-                <p class="network-status ok">Every network has a content filter.</p>
-            @else
-                <div class="baseline-rows">
-                    @foreach($unfiltered as $item)
-                        @php($network = $item['network'])
-                        <div class="baseline-row">
-                            <span><strong>{{ $network->name }}</strong><small>{{ $network->vlan ? 'VLAN '.$network->vlan : 'Untagged' }}{{ $network->subnet ? ' · '.$network->subnet : '' }}</small></span>
-                            <span>
-                                @switch($item['state'])
-                                    @case('allowed')<span class="network-status muted">Allowed unfiltered: {{ $network->unfiltered_reason }}</span><small>{{ $network->unfilteredReviewedBy?->name ?? 'An admin' }}, {{ $network->unfiltered_reviewed_at->local()->format('j M Y') }}</small>@break
-                                    @case('paused')<span class="network-status bad">Unfiltered: {{ implode(', ', $item['paused']) }} {{ count($item['paused']) === 1 ? 'is' : 'are' }} paused in UniFi</span><small>Turn it back on in UniFi, filter it now, or allow it unfiltered for now.</small>@break
-                                    @case('decide')<span class="network-status warn">Needs a decision: it had no filter when baseline filtering started</span>@break
-                                    @default<span class="network-status bad">Gets {{ $baselinePolicy?->name ?? 'Students' }} filtering at the next check (every 15 minutes, Active mode)</span>
-                                @endswitch
-                            </span>
-                            @if($isAdmin)
-                                <span class="button-row">
-                                    @if($item['state'] !== 'allowed' && $baselinePolicy)
-                                        <form method="post" action="{{ route('admin.policy.networks.baseline') }}">@csrf<input type="hidden" name="networks[]" value="{{ $network->provider_network_id }}"><button class="button small primary" data-confirm="Add {{ $network->name }} to {{ $baselinePolicy->name }}'s filter in UniFi?">Filter it now</button></form>
-                                    @endif
-                                    @if($item['state'] === 'allowed')
-                                        <form method="post" action="{{ route('admin.policy.networks.unfiltered', $network) }}">@csrf @method('PUT')<input type="hidden" name="allow" value="0"><button class="button small secondary">Stop allowing</button></form>
-                                    @else
-                                        <details class="inline-allow"><summary class="button small secondary">Allow unfiltered…</summary>
-                                            <form method="post" action="{{ route('admin.policy.networks.unfiltered', $network) }}">@csrf @method('PUT')<input type="hidden" name="allow" value="1">
-                                                <label>Why it stays unfiltered<input name="reason" required maxlength="255" placeholder="Servers and switches; no users"></label>
-                                                <button class="button small primary">Allow</button>
-                                            </form>
-                                        </details>
-                                    @endif
-                                </span>
-                            @endif
-                        </div>
+                <div class="row-tabs" role="tablist" data-row-tabs="#network-rows">
+                    @foreach(['attention' => 'Needs attention', 'all' => 'All', 'user' => 'User networks', 'device' => 'Device networks', 'unfiltered' => 'No filter'] as $key => $label)
+                        <button type="button" role="tab" data-tab="{{ $key }}" @class(['tab', 'active' => $key === ($counts['attention'] ? 'attention' : 'all')])>{{ $label }} <span class="count">{{ $counts[$key] }}</span></button>
                     @endforeach
                 </div>
-            @endif
-            @if($isAdmin && $policies->filter(fn ($policy) => filled($policy->provider_reference))->count() > 1)
-                <form method="post" action="{{ route('admin.policy.networks.baseline-policy') }}" class="search-line">@csrf @method('PUT')
-                    <label>Baseline policy<select name="policy_id">@foreach($policies->filter(fn ($policy) => filled($policy->provider_reference)) as $policy)<option value="{{ $policy->id }}" @selected($baselinePolicy?->is($policy))>{{ $policy->name }} · {{ $policy->typeLabel() }}</option>@endforeach</select></label>
-                    <button class="button secondary">Use this policy</button>
-                </form>
-            @endif
-        </section>
-    @endif
+                @if(!$writable)<p class="hint">Read-only mode: adding or removing filters on a network needs the network provider in Active mode (Settings → Network provider). The rest of this page still works.</p>@endif
 
-    <section class="panel table-wrap policy-section">
-        <div class="panel-heading"><div><h2>Networks (VLANs)</h2><p>Choose the filter policy each network should have. Its network type sets the filtering level: it inherits that type's lists plus every site-wide list.</p></div></div>
-        @if($networks->isEmpty() && $stored->isEmpty())
-            <p class="hint">No networks are known yet. Link a network provider that can list networks, then refresh.</p>
-        @else
-            <form method="post" action="{{ route('admin.policy.networks.update') }}">@csrf @method('PUT')
-                <table>
-                    <thead><tr><th>Network</th><th>VLAN</th><th>Filter in controller</th><th>Policy here</th><th>Status</th></tr></thead>
+                <div class="table-wrap net-table"><table id="network-rows">
+                    <thead><tr><th>Network</th><th>Kind</th><th>Filters in UniFi</th><th>Policy here</th><th>Status</th></tr></thead>
                     <tbody>
-                        @foreach($networks->isNotEmpty() ? $networks : $stored->map(fn ($row) => ['id' => $row->provider_network_id, 'name' => $row->name, 'vlan' => $row->vlan, 'purpose' => $row->purpose, 'policy' => $row->filterPolicy, 'attached' => null, 'status' => 'unknown']) as $network)
-                            <tr>
-                                <td><strong>{{ $network['name'] }}</strong><small>{{ str($network['purpose'] ?? '')->replace('-', ' ')->title() }}</small></td>
-                                <td>{{ $network['vlan'] ?? '—' }}</td>
-                                <td>@if($network['attached'] === null)<span class="hint">Unknown</span>@elseif($network['attached'] === [])<span class="hint">None</span>@else{{ collect($network['attached'])->pluck('name')->join(', ') }}@if(count($network['attached']) > 1 && !$network['policy'])<small class="network-status warn">Multiple filters</small>@endif @endif</td>
+                        @foreach($rows as $row)
+                            <tr data-kind="{{ $row['kind'] }}" data-attention="{{ $row['attention'] ? 1 : 0 }}" data-unfiltered="{{ $row['unfiltered'] ? 1 : 0 }}">
+                                <td><strong>{{ $row['name'] }}</strong><small>{{ $row['vlan'] ? 'VLAN '.$row['vlan'] : 'Untagged' }}{{ $row['subnet'] ? ' · '.$row['subnet'] : '' }}</small></td>
                                 <td>
-                                    @if($isAdmin)
-                                        <select name="assignments[{{ $network['id'] }}]" aria-label="Policy for {{ $network['name'] }}">
-                                            <option value="">Not managed</option>
-                                            @foreach($policies as $policy)<option value="{{ $policy->id }}" @selected($network['policy']?->is($policy))>{{ $policy->name }} · {{ $policy->typeLabel() }}</option>@endforeach
-                                        </select>
+                                    @if($isAdmin && $row['assignment'])
+                                        <form method="post" action="{{ route('admin.policy.networks.kind', $row['assignment']) }}" data-async="#networks-live">@csrf @method('PUT')
+                                            <select name="kind" data-autosubmit aria-label="Kind of network for {{ $row['name'] }}">
+                                                <option value="user" @selected($row['kind'] === 'user')>User</option>
+                                                <option value="device" @selected($row['kind'] === 'device')>Device</option>
+                                                @if($row['kind_confirmed'])<option value="auto">Learn again</option>@endif
+                                            </select>
+                                            @unless($row['kind_confirmed'])<small>learned</small>@endunless
+                                        </form>
                                     @else
-                                        {{ $network['policy'] ? $network['policy']->name.' · '.$network['policy']->typeLabel() : 'Not managed' }}
+                                        {{ ucfirst($row['kind']) }}
                                     @endif
                                 </td>
                                 <td>
-                                    @switch($network['status'])
-                                        @case('ok')@if(collect($network['attached'])->doesntContain(fn ($filter) => $filter['enabled'] ?? true))<span class="network-status bad">Matches, but the filter is paused in UniFi: unfiltered</span>@else<span class="network-status ok">Matches{{ $network['layer'] ? ' · with layer '.($network['layer']->provider_name ?: $network['layer']->name) : '' }}</span>@endif @break
-                                        @case('layer_missing')<span class="network-status warn">Add the layer {{ $network['layer']->provider_name ?: $network['layer']->name }} to this network in the controller, or its feeds are not blocked here</span>@break
-                                        @case('multiple_filters')<span class="network-status warn">In {{ count($network['attached']) }} filters: a hostname allowed by {{ $network['policy']->provider_name ?: $network['policy']->name }} can still be blocked by {{ collect($network['others'])->pluck('name')->join(', ') }}</span>@break
-                                        @case('unfiltered')@php($baselineItem = $unfiltered->first(fn ($item) => $item['network']->provider_network_id === $network['id']))<span class="network-status {{ ($baselineItem['state'] ?? '') === 'allowed' ? 'muted' : 'bad' }}">{{ ($baselineItem['state'] ?? '') === 'allowed' ? 'Unfiltered (allowed)' : 'Unfiltered: see Baseline filtering' }}</span>@break
-                                        @case('unmapped')<span class="network-status warn">Filtered in controller, not managed here</span>@break
-                                        @case('policy_unlinked')<span class="network-status warn">Link {{ $network['policy']->name }} to a controller filter</span>@break
-                                        @case('missing_filter')<span class="network-status warn">Attach {{ $network['policy']->provider_name ?: $network['policy']->name }} to this network in the controller</span>@break
-                                        @case('wrong_filter')<span class="network-status warn">Controller uses a different filter; expected {{ $network['policy']->provider_name ?: $network['policy']->name }}</span>@break
-                                        @default<span class="network-status muted">Last known</span>
-                                    @endswitch
+                                    <span class="chips">
+                                        @forelse($row['filters'] as $filter)
+                                            <span @class(['chip', 'chip-filter', 'chip-'.$filter['role'], 'chip-paused' => $filter['paused']]) title="{{ $filter['paused'] ? 'Paused in UniFi' : ($roleLabel[$filter['role']] ?? 'group') }}">
+                                                {{ $filter['name'] }}@if($roleLabel[$filter['role']] ?? null)<em>{{ $roleLabel[$filter['role']] }}</em>@endif
+                                                @if($isAdmin && $writable)
+                                                    <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live" data-confirm-inline="Remove from {{ $row['name'] }}?">@csrf<input type="hidden" name="filter_id" value="{{ $filter['id'] }}"><input type="hidden" name="remove" value="1"><button class="chip-remove" aria-label="Remove {{ $filter['name'] }} from {{ $row['name'] }}">×</button></form>
+                                                @endif
+                                            </span>
+                                        @empty
+                                            <span class="hint">None</span>
+                                        @endforelse
+                                    </span>
+                                    @if($isAdmin && $writable && $row['assignment'])
+                                        @php($addable = collect($state['filters'])->reject(fn ($filter) => collect($row['filters'])->pluck('id')->contains($filter['id'])))
+                                        @if($addable->isNotEmpty())
+                                            <details class="add-filter"><summary>+ Add filter</summary>
+                                                <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live">@csrf
+                                                    <select name="filter_id" aria-label="Filter to add to {{ $row['name'] }}">@foreach($addable as $filter)<option value="{{ $filter['id'] }}">{{ $filter['name'] }}{{ ($filter['enabled'] ?? true) ? '' : ' (paused)' }}</option>@endforeach</select>
+                                                    <button class="button small primary">Add</button>
+                                                </form>
+                                            </details>
+                                        @endif
+                                    @endif
+                                </td>
+                                <td>
+                                    @if($isAdmin && $row['assignment'])
+                                        <form method="post" action="{{ route('admin.policy.networks.update') }}" data-async="#networks-live">@csrf @method('PUT')
+                                            <select name="assignments[{{ $row['id'] }}]" data-autosubmit aria-label="Policy for {{ $row['name'] }}">
+                                                <option value="">Not managed</option>
+                                                @foreach($policies->reject(fn ($policy) => $policy->isSitewide()) as $policy)<option value="{{ $policy->id }}" @selected($row['policy']?->is($policy))>{{ $policy->name }}</option>@endforeach
+                                            </select>
+                                        </form>
+                                    @else
+                                        {{ $row['policy']?->name ?? 'Not managed' }}
+                                    @endif
+                                </td>
+                                <td>
+                                    <span class="network-status {{ $row['status']['level'] }}">{{ $row['status']['text'] }}</span>
+                                    @if($isAdmin && $row['status']['actions'])
+                                        <span class="row-fixes">
+                                            @foreach($row['status']['actions'] as $action)
+                                                @if($action === 'protect' && $baselinePolicy && $writable)
+                                                    <form method="post" action="{{ route('admin.policy.networks.protect') }}" data-async="#networks-live" data-confirm-inline="Add {{ $baselineName }} to {{ $row['name'] }}?">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary">Add {{ $baselineName }}</button></form>
+                                                @elseif($action === 'remap' && ($row['status']['policy'] ?? null))
+                                                    <form method="post" action="{{ route('admin.policy.networks.update') }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="assignments[{{ $row['id'] }}]" value="{{ $row['status']['policy']->id }}"><button class="button small secondary">Map to {{ $row['status']['policy']->name }}</button></form>
+                                                @elseif($action === 'allow' && $row['assignment'])
+                                                    <details class="inline-allow"><summary class="button small secondary">Allow unfiltered…</summary>
+                                                        <form method="post" action="{{ route('admin.policy.networks.unfiltered', $row['assignment']) }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="allow" value="1">
+                                                            <label>Why<input name="reason" required maxlength="255" placeholder="Switches and servers only"></label>
+                                                            <button class="button small primary">Allow</button>
+                                                        </form>
+                                                    </details>
+                                                @elseif($action === 'stop_allowing' && $row['assignment'])
+                                                    <form method="post" action="{{ route('admin.policy.networks.unfiltered', $row['assignment']) }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="allow" value="0"><button class="link-button">Stop allowing</button></form>
+                                                @endif
+                                            @endforeach
+                                        </span>
+                                    @endif
                                 </td>
                             </tr>
                         @endforeach
                     </tbody>
-                </table>
-                @if($isAdmin)<div class="form-actions"><button class="button primary">Save network mapping</button></div>@endif
-            </form>
+                </table></div>
+                <p class="hint empty-tab" hidden>Nothing here.</p>
+            </section>
+        @elseif($stored->isNotEmpty())
+            <section class="panel table-wrap policy-section">
+                <h2>Networks (last known)</h2>
+                <table><thead><tr><th>Network</th><th>VLAN</th><th>Policy here</th></tr></thead><tbody>
+                    @foreach($stored as $network)<tr><td>{{ $network->name }}</td><td>{{ $network->vlan ?? '—' }}</td><td>{{ $network->filterPolicy?->name ?? 'Not managed' }}</td></tr>@endforeach
+                </tbody></table>
+            </section>
         @endif
-    </section>
+
+        @if($filters->isNotEmpty())
+            <section class="panel policy-section">
+                <div class="panel-heading"><div>
+                    <h2>Content filters</h2>
+                    <p><strong>Managed by</strong> chooses which Filterdesk policy keeps each UniFi filter's allow and block lists. Pick <em>an existing policy</em> to keep its lists and history (for example the default Students policy). Pick <em>New policy for…</em> to create one: its type (Staff, Students, Guests…) decides which shared lists it gets. A <em>site-wide layer</em> is a filter on every network, carrying the lists for everyone.</p>
+                </div></div>
+                <div class="table-wrap filter-table"><table>
+                    <thead><tr><th>Filter</th><th>Networks</th><th>Managed by</th><th>Sync</th></tr></thead>
+                    <tbody>
+                        @foreach($filters as $filter)
+                            <tr @class(['paused' => !($filter['enabled'] ?? true)])>
+                                <td>@if($filter['policy'])<a href="{{ route('admin.policy.policies.show', $filter['policy']) }}"><strong>{{ $filter['name'] }}</strong></a>@else<strong>{{ $filter['name'] }}</strong>@endif
+                                    <small>{{ number_format(count($filter['allow'])) }} allowed · {{ number_format(count($filter['block'])) }} blocked{{ ($filter['enabled'] ?? true) ? '' : ' · paused in UniFi' }}</small></td>
+                                <td><x-chips :items="$filter['network_names']" :max="2" /></td>
+                                <td>
+                                    @if($filter['policy']?->isLayer())
+                                        Blocklist layer of <a href="{{ route('admin.policy.policies.show', $filter['policy']->layerOf) }}">{{ $filter['policy']->layerOf->name }}</a>
+                                    @elseif($isAdmin)
+                                        <form method="post" action="{{ route('admin.policy.networks.link') }}" data-async="#networks-live">@csrf
+                                            <input type="hidden" name="filter_id" value="{{ $filter['id'] }}">
+                                            <select name="managed_by" data-autosubmit aria-label="Managed by, for {{ $filter['name'] }}">
+                                                @unless($filter['policy'])<option value="" selected disabled>Not managed: choose…</option>@endunless
+                                                <optgroup label="An existing policy">
+                                                    @foreach($policies as $policy)<option value="policy:{{ $policy->id }}" @selected($filter['policy']?->is($policy))>{{ $policy->name }} · {{ $policy->isSitewide() ? 'site-wide layer' : $policy->typeLabel() }}{{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' (now on '.$policy->provider_name.')' : '' }}</option>@endforeach
+                                                </optgroup>
+                                                <optgroup label="A new policy">
+                                                    @foreach(\App\Models\NetworkType::options() as $value => $label)<option value="new:{{ $value }}">New policy for {{ $label }}</option>@endforeach
+                                                    <option value="sitewide">New site-wide layer</option>
+                                                </optgroup>
+                                            </select>
+                                        </form>
+                                    @else
+                                        {{ $filter['policy']?->name ?? 'Not managed' }}
+                                    @endif
+                                </td>
+                                <td>@if($filter['policy'])<x-sync-status :policy="$filter['policy']" />@else<span class="status status-pending">Not linked</span>@endif</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table></div>
+            </section>
+        @endif
+
+        @if($isAdmin && $policies->filter(fn ($policy) => filled($policy->provider_reference) && $policy->audience === 'student' && ! $policy->isSitewide())->count() > 1)
+            <details class="panel policy-section">
+                <summary>Which Students filter protects networks without one</summary>
+                <p class="hint">Now: <strong>{{ $baselineName }}</strong>. An always-on filter is best: one on a school-hours schedule filters nothing out of hours.</p>
+                <form method="post" action="{{ route('admin.policy.networks.baseline-policy') }}" class="search-line" data-async="#networks-live">@csrf @method('PUT')
+                    <label>Baseline filter<select name="policy_id">@foreach($policies->filter(fn ($policy) => filled($policy->provider_reference) && ! $policy->isSitewide()) as $policy)<option value="{{ $policy->id }}" @selected($baselinePolicy?->is($policy))>{{ $policy->name }} ({{ $policy->provider_name }})</option>@endforeach</select></label>
+                    <button class="button secondary">Use this</button>
+                </form>
+            </details>
+        @endif
+    </div>
 </x-layouts.app>

@@ -268,6 +268,22 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         }
     }
 
+    public function detachNetworksFromContentFilter(string $filterId, array $networkIds): void
+    {
+        $record = $this->rawContentFilter($filterId);
+        $remove = array_map('strval', $networkIds);
+        $record['network_ids'] = array_values(array_diff(array_map('strval', $record['network_ids'] ?? []), $remove));
+
+        $response = $this->client()->timeout(25)->put($this->contentFilterPath('/'.rawurlencode($filterId)), $record);
+        $this->ensureSuccessful($response, 'the filter\'s networks', writing: true);
+        $this->noteFilterSaved();
+
+        $saved = array_map('strval', $this->rawContentFilter($filterId)['network_ids'] ?? []);
+        if (array_intersect($remove, $saved) !== []) {
+            throw new ProviderRequestFailed('UniFi accepted the change but the network is still on the filter. Check the filter in UniFi before trying again.');
+        }
+    }
+
     public function createContentFilter(string $name, array $networkIds, array $categories): array
     {
         if ($categories === []) {

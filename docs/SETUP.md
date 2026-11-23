@@ -322,6 +322,8 @@ If sign-in fails, Settings → Authentication → *Provider details* shows the p
 - **Blocklist layers:** a second filter on exactly the same networks, for big feeds.
 - **User and device networks:** from each network's name and filters. Device and infrastructure networks don't need a group filter, but adding Students filtering protects them if a student gets on; *Networks & filters → Network check* suggests it with a button.
 
+**Networks & filters** then shows every VLAN as one row: the filters on it in UniFi, whether it is a user or device network, the policy it belongs to here, and a single status with the button that fixes it (add Students filtering, map it to the right policy, allow it unfiltered with a reason, or add and remove filters on it). The *Needs attention* tab lists only what to look at. Changes apply in place without reloading.
+
 Stacked filters like these are normal and no longer show as *Changed in controller*: that status now only means someone edited a filter's lists or categories in UniFi. A network mapped to one policy but filtered differently in UniFi shows as *Networks differ*.
 
 Nothing changes in UniFi. If a suggestion is wrong, open **Change a choice** and pick what each filter is for: filtering for a type of network (Students, Staff, Guest…), an *extra blocklist layer* on top of another filter (optional; only for big blocklist feeds), or *leave it alone*. *Advanced* picks a particular policy or skips importing.
