@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:v1.58.2-noble
+FROM mcr.microsoft.com/playwright:v1.65.1-noble
 WORKDIR /srv/probe
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
