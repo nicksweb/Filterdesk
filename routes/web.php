@@ -52,6 +52,7 @@ Route::middleware('installed')->group(function (): void {
         Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
         Route::post('/impersonation/stop', [ImpersonationController::class, 'stop'])->name('impersonation.stop');
         Route::get('/', DashboardController::class)->name('dashboard');
+        Route::post('/setup-checklist', [DashboardController::class, 'setup'])->middleware('role:admin')->name('setup.done');
         Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
         Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
         Route::get('/check', [WebsiteCheckController::class, 'create'])->name('checks.create');

@@ -14,6 +14,20 @@
             @foreach($filtersOutOfSync as $policy)<a href="{{ route('admin.policy.policies.show', $policy) }}">{{ $policy->name }}</a> ({{ $policy->sync_details['summary'] ?? $policy->sync_status }})@if(!$loop->last); @endif @endforeach
         </div>
     @endif
+    @if($setup)
+        <section class="panel setup-checklist">
+            <div class="panel-heading"><div><h2>Finish setting up</h2><p>{{ collect($setup)->where('done', true)->count() }} of {{ count($setup) }} done</p></div>
+                <form method="post" action="{{ route('setup.done') }}">@csrf<input type="hidden" name="item" value="all"><button class="link-button">Hide this list</button></form></div>
+            <ol class="setup-items">
+                @foreach($setup as $item)
+                    <li @class(['done' => $item['done']])><span class="check-icon {{ $item['done'] ? 'ok' : '' }}">{{ $item['done'] ? '✓' : $loop->iteration }}</span>
+                        <span><a href="{{ $item['link'] }}"><strong>{{ $item['label'] }}</strong></a>@if($item['optional']) <span class="optional">optional</span>@endif<small>{{ $item['detail'] }}</small></span>
+                        @unless($item['done'])<form method="post" action="{{ route('setup.done') }}">@csrf<input type="hidden" name="item" value="{{ $item['key'] }}"><button class="link-button">Mark done</button></form>@endunless
+                    </li>
+                @endforeach
+            </ol>
+        </section>
+    @endif
     @if($myReviews)
         <div class="alert">You own {{ $myReviews }} website exception(s) due for review. <a href="{{ route('reviews.index') }}">Review them</a> so they are not removed.</div>
     @endif

@@ -240,3 +240,7 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .coverage-parts .part-ok{border-left-color:#08705f}.coverage-parts .part-bad{border-left-color:#a6222b}
 .home-manager{margin-bottom:24px}
 .override{margin:14px 0;padding:10px 14px;border:1px dashed #d9b36b;border-radius:10px;background:#fffaf0}.override summary{cursor:pointer;font-weight:650;font-size:.86rem}
+.setup-checklist{margin-bottom:24px}.setup-items{list-style:none;padding:0;margin:8px 0 0}
+.setup-items li{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #edf0f3}
+.setup-items li small{display:block;color:var(--muted)}.setup-items li.done{opacity:.6}.setup-items .check-icon{background:#eef2f6;color:#42536a}
+.setup-items .check-icon.ok{background:#e1f5ed;color:#08715d}.setup-checklist .link-button{color:var(--blue)}

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkProfile;
 use App\Models\User;
+use App\Services\Approval\TwoPersonRule;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Policy\PolicyBackfill;
@@ -82,6 +83,11 @@ class InstallController extends Controller
                 'students_can_request' => ['nullable', 'boolean'],
                 'default_temporary_days' => ['required', 'integer', 'min:1', 'max:365'],
                 'categories' => ['required', 'string'],
+                'two_person_site_wide' => ['nullable', 'boolean'],
+                'two_person_override' => ['nullable', 'boolean'],
+                'sensitive_categories' => ['nullable', 'string', 'max:4000'],
+                'review_months' => ['nullable', 'integer', 'min:1', 'max:36'],
+                'grace_days' => ['nullable', 'integer', 'min:1', 'max:90'],
             ]),
             8 => [],
             default => abort(404),
@@ -96,7 +102,7 @@ class InstallController extends Controller
             $validated['admin_password'] = Hash::make($validated['admin_password']);
         }
 
-        foreach (['oidc_enabled', 'emergency_local_login', 'unifi_enabled', 'unifi_verify_tls', 'auto_approve_staff', 'students_can_request'] as $boolean) {
+        foreach (['oidc_enabled', 'emergency_local_login', 'unifi_enabled', 'unifi_verify_tls', 'auto_approve_staff', 'students_can_request', 'two_person_site_wide', 'two_person_override'] as $boolean) {
             if (array_key_exists($boolean, $request->all())) {
                 $validated[$boolean] = $request->boolean($boolean);
             }
@@ -113,7 +119,7 @@ class InstallController extends Controller
             $this->complete($data);
             $request->session()->forget('installation');
 
-            return redirect()->route('login')->with('success', 'Installation complete. Sign in with the administrator account'.(($data['unifi_enabled'] ?? false) ? ', then open Policy lists → Guided setup to bring your UniFi filters in.' : '.'));
+            return redirect()->route('login')->with('success', 'Installation complete. Sign in with the administrator account; the home page lists what to finish next'.(($data['unifi_enabled'] ?? false) ? ', starting with Guided setup to bring your UniFi filters in.' : '.'));
         }
 
         return redirect()->route('install.show', $step + 1);
@@ -175,6 +181,15 @@ class InstallController extends Controller
                 'students_can_request' => (bool) ($data['students_can_request'] ?? false),
                 'default_temporary_days' => (int) $data['default_temporary_days'],
                 'categories' => array_values(array_filter(array_map('trim', explode(',', $data['categories'])))),
+                'two_person_site_wide' => (bool) ($data['two_person_site_wide'] ?? true),
+                'two_person_override' => (bool) ($data['two_person_override'] ?? true),
+                'sensitive_categories' => isset($data['sensitive_categories'])
+                    ? array_values(array_filter(array_map('trim', preg_split('/[,\n]+/', (string) $data['sensitive_categories']) ?: [])))
+                    : TwoPersonRule::DEFAULT_SENSITIVE,
+            ]);
+            $settings->set('governance', [
+                'review_months' => (int) ($data['review_months'] ?? 12),
+                'grace_days' => (int) ($data['grace_days'] ?? 14),
             ]);
 
             User::query()->updateOrCreate(['email' => strtolower($data['admin_email'])], [
