@@ -57,6 +57,7 @@
                 @endif
                 @if($oidcLastError)<div class="alert error">Last sign-in failure ({{ \Illuminate\Support\Carbon::parse($oidcLastError['at'])->local()->format('j M Y g:i a') }}): {{ $oidcLastError['message'] }}</div>@endif
             </details>
+            @if($oidcWarning)<div class="alert warning">{{ $oidcWarning }}</div>@endif
             <label>Role rules <span class="optional">one per line, first match wins</span>
                 <textarea name="role_rules" rows="5" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:it-staff-group-object-id=it&#10;group:Filterdesk.Admin=admin">{{ old('role_rules', $roleRules) }}</textarea>
                 <small><code>email_domain:</code> matches the address domain and its subdomains. <code>group:</code> matches a value in the <code>groups</code> or <code>roles</code> claim (Entra: add a groups claim or app roles to the token).</small>
@@ -76,6 +77,33 @@
             <label class="choice"><input type="hidden" name="emergency_local_login" value="0"><input type="checkbox" name="emergency_local_login" value="1" @checked(old('emergency_local_login', $settings->get('auth.emergency_local_login', true)))><span><strong>Emergency local sign-in</strong><small>Password sign-in for local accounts. Restrict /login at the reverse proxy where possible. Recover from the host with <code>php artisan filterdesk:admin-password</code>.</small></span></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
+
+        @if($oidc?->enabled)
+            <section class="panel form-panel" style="margin-top:20px">
+                <div class="test-sign-in">
+                    <div><strong>Test sign-in</strong><small>Sign in at your provider with the saved settings and see what it sends, the groups, and the role the saved rules give. Nobody is created or signed in. Sign out of the provider first to test someone else's account.</small></div>
+                    <form method="post" action="{{ route('admin.settings.test-sign-in') }}">@csrf<button class="button secondary">Test sign-in</button></form>
+                </div>
+                @if(session(\App\Http\Controllers\OidcTestController::RESULT_KEY))
+                    <x-oidc-test-result :result="session(\App\Http\Controllers\OidcTestController::RESULT_KEY)" />
+                    <p class="hint">The role buttons add a line to Role rules above; press Save to keep it.</p>
+                @endif
+            </section>
+        @endif
+
+        @if($roleChanges->isNotEmpty())
+            <section class="panel form-panel" style="margin-top:20px">
+                <h2>Accounts the rules would change</h2>
+                <p class="hint">From the groups each person had at their last sign-in. {{ ($oidc?->configuration['sync_roles'] ?? false) ? 'Roles are re-applied at each sign-in, so these change next time anyway.' : 'Roles are only set at the first sign-in, so these stay as they are unless you apply the rules.' }} IT and admin access is never taken away here.</p>
+                <div class="table-wrap"><table>
+                    <thead><tr><th>Account</th><th>Now</th><th>By the rules</th><th>Why</th></tr></thead>
+                    <tbody>@foreach($roleChanges as $change)<tr @class(['muted' => $change['kept']])><td>{{ $change['user']->name }}<small>{{ $change['user']->email }}</small></td><td>{{ ucfirst($change['from']) }}</td><td>{{ ucfirst($change['to']) }}{{ $change['kept'] ? ' (kept as '.$change['from'].')' : '' }}</td><td>{{ $change['rule'] ?? 'default role' }}</td></tr>@endforeach</tbody>
+                </table></div>
+                @if($roleChanges->reject(fn ($change) => $change['kept'])->isNotEmpty())
+                    <form method="post" action="{{ route('admin.settings.apply-roles') }}" class="form-actions">@csrf<button class="button primary" data-confirm="Change {{ $roleChanges->reject(fn ($change) => $change['kept'])->count() }} account(s) to the role the rules give?">Apply the rules to these accounts</button></form>
+                @endif
+            </section>
+        @endif
 
         <section class="panel form-panel try-rules" style="margin-top:20px">
             <h2>Try the rules</h2>

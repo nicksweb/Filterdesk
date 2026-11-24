@@ -67,6 +67,7 @@ class AuthController extends Controller
 
             return redirect()->route('login')->withErrors(['email' => 'Single sign-on is not available right now. Use the emergency sign-in, or contact IT.']);
         }
+        $request->session()->forget(OidcTestController::SESSION_KEY);
         $request->session()->put('oidc.state', $state);
         $request->session()->put('oidc.pkce', $pkce);
 
@@ -75,6 +76,11 @@ class AuthController extends Controller
 
     public function oidcCallback(Request $request, OidcClient $client, UserProvisioningService $users): RedirectResponse
     {
+        // Back from a Test sign-in: show what came back; nobody is created or signed in.
+        if ($request->session()->has(OidcTestController::SESSION_KEY)) {
+            return app()->call([app(OidcTestController::class), 'finish']);
+        }
+
         if (! hash_equals((string) $request->session()->pull('oidc.state'), (string) $request->query('state'))) {
             return redirect()->route('login')->withErrors(['email' => 'The sign-in session expired. Please try again.']);
         }

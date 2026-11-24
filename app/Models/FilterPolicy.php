@@ -14,11 +14,13 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 class FilterPolicy extends Model
 {
+    public const HOURS = 'hours';
+
     protected $fillable = [
         'name', 'slug', 'audience', 'layer_of_id', 'description', 'network_profile_id', 'provider_reference', 'provider_name',
         'enabled', 'sort_order', 'current_allowlist', 'current_blocklist', 'snapshot_at', 'snapshot_by_id',
         'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline', 'controller_exclusions', 'controller_managed',
-        'role', 'receives_site_blocks',
+        'role', 'receives_site_blocks', 'layer_kind',
     ];
 
     protected function casts(): array
@@ -87,7 +89,30 @@ class FilterPolicy extends Model
     /** The layer filter that carries this policy's blocklist feeds. */
     public function layer(): HasOne
     {
-        return $this->hasOne(self::class, 'layer_of_id');
+        return $this->hasOne(self::class, 'layer_of_id')->where(fn ($query) => $query->whereNull('layer_kind')->orWhere('layer_kind', '!=', self::HOURS));
+    }
+
+    /**
+     * The school-hours layer: a second filter for the same network type
+     * that UniFi switches on by its own schedule ("Student - School Time"
+     * next to "Students - All Hours").
+     */
+    public function hoursLayer(): HasOne
+    {
+        return $this->hasOne(self::class, 'layer_of_id')->where('layer_kind', self::HOURS);
+    }
+
+    public function isHoursLayer(): bool
+    {
+        return $this->layer_of_id !== null && $this->layer_kind === self::HOURS;
+    }
+
+    /** The hours layer when it is enabled and linked to a controller filter. */
+    public function activeHoursLayer(): ?self
+    {
+        $layer = $this->isLayer() ? null : $this->hoursLayer;
+
+        return $layer && $layer->enabled && filled($layer->provider_reference) ? $layer : null;
     }
 
     /**

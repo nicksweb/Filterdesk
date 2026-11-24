@@ -9,6 +9,7 @@ use App\Models\PolicyEntry;
 use App\Models\RequestEvent;
 use App\Notifications\FilterSyncAlertNotification;
 use App\Services\AuditLogger;
+use App\Services\Network\FilterSchedule;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Requests\RequestNotifier;
 use Illuminate\Support\Collection;
@@ -175,6 +176,9 @@ class SyncChecker
         $stackedNetworks = $owner?->isSitewide() ? 0 : $networks->filter(fn (array $network) => collect($network['attached'])->pluck('id')->contains($filter['id'])
             && collect($network['attached'])->pluck('id')->diff($expected)->isNotEmpty())->count();
         $networkIssues = $mismatched->all();
+        // Networks with only this policy's school-hours layer: filtered as this type in school hours only.
+        $hoursLayer = $owner?->activeHoursLayer();
+        $hoursOnly = $hoursLayer ? $networks->filter(fn (array $network) => $network['policy']?->is($owner) && $network['status'] === 'hours_only')->map($label)->values() : collect();
 
         $edited = collect($changedInController)->flatten()->isNotEmpty();
         $due = collect($pending)->flatten()->isNotEmpty();
@@ -195,6 +199,10 @@ class SyncChecker
         if ($networkIssues) {
             $summary[] = 'Networks differ: '.collect($networkIssues)->take(4)->join('; ').(count($networkIssues) > 4 ? ' and '.(count($networkIssues) - 4).' more' : '').'.';
         }
+        if ($hoursOnly->isNotEmpty() && ! $policy->isLayer()) {
+            $summary[] = 'Filtered only in school hours on '.$hoursOnly->count().' network(s), which have '.($hoursLayer->provider_name ?: $hoursLayer->name).' but not '.$filter['name'].': '
+                .$hoursOnly->take(4)->join(', ').($hoursOnly->count() > 4 ? ' and '.($hoursOnly->count() - 4).' more' : '').' (see Networks & filters).';
+        }
         if ($stackedNetworks > 0) {
             $summary[] = "Shares {$stackedNetworks} network(s) with ".$stacked->unique()->take(4)->join(', ').($stacked->unique()->count() > 4 ? ' and others' : '').' (see Networks & filters).';
         }
@@ -205,9 +213,11 @@ class SyncChecker
         return $this->record($policy, $status, [
             'summary' => $summary ? implode(' ', $summary) : "Matches {$filter['name']}.",
             'filter' => $filter['name'],
+            'schedule' => $filter['schedule_label'] ?? FilterSchedule::label($filter['schedule'] ?? null),
             'changed_in_controller' => $changedInController,
             'pending' => $pending,
             'networks' => $networkIssues,
+            'hours_only' => $hoursOnly->all(),
             'unmanaged' => ['allow' => $report['allow_review'], 'block' => $report['block_review']],
             'pulled' => $pulled && collect($pulled)->flatten()->isNotEmpty() ? $pulled + ['at' => now()->toIso8601String()] : ($policy->sync_details['pulled'] ?? null),
             'authoritative' => $pulled !== null,

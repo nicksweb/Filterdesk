@@ -182,7 +182,7 @@ class ControllerSync
      */
     public function networkReport(array $state): Collection
     {
-        $assignments = NetworkAssignment::query()->with('filterPolicy.layer')->get()->keyBy('provider_network_id');
+        $assignments = NetworkAssignment::query()->with('filterPolicy.layer', 'filterPolicy.hoursLayer')->get()->keyBy('provider_network_id');
         // Filters expected to share a network with its group filter: the site-wide layers, and
         // other linked filters of the same network type (for example a school-hours and an
         // all-hours Students filter). Anything else on the network is reported.
@@ -202,7 +202,8 @@ class ControllerSync
             $attachedIds = array_column($attached, 'id');
             // The policy's layer belongs on the same networks; it is expected, not a conflict.
             $layer = $policy?->activeLayer();
-            $expected = $policy ? array_values(array_filter([$policy->provider_reference, $layer?->provider_reference, ...$sitewide,
+            $hours = $policy?->activeHoursLayer();
+            $expected = $policy ? array_values(array_filter([$policy->provider_reference, $layer?->provider_reference, $hours?->provider_reference, ...$sitewide,
                 ...$linked->filter(fn (FilterPolicy $other) => ! $other->isSitewide() && $other->audience === $policy->audience)->pluck('provider_reference')->all()])) : [];
             $others = $policy ? array_values(array_filter($attached, fn (array $filter) => ! in_array($filter['id'], $expected, true))) : [];
             $linked = $policy && in_array($policy->provider_reference, $attachedIds, true);
@@ -214,12 +215,14 @@ class ControllerSync
                 $linked && $others !== [] => 'multiple_filters',
                 $linked && $layer && ! in_array($layer->provider_reference, $attachedIds, true) => 'layer_missing',
                 $linked => 'ok',
+                // Only the school-hours layer: filtered as this type in school hours, not outside them.
+                $hours && in_array($hours->provider_reference, $attachedIds, true) => 'hours_only',
                 $attached === [] => 'missing_filter',
                 default => 'wrong_filter',
             };
 
             return $network + [
-                'assignment' => $assignment, 'policy' => $policy, 'layer' => $layer, 'attached' => $attached, 'status' => $status, 'others' => $others,
+                'assignment' => $assignment, 'policy' => $policy, 'layer' => $layer, 'hours' => $hours, 'attached' => $attached, 'status' => $status, 'others' => $others,
             ];
         });
     }

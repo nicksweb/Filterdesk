@@ -108,6 +108,13 @@
                             </fieldset>
                             <label>Note to requester <span class="optional">optional</span><input name="message" value="{{ old('action') === 'approve' ? old('message') : '' }}"></label>
                         </div>
+                        @php($hoursPolicies = $websiteRequest->isBlock() ? collect() : \App\Models\FilterPolicy::query()->main()->where('enabled', true)->whereNotNull('provider_reference')->whereHas('hoursLayer', fn ($query) => $query->where('enabled', true)->whereNotNull('provider_reference'))->with('hoursLayer')->get())
+                        @if($hoursPolicies->isNotEmpty())
+                            <fieldset class="hours-choice"><legend>When</legend>
+                                <label class="choice compact"><input type="radio" name="hours" value="all" @checked(old('hours', $websiteRequest->hours ?? 'all') !== 'outside')><span><strong>All hours</strong><small>Added to {{ $hoursPolicies->map(fn ($policy) => $policy->provider_name.' and '.$policy->hoursLayer->provider_name)->join('; ') }}, so the school-hours filter does not block it.</small></span></label>
+                                <label class="choice compact"><input type="radio" name="hours" value="outside" @checked(old('hours', $websiteRequest->hours) === 'outside')><span><strong>Outside school hours only</strong><small>Kept out of {{ $hoursPolicies->map(fn ($policy) => $policy->hoursLayer->provider_name.' ('.($policy->hoursLayer->sync_details['schedule'] ?? 'its UniFi schedule').')')->join(', ') }}: still blocked there while it is on, if it blocks the site.</small></span></label>
+                            </fieldset>
+                        @endif
                         <ul class="rule-notes">@foreach($rules->notes as $note)<li>{{ $note }}</li>@endforeach</ul>
                         @php($rule = app(\App\Services\Approval\TwoPersonRule::class))
                         @php($mineFirst = $first && (int) $first['user_id'] === auth()->id())

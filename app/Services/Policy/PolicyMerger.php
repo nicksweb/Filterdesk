@@ -40,6 +40,9 @@ class PolicyMerger
         if ($from->layer && $into->layer) {
             throw new InvalidArgumentException('Both have a blocklist layer. Delete one layer first.');
         }
+        if ($from->hoursLayer && $into->hoursLayer) {
+            throw new InvalidArgumentException('Both have a school-hours layer. Unlink one first.');
+        }
 
         $result = DB::transaction(function () use ($from, $into): array {
             $moved = 0;
@@ -66,6 +69,7 @@ class PolicyMerger
             }
             $networks = NetworkAssignment::query()->where('filter_policy_id', $from->id)->update(['filter_policy_id' => $into->id]);
             $from->layer?->update(['layer_of_id' => $into->id, 'audience' => $into->audience]);
+            $from->hoursLayer?->update(['layer_of_id' => $into->id, 'audience' => $into->audience]);
 
             $carry = [];
             if (blank($into->provider_reference) && filled($from->provider_reference)) {

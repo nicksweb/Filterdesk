@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Approval\TwoPersonRule;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Oidc\OidcDiscoveryService;
+use App\Services\Oidc\OidcProviderHints;
 use App\Services\Policy\PolicyBackfill;
 use App\Services\Policy\PolicyEngine;
 use App\Services\SettingsRepository;
@@ -56,6 +57,9 @@ class InstallController extends Controller
                 'oidc_allowed_domains' => ['nullable', 'string'],
                 'role_rules' => ['nullable', 'string', 'max:5000'],
                 'default_role' => ['nullable', 'in:student,teacher,deny'],
+                'oidc_scopes' => ['nullable', 'string', 'max:500'],
+                'oidc_group_claims' => ['nullable', 'string', 'max:300'],
+                'sync_roles' => ['nullable', 'boolean'],
                 'emergency_local_login' => ['nullable', 'boolean'],
             ]),
             4 => $request->validate([
@@ -109,7 +113,7 @@ class InstallController extends Controller
             $validated['admin_password'] = Hash::make($validated['admin_password']);
         }
 
-        foreach (['oidc_enabled', 'emergency_local_login', 'unifi_enabled', 'unifi_verify_tls', 'auto_approve_staff', 'students_can_request', 'two_person_site_wide', 'two_person_override'] as $boolean) {
+        foreach (['oidc_enabled', 'sync_roles', 'emergency_local_login', 'unifi_enabled', 'unifi_verify_tls', 'auto_approve_staff', 'students_can_request', 'two_person_site_wide', 'two_person_override'] as $boolean) {
             if (array_key_exists($boolean, $request->all())) {
                 $validated[$boolean] = $request->boolean($boolean);
             }
@@ -118,8 +122,22 @@ class InstallController extends Controller
         $data = array_merge($data, $validated);
         $request->session()->put('installation', $data);
 
+        $notice = null;
         if ($step === 3 && ($data['oidc_enabled'] ?? false)) {
-            app(OidcDiscoveryService::class)->check($data['oidc_issuer'], 'oidc_issuer');
+            $discovery = app(OidcDiscoveryService::class)->check($data['oidc_issuer'], 'oidc_issuer');
+            // A provider that only sends groups with its own scope (CloudWork ID): ask for it, or no group: rule can match.
+            $hints = app(OidcProviderHints::class);
+            $rules = UserProvisioningService::parseRules($data['role_rules'] ?? '');
+            $scopes = OidcTestController::words($data['oidc_scopes'] ?? '');
+            $hint = $hints->for($data['oidc_issuer'], $discovery);
+            $missing = array_values(array_diff($hint['scopes'], $scopes));
+            if ($hint['provider'] !== null && $missing !== [] && collect($rules)->contains(fn (array $rule) => $rule['type'] === 'group')) {
+                $scopes = [...$scopes, ...$missing];
+                $data['oidc_scopes'] = implode(' ', $scopes);
+                $notice = 'Added the scope '.implode(' ', $missing).' under Extra scopes: '.$hint['note'];
+            }
+            $data['sso_warning'] = $hints->warning($data['oidc_issuer'], $rules, $scopes, $discovery);
+            $request->session()->put('installation', $data);
         }
 
         if ($step === 8) {
@@ -129,7 +147,7 @@ class InstallController extends Controller
             return redirect()->route('login')->with('success', 'Installation complete. Sign in with the administrator account; the home page lists what to finish next'.(($data['unifi_enabled'] ?? false) ? ', starting with Guided setup to bring your UniFi filters in.' : '.'));
         }
 
-        return redirect()->route('install.show', $step + 1);
+        return redirect()->route('install.show', $step + 1)->with('info', $notice);
     }
 
     /** @return array<string, array{ok: bool, message: string}> */
@@ -263,7 +281,10 @@ class InstallController extends Controller
                         'allowed_domains' => array_values(array_filter(array_map(fn ($value) => strtolower(trim($value)), explode(',', $data['oidc_allowed_domains'] ?? '')))),
                         'role_rules' => UserProvisioningService::parseRules($data['role_rules'] ?? ''),
                         'default_role' => $data['default_role'] ?? 'teacher',
-                        'sync_roles' => false,
+                        'scopes' => OidcTestController::words($data['oidc_scopes'] ?? ''),
+                        'group_claims' => OidcTestController::words($data['oidc_group_claims'] ?? ''),
+                        // While rules are still being tuned, roles follow them at every sign-in.
+                        'sync_roles' => (bool) ($data['sync_roles'] ?? filled($data['role_rules'] ?? null)),
                     ],
                     'credentials' => ['client_secret' => $data['oidc_client_secret']],
                 ]);

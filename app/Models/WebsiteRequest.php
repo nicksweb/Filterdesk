@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
 class WebsiteRequest extends Model
 {
     protected $fillable = [
-        'reference', 'request_type', 'domain_categories', 'access_plan', 'schedule', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
+        'reference', 'hours', 'request_type', 'domain_categories', 'access_plan', 'schedule', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
         'category', 'use_case', 'standards_confirmed', 'status', 'requested_from',
         'requested_until', 'approved_at', 'access_from', 'expires_at', 'expiry_reminded_at', 'resolved_at', 'resolution',
         'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at', 'first_approval', 'department',

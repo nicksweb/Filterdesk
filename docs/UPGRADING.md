@@ -42,6 +42,12 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.14 → 2026.12.15
+
+- Pull and restart as usual. A migration adds school-hours layers and the *When* choice on approvals.
+- **Scheduled filters:** if you have a school-hours filter beside an always-on one for the same type (for example *Student - School Time* and *Students - All Hours*), open Guided setup: it suggests *School-hours layer of Students*. Run **Bring everything in**, or set it under *Networks & filters → Content filters → Managed by*. Its allows and blocks are kept. Then check **Policies → Changes**: the school-hours filter gains the policy's allows (that is the point), and should lose nothing.
+- **Single sign-on:** if accounts got the wrong role because no groups arrived, add the provider's scope under Settings → Authentication → Provider details (CloudWork ID: `https://scopes.cloudwork.id/profile`), turn on *Re-apply rules at every sign-in*, and use **Test sign-in** to check. Accounts are put right at their next sign-in, or straight away from *Accounts the rules would change*.
+
 ## 2026.12.12 → 2026.12.13
 
 - Pull and restart as usual; the probe image changed too.

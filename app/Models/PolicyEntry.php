@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class PolicyEntry extends Model
 {
     protected $fillable = ['policy_list_id', 'domain', 'source', 'website_request_id', 'list_source_id', 'note', 'added_by_id', 'starts_at', 'expires_at', 'schedule', 'pending_action', 'proposed_by_id', 'proposed_at',
-        'owner_id', 'review_at', 'reviewed_at', 'reviewed_by_id', 'review_notified_at', 'last_seen_at'];
+        'owner_id', 'review_at', 'reviewed_at', 'reviewed_by_id', 'review_notified_at', 'last_seen_at', 'hours'];
 
     protected function casts(): array
     {

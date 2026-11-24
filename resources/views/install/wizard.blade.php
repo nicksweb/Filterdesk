@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Install Filterdesk</title><link rel="stylesheet" href="{{ asset('app.css') }}"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Install Filterdesk</title><link rel="stylesheet" href="{{ asset('app.css') }}"><link rel="stylesheet" href="{{ asset('ui.css') }}"><script src="{{ asset('app.js') }}" defer></script></head>
 <body class="install-page">
 @php($titles = [1 => 'Welcome and system checks', 2 => 'School configuration', 3 => 'Administrator and authentication', 4 => 'UniFi integration', 5 => 'Network access profiles', 6 => 'Email and notifications', 7 => 'Approval policies', 8 => 'Review and complete'])
 <main class="install-shell">
@@ -12,6 +12,8 @@
     <section class="install-card">
         <p class="eyebrow">Step {{ $step }} of 8</p>
         <h1>{{ $titles[$step] }}</h1>
+        @if(session('info'))<div class="alert success" role="status">{{ session('info') }}</div>@endif
+        @if(session('error'))<div class="alert error" role="alert">{{ session('error') }}</div>@endif
         @if($errors->any())<div class="alert error"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
         <form method="post" action="{{ route('install.store', $step) }}">@csrf
             @if($step === 1)
@@ -30,8 +32,25 @@
                 <div class="fields two"><label>Client ID<input name="oidc_client_id" value="{{ old('oidc_client_id', $data['oidc_client_id'] ?? '') }}"></label><label>Client secret<input name="oidc_client_secret" type="password"></label></div>
                 <label>Allowed email domains <span class="optional">comma separated</span><input name="oidc_allowed_domains" placeholder="example.edu.au, students.example.edu.au" value="{{ old('oidc_allowed_domains', $data['oidc_allowed_domains'] ?? '') }}"></label>
                 <label>Role rules <span class="optional">one per line, first match wins</span><textarea name="role_rules" rows="3" placeholder="email_domain:students.example.edu.au=student&#10;group:00000000-0000-0000-0000-000000000000=it">{{ old('role_rules', $data['role_rules'] ?? '') }}</textarea><small>Map an email domain or an Entra group/app-role claim to a role. Without rules every new user gets the default role below.</small></label>
-                <label>Default role for unmatched users<select name="default_role">@foreach(['teacher' => 'Teacher', 'student' => 'Student', 'deny' => 'Refuse sign-in'] as $value => $label)<option value="{{ $value }}" @selected(old('default_role', $data['default_role'] ?? 'teacher') === $value)>{{ $label }}</option>@endforeach</select></label>
+                <div class="fields two">
+                    <label>Default role for unmatched users<select name="default_role">@foreach(['teacher' => 'Teacher', 'student' => 'Student', 'deny' => 'Refuse sign-in'] as $value => $label)<option value="{{ $value }}" @selected(old('default_role', $data['default_role'] ?? 'teacher') === $value)>{{ $label }}</option>@endforeach</select></label>
+                    <label class="choice compact"><input type="hidden" name="sync_roles" value="0"><input type="checkbox" name="sync_roles" value="1" @checked(old('sync_roles', $data['sync_roles'] ?? true))><span><strong>Re-apply rules at every sign-in</strong><small>Recommended while you tune the rules: a fix to a rule also fixes accounts made earlier. Never removes IT or admin access given by hand.</small></span></label>
+                </div>
+                @php($hint = filled($data['oidc_issuer'] ?? null) ? app(\App\Services\Oidc\OidcProviderHints::class)->for($data['oidc_issuer']) : null)
+                <details class="oidc-advanced" @if(filled($data['oidc_scopes'] ?? null) || filled($data['oidc_group_claims'] ?? null) || $errors->has('oidc_scopes')) open @endif><summary>Provider-specific options <span class="optional">extra scopes, group claims</span></summary>
+                    <div class="fields two">
+                        <label>Extra scopes <span class="optional">space separated</span><input name="oidc_scopes" value="{{ old('oidc_scopes', $data['oidc_scopes'] ?? '') }}" placeholder="{{ \App\Services\Oidc\OidcProviderHints::CLOUDWORK_SCOPE }}"><small>openid, profile and email are always requested. CloudWork ID: <code>{{ \App\Services\Oidc\OidcProviderHints::CLOUDWORK_SCOPE }}</code> (added for you when your rules use <code>group:</code>).</small></label>
+                        <label>Claims holding groups or roles <span class="optional">blank = automatic</span><input name="oidc_group_claims" value="{{ old('oidc_group_claims', $data['oidc_group_claims'] ?? '') }}" placeholder="automatic"><small>Blank uses every claim named …groups, …role or …roles.</small></label>
+                    </div>
+                    @if($hint && $hint['note'])<p class="hint">{{ $hint['provider'] ? $hint['provider'].': ' : '' }}{{ $hint['note'] }}</p>@endif
+                </details>
                 <p class="notice">Register this redirect URI with your identity provider: <code>{{ rtrim($data['app_url'] ?? config('app.url'), '/') }}/auth/oidc/callback</code></p>
+                @if($data['sso_warning'] ?? null)<div class="alert warning">{{ $data['sso_warning'] }}</div>@endif
+                <div class="test-sign-in">
+                    <div><strong>Test sign-in</strong> <span class="optional">optional</span><small>Sign in at your provider with the settings above and see what it sends and the role you would get. Nobody is created or signed in, and nothing is saved except what you typed on this page.</small></div>
+                    <button type="submit" class="button secondary" formaction="{{ route('install.oidc-test') }}" formnovalidate>Test sign-in</button>
+                </div>
+                @if(session(\App\Http\Controllers\OidcTestController::RESULT_KEY))<x-oidc-test-result :result="session(\App\Http\Controllers\OidcTestController::RESULT_KEY)" />@endif
             @elseif($step === 4)
                 <label class="choice"><input type="hidden" name="unifi_enabled" value="0"><input type="checkbox" name="unifi_enabled" value="1" @checked(old('unifi_enabled', $data['unifi_enabled'] ?? true))><span><strong>Configure UniFi Network</strong><small>You can install in simulation mode and configure it later.</small></span></label>
                 <label>Connection<select name="unifi_connection"><option value="local" @selected(($data['unifi_connection'] ?? 'local') === 'local')>Local console key (Network → Settings → Control Plane → Integrations)</option><option value="cloud" @selected(($data['unifi_connection'] ?? '') === 'cloud')>Site Manager key from unifi.ui.com (cloud connector)</option></select><small>unifi.ui.com keys only work with the cloud connector. You can pick the console later under Settings → Network provider → Discover.</small></label>
@@ -85,7 +104,8 @@
                 <div class="fields two"><label>Review exceptions every (months)<input name="review_months" type="number" min="1" max="36" value="{{ old('review_months', $data['review_months'] ?? 12) }}"></label><label>Remove unreviewed ones after (days)<input name="grace_days" type="number" min="1" max="90" value="{{ old('grace_days', $data['grace_days'] ?? 14) }}"></label></div>
             @else
                 @php($extraNetworks = collect($data['networks'] ?? [])->filter(fn ($row) => filled($row['name'] ?? null)))
-                <div class="review-grid"><div><span>Networks</span><strong>Students{{ filled($data['student_network_id'] ?? null) ? ' (VLAN '.$data['student_network_id'].')' : '' }}, Staff{{ filled($data['staff_network_id'] ?? null) ? ' (VLAN '.$data['staff_network_id'].')' : '' }}@foreach($extraNetworks as $row), {{ $row['name'] }}{{ filled($row['vlan'] ?? null) ? ' (VLAN '.$row['vlan'].')' : '' }}@endforeach</strong></div><div><span>School</span><strong>{{ $data['school_name'] ?? 'Not set' }}</strong></div><div><span>Authentication</span><strong>{{ ($data['oidc_enabled'] ?? false) ? 'OIDC + emergency admin' : 'Emergency admin only' }}</strong></div><div><span>Network provider</span><strong>{{ ($data['unifi_enabled'] ?? false) ? 'UniFi · '.str($data['unifi_mode'] ?? 'read_only')->replace('_', ' ')->title() : 'Simulation' }}</strong></div><div><span>Network profiles</span><strong>Student and Staff</strong></div><div><span>Notifications</span><strong>{{ $data['it_notification_address'] ?? 'Not set' }}</strong></div><div><span>Timezone</span><strong>{{ $data['timezone'] ?? 'Not set' }}</strong></div></div>
+                <div class="review-grid"><div><span>Networks</span><strong>Students{{ filled($data['student_network_id'] ?? null) ? ' (VLAN '.$data['student_network_id'].')' : '' }}, Staff{{ filled($data['staff_network_id'] ?? null) ? ' (VLAN '.$data['staff_network_id'].')' : '' }}@foreach($extraNetworks as $row), {{ $row['name'] }}{{ filled($row['vlan'] ?? null) ? ' (VLAN '.$row['vlan'].')' : '' }}@endforeach</strong></div><div><span>School</span><strong>{{ $data['school_name'] ?? 'Not set' }}</strong></div><div><span>Authentication</span><strong>{{ ($data['oidc_enabled'] ?? false) ? 'OIDC + emergency admin'.(filled($data['oidc_scopes'] ?? null) ? ' · scopes '.$data['oidc_scopes'] : '').' · roles '.(($data['sync_roles'] ?? true) ? 'follow the rules at each sign-in' : 'set once, at the first sign-in') : 'Emergency admin only' }}</strong></div><div><span>Network provider</span><strong>{{ ($data['unifi_enabled'] ?? false) ? 'UniFi · '.str($data['unifi_mode'] ?? 'read_only')->replace('_', ' ')->title() : 'Simulation' }}</strong></div><div><span>Network profiles</span><strong>Student and Staff</strong></div><div><span>Notifications</span><strong>{{ $data['it_notification_address'] ?? 'Not set' }}</strong></div><div><span>Timezone</span><strong>{{ $data['timezone'] ?? 'Not set' }}</strong></div></div>
+                @if($data['sso_warning'] ?? null)<div class="alert warning">Single sign-on: {{ $data['sso_warning'] }} <a href="{{ route('install.show', 3) }}">Change it</a></div>@endif
                 <div class="notice">Completing installation encrypts saved secrets, creates the administrator, and permanently locks this wizard. After you sign in, the home page lists what to finish: Guided setup, probes on their VLANs, a second IT officer, the school calendar, website categories and backups.</div>
             @endif
             <div class="form-actions">@if($step > 1)<a class="button secondary" href="{{ route('install.show', $step - 1) }}">Back</a>@endif<button class="button primary" type="submit">{{ $step === 8 ? 'Complete installation' : 'Continue' }}</button></div>

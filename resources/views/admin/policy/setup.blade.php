@@ -56,6 +56,9 @@
                 @php
                     $describe = function (array $filter) {
                         $suggestion = $filter['suggestion'];
+                        if ($suggestion['action'] === 'hours') {
+                            return 'School-hours layer of '.($filter['parent_name'] ?? 'its all-hours filter').': keeps its allows, blocks and schedule'.($filter['linked'] && ! $filter['linked']->isHoursLayer() ? ' · now its own policy, will change' : '');
+                        }
                         if ($filter['linked'] && ! $filter['linked']->isSitewide() && $suggestion['action'] !== 'sitewide') {
                             return 'Managed by '.$filter['linked']->name.($filter['linked']->isLayer() ? ' (extra blocklist layer)' : ' · '.$filter['linked']->typeLabel().' filtering');
                         }
@@ -76,7 +79,7 @@
                             <div><strong>Site-wide layers</strong><small>On most networks; allows and blocks for everyone</small>
                                 <ul>@forelse($lessons->where('role', 'sitewide') as $item)<li>{{ $item['filter']['name'] }} <span class="hint">{{ $item['coverage'] }} networks{{ $item['carries_blocks'] ? ' · takes the site-wide blocks' : '' }}</span></li>@empty<li class="hint">None: each network has its own filter</li>@endforelse</ul></div>
                             <div><strong>Groups</strong><small>One type of user each</small>
-                                <ul>@foreach($lessons->where('role', 'group')->groupBy('audience') as $audience => $items)<li>{{ \App\Models\NetworkType::labelFor($audience) }}: {{ $items->map(fn ($item) => $item['filter']['name'].($item['scheduled'] ? ' (on a schedule)' : ''))->join(', ') }}</li>@endforeach</ul></div>
+                                <ul>@foreach($lessons->whereIn('role', ['group', 'hours'])->groupBy('audience') as $audience => $items)<li>{{ \App\Models\NetworkType::labelFor($audience) }}: {{ $items->map(fn ($item) => $item['filter']['name'].($item['role'] === 'hours' ? ' (school-hours layer: '.$item['when'].')' : ($item['scheduled'] ? ' ('.$item['when'].')' : '')))->join(', ') }}</li>@endforeach</ul></div>
                             @php $kinds = $learned['networks']; @endphp
                             <div><strong>Networks</strong><small>From their names and filters; confirm under Networks &amp; filters</small>
                                 <ul><li>{{ $kinds->where('kind', 'user')->count() }} user networks</li><li>{{ $kinds->where('kind', 'device')->count() }} device or infrastructure networks</li>
@@ -105,6 +108,7 @@
                                 $suggestion = $filter['suggestion'];
                                 $selected = match (true) {
                                     $suggestion['action'] === 'sitewide' => 'sitewide',
+                                    $suggestion['action'] === 'hours' => 'hours:'.$suggestion['parent'],
                                     (bool) $filter['linked'] => $filter['linked']->isLayer() ? 'layer:'.$filter['linked']->layerOf?->provider_reference : 'type:'.$filter['linked']->audience,
                                     default => match ($suggestion['action']) { 'layer' => 'layer:'.$suggestion['parent'], 'skip' => 'skip', default => 'type:'.$suggestion['audience'] },
                                 };
@@ -125,6 +129,11 @@
                                         <optgroup label="On every network">
                                             <option value="sitewide" @selected($selected === 'sitewide')>Site-wide layer (allows or blocks for everyone)</option>
                                         </optgroup>
+                                        @if(($filter['schedule'] ?? 'ALWAYS') !== 'ALWAYS' && $parentFilters->reject(fn ($other) => $other['id'] === $filter['id'])->isNotEmpty())
+                                            <optgroup label="On a schedule ({{ $filter['schedule_label'] ?? 'set in UniFi' }})">
+                                                @foreach($parentFilters->reject(fn ($other) => $other['id'] === $filter['id']) as $other)<option value="hours:{{ $other['id'] }}" @selected($selected === 'hours:'.$other['id'])>School-hours layer of {{ $other['name'] }} (keeps its allows and blocks)</option>@endforeach
+                                            </optgroup>
+                                        @endif
                                         @if($parentFilters->reject(fn ($other) => $other['id'] === $filter['id'])->isNotEmpty())
                                             <optgroup label="Optional">
                                                 @foreach($parentFilters->reject(fn ($other) => $other['id'] === $filter['id']) as $other)<option value="layer:{{ $other['id'] }}" @selected($selected === 'layer:'.$other['id'])>Extra blocklist layer on top of {{ $other['name'] }}</option>@endforeach

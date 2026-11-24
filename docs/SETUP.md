@@ -272,7 +272,7 @@ Open `https://<hostname>`. The wizard has eight steps and locks itself once fini
 | --- | --- | --- |
 | 1. System checks | Nothing | All four checks should be ✓. A `!` against *Proxy* means `TRUSTED_PROXIES` is wrong. |
 | 2. School | Name, timezone, the URL (same as `APP_URL`), Schoolbox origin | Fill in the Schoolbox origin (for example `https://schoolbox.example.edu.au`) only if the app will be embedded in Schoolbox. |
-| 3. Administrator and sign-in | The first local admin's name, email and password (14+ characters). Optionally OIDC: issuer, client ID, secret, allowed email domains, role rules, default role. | For Entra ID the issuer is `https://login.microsoftonline.com/<tenant-id>/v2.0`. Role rules map groups or emails to *student*, *teacher*, *IT* and *admin*. Leave **Emergency local sign-in** on until SSO is proven. |
+| 3. Administrator and sign-in | The first local admin's name, email and password (14+ characters). Optionally OIDC: issuer, client ID, secret, allowed email domains, role rules, default role, *Re-apply rules at every sign-in* (on), and under **Provider-specific options** any extra scopes and the claims that hold groups. | For Entra ID the issuer is `https://login.microsoftonline.com/<tenant-id>/v2.0`. Role rules map groups or emails to *student*, *teacher*, *IT* and *admin*. For CloudWork ID, the profile scope is added for you when a rule uses `group:`. Press **Test sign-in** before continuing (see below). Leave **Emergency local sign-in** on until SSO is proven. |
 | 4. UniFi | Connection type, then the console URL (local key) or console ID (Site Manager key), the API key and site, **Read-only** mode, entry matching *Explicit* | Start read-only. You can test and change all of this later under Settings → Network provider. |
 | 5. Network access profiles | Keep `http://probe-student:3000` and `http://probe-staff:3000`; optionally the Student and Staff VLAN numbers (for example 20 and 10). Under **Other networks**, add every other network to filter and test (guest Wi-Fi, BYOD, CCTV, a lab): its name, its network type (an existing one, or *New type…* with a name) and its VLAN | The VLANs are matched to UniFi networks once connected, and Guided setup plans a probe on each (step 9). Extra networks start switched off until their probe container runs; a new type gets its own allow and block lists and filter policy. |
 | 6. Email | SMTP host, port, username, password, from address, IT notification address | The IT address receives new requests, alerts and the daily digest. Settings → Email has a test button. |
@@ -304,6 +304,10 @@ email_domain:students.school.example=student
 
 *Claims holding groups or roles* can stay blank: Filterdesk then uses every claim whose name ends in groups, role or roles (Entra's `groups` and `roles`, CloudWork ID's `https://cloudwork.id/claims/groups` and `https://cloudwork.id/claims/role`, whose value is for example `faculty`, so `group:faculty=teacher` works). Name the claims only if yours are called something else, such as `memberOf`. *Try the rules* on the same page shows what a set of groups would give someone, and Users shows the groups each person's last sign-in carried.
 
+**Test sign-in.** On the wizard's sign-in step and under Settings → Authentication, **Test sign-in** sends you to the provider with the settings as they are and back to the normal redirect URI (nothing extra to register). It shows the claims that came back (personal values hidden), every group or role, and *With these rules this account would be: admin (matched `group:itstaff=admin`)*. Each group has buttons (*Admin*, *IT*, *Teacher*, *Student*) that add the rule for you. No account is created and nobody is signed in. If no groups come back, it says so and names the scope or setting the provider needs: CloudWork ID only sends groups and roles with the scope `https://scopes.cloudwork.id/profile`; Entra ID needs a groups claim or app roles on the app registration; Google sends none. To test another person's account, sign out of the provider first.
+
+**Fixing roles after the fact.** With *Re-apply rules at every sign-in* on (the installer's default), a corrected rule fixes each account at its next sign-in. Settings → Authentication also lists **Accounts the rules would change**, worked out from the groups each person had at their last sign-in, with **Apply the rules to these accounts**. IT and admin access is never taken away by rules. An account created before its groups arrived (for example before the CloudWork scope was added) has no groups recorded: it is put right at its next sign-in.
+
 If sign-in fails, Settings → Authentication → *Provider details* shows the provider's reason (for example a redirect URI that is not registered) and, after a successful sign-in, the claims it sends, for writing role rules.
 
 ## 8. Bring UniFi in
@@ -318,7 +322,8 @@ If sign-in fails, Settings → Authentication → *Provider details* shows the p
 **What Filterdesk learns.** It reads how your filters are organised and shows it as a table laid out like UniFi's Content Filter page (name, networks, categories, SafeSearch, schedule), with what Filterdesk will manage each filter as:
 
 - **Site-wide layers:** filters on most networks (for example *Allow (Sitewide)* and *Block (Sitewide)*). They carry the site-wide lists. One of them *takes the site-wide blocks*: new site-wide blocks go only into it, not into every filter, which keeps each filter under UniFi's limit of about 100,000 entries. Allows still go into every filter on the networks concerned, because UniFi blocks a site if any filter on the network blocks it.
-- **Groups:** one or more filters per type of user (Staff, Students, Guests…), on a schedule or not (for example *Student - School Time* and *Students - All Hours*).
+- **Groups:** one filter per type of user (Staff, Students, Guests…). The schedule is read from UniFi and shown in words, for example *Mon–Fri 08:30–15:10*.
+- **School-hours layers:** a filter on a schedule beside an always-on filter for the same type (for example *Student - School Time* beside *Students - All Hours*). See [School-hours filters](#school-hours-filters) below.
 - **Blocklist layers:** a second filter on exactly the same networks, for big feeds.
 - **User and device networks:** from each network's name and filters. Device and infrastructure networks don't need a group filter, but adding Students filtering protects them if a student gets on; *Networks & filters → Network check* suggests it with a button.
 
@@ -329,6 +334,20 @@ Stacked filters like these are normal and no longer show as *Changed in controll
 Nothing changes in UniFi. If a suggestion is wrong, open **Change a choice** and pick what each filter is for: filtering for a type of network (Students, Staff, Guest…), an *extra blocklist layer* on top of another filter (optional; only for big blocklist feeds), or *leave it alone*. *Advanced* picks a particular policy or skips importing.
 
 **Networks with no filter.** Under *Networks & filters → Baseline filtering*, every network without a UniFi content filter is listed. In Active mode, a network that appears later without a filter (or loses its filter) is added to the Students filter automatically at the next check (every 15 minutes), and IT is emailed. Networks that were already unfiltered when you set up wait for a decision: **Filter it now**, or **Allow unfiltered** with a reason (a server or management network, for example). The dashboard reminds admins until each has one.
+
+### School-hours filters
+
+Many schools run two filters for students: one always on, and a stricter one that UniFi switches on in school hours. Filterdesk manages the second as a **school-hours layer** of the first policy (*Students: all hours + school-hours layer*):
+
+- It keeps its own allow and block lists and its UniFi schedule. Filterdesk never writes the schedule.
+- Everything the policy allows also goes into it, so an approval for students works in school hours too. Without this, a site approved in *All Hours* could still be blocked by *School Time* during the day.
+- Its own blocks stay in it and are not copied to the always-on filter, so they apply only in school hours.
+- When approving a request for a network type with a school-hours layer, **When** offers *All hours* (the default: both filters) or *Outside school hours only* (left out of the school-hours filter, so it stays blocked there while it is on, if that filter blocks it).
+- A network that has only the school-hours filter gets that type's filtering only in school hours. Networks & filters says so on its row (*Students filtering only in school hours…*) with **Add Students - All Hours**, and the policy's sync status lists those networks instead of reporting *Networks differ*.
+
+Guided setup suggests this when it finds a scheduled filter beside an always-on one of the same type. You can also set it under *Networks & filters → Content filters → Managed by → School-hours layer of …*. A filter that was brought in earlier as a policy of its own becomes the layer, keeping its lists, and its networks move to the main policy.
+
+**How UniFi combines filters on one network.** Ubiquiti does not document how several content filters on the same network combine. Filterdesk assumes the cautious case: every filter that is on applies, and a site blocked by any of them is blocked, so an allow in one filter does not undo a block or blocked category in another. That is why allows go into every filter on a network, and why a school-hours block wins during its hours. To check this on your own console: put a test hostname in one filter's block list and another filter's allow list on the same VLAN, then run a website check for it from that VLAN's probe (or a device on it), during and outside the schedule.
 
 Rename or add network types under **Settings → Network types** if Staff and Students don't describe your networks (for example CCTV or Exam rooms), and set each policy's type.
 

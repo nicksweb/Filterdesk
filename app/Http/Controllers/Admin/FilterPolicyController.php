@@ -41,7 +41,7 @@ class FilterPolicyController extends Controller
         $lists = PolicyList::query()->appliesTo($policy)->ordered()->withCount('entries')->get();
 
         return view('admin.policy.policy', [
-            'policy' => $policy->load('networkProfile', 'snapshotBy', 'networkAssignments', 'layer', 'layerOf'),
+            'policy' => $policy->load('networkProfile', 'snapshotBy', 'networkAssignments', 'layer', 'hoursLayer', 'layerOf'),
             'slowListSize' => ControllerPusher::SLOW_LIST_ENTRIES,
             'report' => $engine->reconcile($policy),
             'lists' => $lists,

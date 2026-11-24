@@ -25,6 +25,7 @@ use App\Services\Network\UniFiNetworkProvider;
 use App\Services\Notifications\EmailTemplates;
 use App\Services\Oidc\OidcClient;
 use App\Services\Oidc\OidcDiscoveryService;
+use App\Services\Oidc\OidcProviderHints;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
@@ -80,9 +81,12 @@ class SettingsController extends Controller
             'oidcHasSecret' => filled($oidc?->credentials['client_secret'] ?? null),
             'oidcLastError' => $section === 'authentication' ? Cache::get(OidcClient::LAST_ERROR_KEY) : null,
             'oidcLastClaims' => $section === 'authentication' ? Cache::get(OidcClient::LAST_CLAIMS_KEY) : null,
-            'oidcProvider' => $section === 'authentication' && filled($oidc?->configuration['issuer'] ?? null)
+            'oidcProvider' => $oidcDiscovery = $section === 'authentication' && filled($oidc?->configuration['issuer'] ?? null)
                 ? rescue(fn () => app(OidcDiscoveryService::class)->discover((string) $oidc->configuration['issuer']), null, false) : null,
             'roleRules' => UserProvisioningService::formatRules($oidc?->configuration['role_rules'] ?? []),
+            'roleChanges' => $section === 'authentication' && $oidc ? app(UserProvisioningService::class)->roleChanges($oidc->configuration ?? []) : collect(),
+            'oidcWarning' => $section === 'authentication' && filled($oidc?->configuration['issuer'] ?? null)
+                ? app(OidcProviderHints::class)->warning((string) $oidc->configuration['issuer'], $oidc->configuration['role_rules'] ?? [], (array) ($oidc->configuration['scopes'] ?? []), $oidcDiscovery) : null,
             'typeRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['type_rules'] ?? []),
             'departmentRules' => UserProvisioningService::formatMappingRules($oidc?->configuration['department_rules'] ?? []),
             'smtp' => $smtp,
@@ -150,6 +154,15 @@ class SettingsController extends Controller
             'department' => $identity['department'] ?? 'none',
             'names' => implode(', ', $names) ?: 'none',
         ]);
+    }
+
+    /** Apply the role rules to existing single sign-on accounts, from the groups at their last sign-in. */
+    public function applyRoles(Request $request, UserProvisioningService $users): RedirectResponse
+    {
+        $configuration = IntegrationConfig::query()->where('provider', 'oidc')->first()?->configuration ?? [];
+        $changed = $users->applyRoles($configuration, $request->user());
+
+        return back()->with('success', $changed ? "Updated the role of {$changed} account(s) to match the rules." : 'Every account already matches the rules.');
     }
 
     public function testEmail(Request $request, AuditLogger $audit): RedirectResponse

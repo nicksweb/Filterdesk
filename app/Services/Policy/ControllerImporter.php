@@ -47,12 +47,13 @@ class ControllerImporter
         $policies = FilterPolicy::query()->ordered()->get();
         $suggestions = [];
 
-        // Parents before layers, so a layer can name the parent's choice.
-        $layers = $filters->mapWithKeys(fn (array $filter) => [$filter['id'] => $this->layerParent($filter, $filters)])->filter();
-
         $learned = app(ControllerLearner::class)->learn($state)['filters'];
 
-        foreach ($filters->sortBy(fn (array $filter) => isset($layers[$filter['id']]) ? 1 : 0) as $filter) {
+        // Parents before layers (blocklist and school-hours ones), so a layer can name the parent's choice.
+        $layers = $filters->mapWithKeys(fn (array $filter) => [$filter['id'] => $this->layerParent($filter, $filters)])->filter();
+        $hours = $learned->filter(fn (array $lesson) => $lesson['role'] === 'hours')->map(fn (array $lesson) => $lesson['parent']);
+
+        foreach ($filters->sortBy(fn (array $filter) => isset($layers[$filter['id']]) || isset($hours[$filter['id']]) ? 1 : 0) as $filter) {
             $linked = $policies->firstWhere('provider_reference', $filter['id']);
             $lesson = $learned->get($filter['id']);
             $audience = $lesson['audience'] ?? $this->suggestAudience($filter['name'], $networks->whereIn('id', $filter['network_ids']));
@@ -60,6 +61,12 @@ class ControllerImporter
             $sitewide = ($lesson['role'] ?? null) === 'sitewide';
             $carries = (bool) ($lesson['carries_blocks'] ?? false);
 
+            if ($linked && isset($hours[$filter['id']]) && ! $linked->isHoursLayer()) {
+                // Brought in earlier as a policy of its own: it becomes the school-hours layer.
+                $suggestions[$filter['id']] = ['action' => 'hours', 'policy_id' => $linked->id, 'audience' => $linked->audience, 'import' => false, 'parent' => $hours[$filter['id']], 'carries_blocks' => false];
+
+                continue;
+            }
             if ($linked) {
                 $suggestions[$filter['id']] = ['action' => $sitewide && ! $linked->isLayer() ? 'sitewide' : 'link', 'policy_id' => $linked->id, 'audience' => $sitewide ? $linked->audience : ($linked->isSitewide() ? $audience : $linked->audience),
                     'import' => false, 'parent' => $linked->layerOf?->provider_reference, 'carries_blocks' => $sitewide ? $carries : false];
@@ -69,6 +76,11 @@ class ControllerImporter
             if ($sitewide) {
                 $spare = $this->spare($filter['name'], null, array_column($suggestions, 'policy_id'), $policies);
                 $suggestions[$filter['id']] = ['action' => 'sitewide', 'policy_id' => $spare?->id, 'audience' => 'other', 'import' => true, 'parent' => null, 'carries_blocks' => $carries];
+
+                continue;
+            }
+            if (isset($hours[$filter['id']])) {
+                $suggestions[$filter['id']] = ['action' => 'hours', 'policy_id' => null, 'audience' => $audience, 'import' => true, 'parent' => $hours[$filter['id']], 'carries_blocks' => false];
 
                 continue;
             }
@@ -104,7 +116,7 @@ class ControllerImporter
         $policyFor = [];
 
         // Parents first; a layer needs its parent's policy.
-        $ordered = collect($choices)->sortBy(fn (array $choice) => ($choice['action'] ?? '') === 'layer' ? 1 : 0);
+        $ordered = collect($choices)->sortBy(fn (array $choice) => in_array($choice['action'] ?? '', ['layer', 'hours'], true) ? 1 : 0);
         foreach ($ordered as $filterId => $choice) {
             $filter = $filters->get((string) $filterId);
             $action = $choice['action'] ?? 'skip';
@@ -124,6 +136,14 @@ class ControllerImporter
                     'layer_of_id' => $parentPolicy->id, 'description' => "Carries the blocklist feeds for {$parentPolicy->name}.",
                     'sort_order' => $parentPolicy->sort_order,
                 ]);
+            } elseif ($action === 'hours') {
+                $parentPolicy = $policyFor[$choice['parent'] ?? ''] ?? FilterPolicy::query()->main()->where('provider_reference', $choice['parent'] ?? '')->first();
+                if (! $parentPolicy) {
+                    $done[] = "{$filter['name']}: skipped, its all-hours filter was not set up";
+
+                    continue;
+                }
+                $policy = $this->hoursLayer($parentPolicy, $filter);
             } elseif ($action === 'sitewide') {
                 $policy = (filled($choice['policy_id'] ?? null) ? FilterPolicy::query()->main()->find($choice['policy_id']) : null)
                     ?? $this->spare($filter['name'], null, array_map(fn (FilterPolicy $policy) => $policy->id, $policyFor))
@@ -167,11 +187,38 @@ class ControllerImporter
             $this->sync->link($filter, $policy, $actor, remapNetworks: ! $policy->isLayer() && ! $policy->isSitewide());
             $policyFor[$filter['id']] = $policy;
             $this->audit->log('policy.setup_from_controller', $policy, ['filter' => $filter['name'], 'imported' => $imported, 'action' => $action]);
-            $done[] = "{$filter['name']} → {$policy->name}".($policy->isLayer() ? " (layer of {$policy->layerOf->name})" : ($policy->isSitewide() ? ' (site-wide layer'.($policy->receives_site_blocks ? ', takes the site-wide blocks' : '').')' : '')).($imported ? ' ('.number_format($imported).' entries imported)' : '');
+            $done[] = "{$filter['name']} → {$policy->name}".($policy->isHoursLayer() ? " (school-hours layer of {$policy->layerOf->name})" : ($policy->isLayer() ? " (layer of {$policy->layerOf->name})" : ($policy->isSitewide() ? ' (site-wide layer'.($policy->receives_site_blocks ? ', takes the site-wide blocks' : '').')' : ''))).($imported ? ' ('.number_format($imported).' entries imported)' : '');
         }
         $this->sync->forget();
 
         return $done;
+    }
+
+    /**
+     * The school-hours layer of a policy for this controller filter. A policy
+     * already linked to the filter (brought in earlier as a policy of its own)
+     * becomes the layer, keeping its lists; its networks move to the parent.
+     *
+     * @param  array<string, mixed>  $filter
+     */
+    public function hoursLayer(FilterPolicy $parent, array $filter): FilterPolicy
+    {
+        $attributes = ['layer_of_id' => $parent->id, 'layer_kind' => FilterPolicy::HOURS, 'audience' => $parent->audience, 'role' => 'group', 'receives_site_blocks' => false,
+            'description' => "School-hours layer of {$parent->name}: content filter {$filter['name']} in the controller, on its own schedule."];
+        $existing = FilterPolicy::query()->whereKeyNot($parent->id)->where('provider_reference', $filter['id'])->first()
+            ?? $parent->hoursLayer;
+        if ($existing && ! $existing->isLayer()) {
+            NetworkAssignment::query()->where('filter_policy_id', $existing->id)->update(['filter_policy_id' => $parent->id]);
+        }
+        // Its networks are the parent's type, at least in school hours.
+        NetworkAssignment::query()->whereIn('provider_network_id', $filter['network_ids'])->whereNull('filter_policy_id')->update(['filter_policy_id' => $parent->id]);
+        if ($existing) {
+            $existing->update($attributes);
+
+            return $existing->refresh();
+        }
+
+        return FilterPolicy::query()->create($attributes + ['name' => $filter['name'], 'slug' => $this->engine->uniqueSlug($filter['name']), 'sort_order' => $parent->sort_order]);
     }
 
     /**
@@ -218,14 +265,14 @@ class ControllerImporter
 
     /**
      * Import a filter's entries into lists owned by that policy only, in
-     * bulk. A layer only takes blocks.
+     * bulk. A blocklist layer only takes blocks; a school-hours layer keeps both.
      *
      * @param  array<string, mixed>  $filter
      */
     public function importEntries(FilterPolicy $policy, array $filter, ?User $actor): int
     {
         $count = 0;
-        $kinds = $policy->isLayer() ? [[ListKind::Block, $filter['block']]] : [[ListKind::Allow, $filter['allow']], [ListKind::Block, $filter['block']]];
+        $kinds = $policy->isLayer() && ! $policy->isHoursLayer() ? [[ListKind::Block, $filter['block']]] : [[ListKind::Allow, $filter['allow']], [ListKind::Block, $filter['block']]];
         foreach ($kinds as [$kind, $entries]) {
             $domains = $this->parser->parse(implode("\n", $entries));
             if ($domains === []) {

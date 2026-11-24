@@ -177,6 +177,7 @@ class PolicyEngine
                         'starts_at' => $request->accessFrom(),
                         'expires_at' => $request->accessUntil(),
                         'schedule' => $request->schedule,
+                        'hours' => $request->hours === 'outside' && ! $request->isBlock() ? 'outside' : null,
                         'note' => "{$request->reference}: {$request->category}",
                     ]);
                 }
@@ -236,6 +237,10 @@ class PolicyEngine
             return PolicyEntry::query()->create(['policy_list_id' => $list->id, 'domain' => $domain] + $attributes);
         }
 
+        // An all-hours grant widens an entry kept to outside school hours.
+        if ($existing->hours === 'outside' && array_key_exists('hours', $attributes) && $attributes['hours'] === null) {
+            $existing->forceFill(['hours' => null])->save();
+        }
         if ($existing->expires_at === null && $existing->starts_at === null) {
             return $existing;
         }
@@ -268,6 +273,10 @@ class PolicyEngine
         $layerBlocks = [];
         // Blocks that come only from site-wide lists; a site-wide layer can carry these instead.
         $siteBlocks = [];
+        // Blocks from this policy's own lists only; a school-hours layer carries just these.
+        $ownBlocks = [];
+        // Allows kept out of school hours ("outside school hours only"), unless another entry allows them at all hours.
+        $outsideOnly = [];
 
         foreach ($lists as $list) {
             $specificity = match ($list->scope) {
@@ -277,7 +286,7 @@ class PolicyEngine
             };
             // Plain rows, not models: feed lists can hold tens of thousands of entries.
             $entries = PolicyEntry::query()->where('policy_list_id', $list->id)->effective($at)->toBase()
-                ->get(['id', 'domain', 'source', 'website_request_id', 'expires_at', 'created_at', 'schedule'])
+                ->get(['id', 'domain', 'source', 'website_request_id', 'expires_at', 'created_at', 'schedule', 'hours'])
                 // Recurring entries only count while their schedule is on.
                 ->filter(fn ($entry) => $entry->schedule === null || Schedule::fromArray(json_decode((string) $entry->schedule, true))?->isActive($at ?? now()) !== false);
             $references = WebsiteRequest::query()->whereIn('id', $entries->pluck('website_request_id')->filter()->unique()->all())->pluck('reference', 'id');
@@ -293,7 +302,9 @@ class PolicyEngine
                 $rank = [in_array($entry->source, $bulk, true) ? 0 : 1, $specificity, $entry->created_at ? strtotime((string) $entry->created_at) : 0, $entry->id];
                 if ($list->kind === ListKind::Allow) {
                     $allow[$entry->domain] = max($allow[$entry->domain] ?? [-1, -1, 0, 0], $rank);
+                    $outsideOnly[$entry->domain] = ($outsideOnly[$entry->domain] ?? true) && $entry->hours === 'outside';
                 } else {
+                    $ownBlocks[$entry->domain] = ($ownBlocks[$entry->domain] ?? true) && $list->filter_policy_id === $policy->id;
                     $block[$entry->domain] = max($block[$entry->domain] ?? [-1, -1, 0, 0], $rank);
                     $carried = $isFeed || ($policy->isLayer() && $list->filter_policy_id === $policy->id);
                     $layerBlocks[$entry->domain] = ($layerBlocks[$entry->domain] ?? true) && $carried;
@@ -341,7 +352,14 @@ class PolicyEngine
         // A layer is a second filter on the same networks. Controllers block
         // a hostname when any filter blocks it, so the layer holds only blocks
         // that won against every allow above, and its parent drops them.
-        if ($policy->isLayer()) {
+        if ($policy->isHoursLayer()) {
+            // A school-hours layer is a full filter that UniFi switches on by its own schedule. It keeps
+            // every allow (the parent's too, so an approval also works in school hours, except allows
+            // kept to outside school hours) and only its own blocks: the parent's are on all the time.
+            $rules = $this->rules();
+            $allow = array_filter($allow, fn ($rank, string $domain) => ! ($outsideOnly[$domain] ?? false), ARRAY_FILTER_USE_BOTH);
+            $block = array_filter($block, fn ($rank, string $domain) => ($ownBlocks[$domain] ?? false) && ! $this->coveredBy($allow, $domain, $rules), ARRAY_FILTER_USE_BOTH);
+        } elseif ($policy->isLayer()) {
             $rules = $this->rules();
             $block = array_filter($block, fn ($rank, string $domain) => ($layerBlocks[$domain] ?? false) && ! $this->coveredBy($allow, $domain, $rules), ARRAY_FILTER_USE_BOTH);
             $allow = [];

@@ -35,6 +35,7 @@ class ItRequestActionController extends Controller
             'scope.*' => ['string', 'max:40'],
             'access_from' => ['nullable', 'date'],
             'access_until' => ['nullable', 'date'],
+            'hours' => ['nullable', 'in:all,outside'],
             'override' => ['nullable', 'boolean'],
             'override_reason' => ['nullable', 'required_if_accepted:override', 'string', 'max:1000'],
         ], [
@@ -44,6 +45,10 @@ class ItRequestActionController extends Controller
         ]);
 
         $actor = $request->user();
+        // All hours, or kept out of a school-hours layer (an allow that only applies outside school hours).
+        if ($validated['action'] === 'approve' && isset($validated['hours'])) {
+            $websiteRequest->forceFill(['hours' => $validated['hours'] === 'outside' ? 'outside' : null])->save();
+        }
 
         try {
             match ($validated['action']) {

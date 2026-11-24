@@ -4,6 +4,7 @@ namespace App\Services\Policy;
 
 use App\Models\FilterPolicy;
 use App\Models\NetworkType;
+use App\Services\Network\FilterSchedule;
 use Illuminate\Support\Collection;
 
 /**
@@ -39,14 +40,14 @@ class FilterTable
                 'networks' => collect($filter['network_ids'])->map(fn ($id) => $networks->has($id) ? $networks[$id]['name'].($networks[$id]['vlan'] ? " ({$networks[$id]['vlan']})" : '') : null)->filter()->values()->all(),
                 'categories' => collect($filter['categories'] ?? [])->map(fn ($category) => ucfirst(strtolower(str_replace('_', ' ', (string) $category))))->values()->all(),
                 'safe_search' => collect($filter['safe_search'] ?? [])->map(fn ($engine) => ucfirst(strtolower((string) $engine)))->values()->all(),
-                'schedule' => ($filter['schedule'] ?? 'ALWAYS') === 'ALWAYS' ? 'Always' : 'Scheduled',
+                'schedule' => $filter['schedule_label'] ?? FilterSchedule::label($filter['schedule'] ?? null),
                 'allow' => count($filter['allow']),
                 'block' => count($filter['block']),
                 'report' => $policy ? ($reports[$policy->id] ?? null) : null,
             ];
         }
         foreach ($policies->filter(fn (FilterPolicy $policy) => blank($policy->provider_reference)) as $policy) {
-            $rows[] = ['name' => $policy->name, 'paused' => false, 'policy' => $policy, 'role' => ($policy->isLayer() ? 'Blocklist layer' : $policy->typeLabel()).' · not linked to UniFi',
+            $rows[] = ['name' => $policy->name, 'paused' => false, 'policy' => $policy, 'role' => ($policy->isHoursLayer() ? 'School-hours layer' : ($policy->isLayer() ? 'Blocklist layer' : $policy->typeLabel())).' · not linked to UniFi',
                 'networks' => [], 'categories' => [], 'safe_search' => [], 'schedule' => '', 'allow' => null, 'block' => null, 'report' => $reports[$policy->id] ?? null];
         }
 
@@ -59,6 +60,11 @@ class FilterTable
         $action = $suggestion['action'] ?? null;
         if ($action === 'sitewide' || ($action === null && $policy?->isSitewide())) {
             return 'Site-wide layer'.(($suggestion['carries_blocks'] ?? $policy?->receives_site_blocks) ? ' · takes the site-wide blocks' : '');
+        }
+        if ($policy?->isHoursLayer() || $action === 'hours') {
+            $parent = $policy?->layerOf?->name ?? $lesson['parent_name'] ?? 'its all-hours filter';
+
+            return 'School-hours layer of '.$parent.' · keeps its allows and blocks';
         }
         if ($policy?->isLayer() || $action === 'layer') {
             return 'Blocklist layer'.($policy?->layerOf ? ' of '.$policy->layerOf->name : '');

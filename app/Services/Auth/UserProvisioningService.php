@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\Oidc\OidcClient;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -84,6 +85,19 @@ class UserProvisioningService
      */
     public function roleFor(array $claims, array $configuration): ?string
     {
+        return $this->explainRole($claims, $configuration)['role'];
+    }
+
+    /**
+     * The role these claims get and why: the rule that matched (as written
+     * in the rules box), or null when the default role applied.
+     *
+     * @param  array{email: string, groups?: list<string>}  $claims
+     * @param  array<string, mixed>  $configuration
+     * @return array{role: ?string, rule: ?string}
+     */
+    public function explainRole(array $claims, array $configuration): array
+    {
         $domain = str($claims['email'])->afterLast('@')->lower()->toString();
         $groups = self::groupNames($claims['groups'] ?? []);
 
@@ -101,13 +115,51 @@ class UserProvisioningService
             };
 
             if ($matches) {
-                return $role;
+                return ['role' => $role, 'rule' => "{$rule['type']}:{$value}={$role}"];
             }
         }
 
         $default = $configuration['default_role'] ?? 'teacher';
 
-        return $default === 'deny' ? null : (in_array($default, self::ROLES, true) ? $default : 'teacher');
+        return ['role' => $default === 'deny' ? null : (in_array($default, self::ROLES, true) ? $default : 'teacher'), 'rule' => null];
+    }
+
+    /**
+     * What the rules would change for single sign-on accounts, from the
+     * groups each person had at their last sign-in. IT and administrator
+     * access is never taken away here ("kept"), as at sign-in.
+     *
+     * @param  array<string, mixed>  $configuration
+     * @return Collection<int, array{user: User, from: string, to: string, rule: ?string, kept: bool}>
+     */
+    public function roleChanges(array $configuration): Collection
+    {
+        return User::query()->where('auth_source', 'oidc')->where('enabled', true)->whereNotNull('email')->orderBy('name')->get()
+            ->map(function (User $user) use ($configuration): ?array {
+                $result = $this->explainRole(['email' => (string) $user->email, 'groups' => $user->sso_groups ?? []], $configuration);
+                if ($result['role'] === null || $result['role'] === $user->role) {
+                    return null;
+                }
+
+                return ['user' => $user, 'from' => $user->role, 'to' => $result['role'], 'rule' => $result['rule'], 'kept' => $user->isIt() && ! in_array($result['role'], ['it', 'admin'], true)];
+            })->filter()->values();
+    }
+
+    /**
+     * Apply the rules to existing single sign-on accounts now.
+     *
+     * @param  array<string, mixed>  $configuration
+     */
+    public function applyRoles(array $configuration, User $actor): int
+    {
+        $changed = 0;
+        foreach ($this->roleChanges($configuration)->reject(fn (array $change) => $change['kept']) as $change) {
+            $change['user']->forceFill(['role' => $change['to']])->save();
+            $this->audit->log('user.role_synced', $change['user'], ['from' => $change['from'], 'to' => $change['to'], 'rule' => $change['rule'], 'by' => $actor->id]);
+            $changed++;
+        }
+
+        return $changed;
     }
 
     /**

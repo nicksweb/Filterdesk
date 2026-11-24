@@ -232,6 +232,8 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
             'safe_search' => array_values(array_map('strval', $filter['safe_search'] ?? [])),
             // ALWAYS, or a time-based mode such as CUSTOM: a filter that only applies at certain times.
             'schedule' => strtoupper((string) ($filter['schedule']['mode'] ?? 'ALWAYS')),
+            // When it applies, in words ("Mon–Fri 08:30–15:10"). Pushes never write the schedule; UniFi keeps it.
+            'schedule_label' => FilterSchedule::label(is_array($filter['schedule'] ?? null) ? $filter['schedule'] : null),
         ])->values()->all();
     }
 

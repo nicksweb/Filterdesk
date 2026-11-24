@@ -28,6 +28,7 @@ use App\Http\Controllers\ExceptionReviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstallController;
 use App\Http\Controllers\ItRequestActionController;
+use App\Http\Controllers\OidcTestController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\QuickDecisionController;
 use App\Http\Controllers\WebsiteCheckController;
@@ -43,6 +44,7 @@ Route::get('/brand/icon', BrandIconController::class)->name('brand.icon');
 Route::middleware('installation.only')->group(function (): void {
     Route::get('/install/{step?}', [InstallController::class, 'show'])->whereNumber('step')->name('install.show');
     Route::post('/install/{step}', [InstallController::class, 'store'])->whereNumber('step')->middleware('throttle:30,1')->name('install.store');
+    Route::post('/install/oidc-test', [OidcTestController::class, 'install'])->middleware('throttle:10,1')->name('install.oidc-test');
 });
 
 Route::middleware('installed')->group(function (): void {
@@ -167,6 +169,8 @@ Route::middleware('installed')->group(function (): void {
             Route::put('/settings/{section}', [SettingsController::class, 'update'])->name('settings.update');
             Route::post('/settings/email/test', [SettingsController::class, 'testEmail'])->middleware('throttle:6,1')->name('settings.test-email');
             Route::post('/settings/authentication/try', [SettingsController::class, 'tryRules'])->middleware('throttle:30,1')->name('settings.try-rules');
+            Route::post('/settings/authentication/test-sign-in', [OidcTestController::class, 'settings'])->middleware('throttle:10,1')->name('settings.test-sign-in');
+            Route::post('/settings/authentication/apply-roles', [SettingsController::class, 'applyRoles'])->middleware('throttle:10,1')->name('settings.apply-roles');
             Route::post('/settings/network/test', [SettingsController::class, 'testNetwork'])->middleware('throttle:10,1')->name('settings.test-network');
             Route::post('/settings/categories/test', [SettingsController::class, 'testCategories'])->middleware('throttle:10,1')->name('settings.test-categories');
             Route::post('/settings/network/discover', [SettingsController::class, 'discover'])->middleware('throttle:10,1')->name('settings.discover');

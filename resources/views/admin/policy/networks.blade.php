@@ -3,7 +3,7 @@
     @php
         $isAdmin = auth()->user()->isAdmin();
         $baselineName = $baselinePolicy?->name ?? 'Students';
-        $roleLabel = ['sitewide' => 'site-wide', 'layer' => 'blocklist layer', 'group' => null];
+        $roleLabel = ['sitewide' => 'site-wide', 'layer' => 'blocklist layer', 'hours' => 'school hours', 'group' => null];
         $writable = $canPush;
     @endphp
 
@@ -75,7 +75,7 @@
                                 <td>
                                     <span class="chips">
                                         @forelse($row['filters'] as $filter)
-                                            <span @class(['chip', 'chip-filter', 'chip-'.$filter['role'], 'chip-paused' => $filter['paused']]) title="{{ $filter['paused'] ? 'Paused in UniFi' : ($roleLabel[$filter['role']] ?? 'group') }}">
+                                            <span @class(['chip', 'chip-filter', 'chip-'.$filter['role'], 'chip-paused' => $filter['paused']]) title="{{ $filter['paused'] ? 'Paused in UniFi' : ($roleLabel[$filter['role']] ?? 'group').($filter['when'] ? ' · '.$filter['when'] : '') }}">
                                                 {{ $filter['name'] }}@if($roleLabel[$filter['role']] ?? null)<em>{{ $roleLabel[$filter['role']] }}</em>@endif
                                                 @if($isAdmin && $writable)
                                                     <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live" data-confirm-inline="Remove from {{ $row['name'] }}?">@csrf<input type="hidden" name="filter_id" value="{{ $filter['id'] }}"><input type="hidden" name="remove" value="1"><button class="chip-remove" aria-label="Remove {{ $filter['name'] }} from {{ $row['name'] }}">×</button></form>
@@ -116,6 +116,8 @@
                                             @foreach($row['status']['actions'] as $action)
                                                 @if($action === 'protect' && $baselinePolicy && $writable)
                                                     <form method="post" action="{{ route('admin.policy.networks.protect') }}" data-async="#networks-live" data-confirm-inline="Add {{ $baselineName }} to {{ $row['name'] }}?">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary">Add {{ $baselineName }}</button></form>
+                                                @elseif($action === 'add_filter' && ($row['status']['filter_id'] ?? null) && $writable && $row['assignment'])
+                                                    <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live" data-confirm-inline="Add {{ $row['status']['filter_name'] }} to {{ $row['name'] }}?">@csrf<input type="hidden" name="filter_id" value="{{ $row['status']['filter_id'] }}"><button class="button small secondary">Add {{ $row['status']['filter_name'] }}</button></form>
                                                 @elseif($action === 'remap' && ($row['status']['policy'] ?? null))
                                                     <form method="post" action="{{ route('admin.policy.networks.update') }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="assignments[{{ $row['id'] }}]" value="{{ $row['status']['policy']->id }}"><button class="button small secondary">Map to {{ $row['status']['policy']->name }}</button></form>
                                                 @elseif($action === 'allow' && $row['assignment'])
@@ -151,7 +153,7 @@
             <section class="panel policy-section">
                 <div class="panel-heading"><div>
                     <h2>Content filters</h2>
-                    <p><strong>Managed by</strong> chooses which Filterdesk policy keeps each UniFi filter's allow and block lists. Pick <em>an existing policy</em> to keep its lists and history (for example the default Students policy). Pick <em>New policy for…</em> to create one: its type (Staff, Students, Guests…) decides which shared lists it gets. A <em>site-wide layer</em> is a filter on every network, carrying the lists for everyone.</p>
+                    <p><strong>Managed by</strong> chooses which Filterdesk policy keeps each UniFi filter's allow and block lists. Pick <em>an existing policy</em> to keep its lists and history (for example the default Students policy). Pick <em>New policy for…</em> to create one: its type (Staff, Students, Guests…) decides which shared lists it gets. A <em>site-wide layer</em> is a filter on every network, carrying the lists for everyone. A <em>school-hours layer</em> is a second filter for the same type that UniFi switches on by its schedule (for example <em>Student - School Time</em> beside <em>Students - All Hours</em>): it keeps its own allows and blocks, and the policy's allows go into it too, so an approval works at every hour.</p>
                 </div></div>
                 <div class="table-wrap filter-table"><table>
                     <thead><tr><th>Filter</th><th>Networks</th><th>Managed by</th><th>Sync</th></tr></thead>
@@ -159,16 +161,23 @@
                         @foreach($filters as $filter)
                             <tr @class(['paused' => !($filter['enabled'] ?? true)])>
                                 <td>@if($filter['policy'])<a href="{{ route('admin.policy.policies.show', $filter['policy']) }}"><strong>{{ $filter['name'] }}</strong></a>@else<strong>{{ $filter['name'] }}</strong>@endif
-                                    <small>{{ number_format(count($filter['allow'])) }} allowed · {{ number_format(count($filter['block'])) }} blocked{{ ($filter['enabled'] ?? true) ? '' : ' · paused in UniFi' }}</small></td>
+                                    <small>{{ number_format(count($filter['allow'])) }} allowed · {{ number_format(count($filter['block'])) }} blocked{{ ($filter['enabled'] ?? true) ? '' : ' · paused in UniFi' }}</small>
+                                    @php($scheduled = ($filter['schedule'] ?? 'ALWAYS') !== 'ALWAYS')
+                                    @if($scheduled)<small class="schedule-when">On a schedule: {{ $filter['schedule_label'] ?? \App\Services\Network\FilterSchedule::label($filter['schedule']) }}</small>@endif</td>
                                 <td><x-chips :items="$filter['network_names']" :max="2" /></td>
                                 <td>
-                                    @if($filter['policy']?->isLayer())
+                                    @if($filter['policy']?->isLayer() && ! $filter['policy']->isHoursLayer())
                                         Blocklist layer of <a href="{{ route('admin.policy.policies.show', $filter['policy']->layerOf) }}">{{ $filter['policy']->layerOf->name }}</a>
                                     @elseif($isAdmin)
                                         <form method="post" action="{{ route('admin.policy.networks.link') }}" data-async="#networks-live">@csrf
                                             <input type="hidden" name="filter_id" value="{{ $filter['id'] }}">
                                             <select name="managed_by" data-autosubmit aria-label="Managed by, for {{ $filter['name'] }}">
                                                 @unless($filter['policy'])<option value="" selected disabled>Not managed: choose…</option>@endunless
+                                                @if($scheduled || $filter['policy']?->isHoursLayer())
+                                                    <optgroup label="School-hours layer (keeps its allows, blocks and schedule)">
+                                                        @foreach($policies->reject(fn ($policy) => $policy->isSitewide() || $policy->provider_reference === $filter['id']) as $policy)<option value="hours:{{ $policy->id }}" @selected($filter['policy']?->isHoursLayer() && $filter['policy']->layer_of_id === $policy->id)>School-hours layer of {{ $policy->name }}</option>@endforeach
+                                                    </optgroup>
+                                                @endif
                                                 <optgroup label="An existing policy">
                                                     @foreach($policies as $policy)<option value="policy:{{ $policy->id }}" @selected($filter['policy']?->is($policy))>{{ $policy->name }} · {{ $policy->isSitewide() ? 'site-wide layer' : $policy->typeLabel() }}{{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' (now on '.$policy->provider_name.')' : '' }}</option>@endforeach
                                                 </optgroup>

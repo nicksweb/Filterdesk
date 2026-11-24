@@ -76,7 +76,7 @@ class ControllerSetupController extends Controller
                 'shared' => $networks->whereIn('id', $filter['network_ids'])->filter(fn ($network) => in_array($network['status'], ['multiple_filters', 'unmapped'], true) && count($network['attached']) > 1)->values(),
             ]),
             'policies' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->values(),
-            'parentFilters' => collect($state['filters'])->reject(fn (array $filter) => ($suggestions[$filter['id']]['action'] ?? null) === 'layer')->values(),
+            'parentFilters' => collect($state['filters'])->reject(fn (array $filter) => in_array($suggestions[$filter['id']]['action'] ?? null, ['layer', 'hours'], true))->values(),
             'linkedCount' => $linked->count(),
             'linked' => $linked->values(),
             'mapped' => $networks->whereNotNull('policy')->count(),
@@ -94,7 +94,7 @@ class ControllerSetupController extends Controller
     {
         $validated = $request->validate([
             'filters' => ['required', 'array'],
-            'filters.*.as' => ['nullable', 'string', 'max:200', 'regex:/^(skip|sitewide|type:[a-z0-9_]+|layer:.+)$/'],
+            'filters.*.as' => ['nullable', 'string', 'max:200', 'regex:/^(skip|sitewide|type:[a-z0-9_]+|layer:.+|hours:.+)$/'],
             'filters.*.carries_blocks' => ['nullable', 'boolean'],
             'filters.*.action' => ['nullable', 'required_without:filters.*.as', 'in:skip,link,create,layer'],
             'filters.*.policy_id' => ['nullable', 'integer', 'exists:filter_policies,id'],
@@ -144,6 +144,8 @@ class ControllerSetupController extends Controller
                 $choices[$id] = ['action' => 'skip'];
             } elseif ($as === 'sitewide') {
                 $choices[$id] = ['action' => 'sitewide', 'policy_id' => $picked?->id ?? $suggested['policy_id'] ?? null, 'import' => $import, 'carries_blocks' => (bool) ($choice['carries_blocks'] ?? false)];
+            } elseif (str_starts_with($as, 'hours:')) {
+                $choices[$id] = ['action' => 'hours', 'parent' => substr($as, 6), 'import' => $import && ! $current];
             } elseif (str_starts_with($as, 'layer:')) {
                 $choices[$id] = ['action' => 'layer', 'parent' => substr($as, 6), 'import' => $import];
             } else {

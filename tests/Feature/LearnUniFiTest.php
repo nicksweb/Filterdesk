@@ -131,7 +131,8 @@ class LearnUniFiTest extends TestCase
         Cache::forever('mock.content_filters', $filters);
 
         $learned = app(ControllerLearner::class)->learn(app(ControllerSync::class)->state(true));
-        $this->assertSame('group', $learned['filters']['sim-school-time']['role'], 'Named for students, so a group, not site-wide');
+        $this->assertSame('hours', $learned['filters']['sim-school-time']['role'], 'Named for students, so not site-wide; scheduled beside the always-on Students filter, so its school-hours layer');
+        $this->assertSame('sim-filter-students', $learned['filters']['sim-school-time']['parent']);
         $this->assertTrue($learned['filters']['sim-school-time']['scheduled']);
 
         $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));

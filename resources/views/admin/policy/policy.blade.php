@@ -164,15 +164,27 @@
         <div class="notice"><strong>{{ number_format($largest) }} entries in one list.</strong> UniFi accepts up to about 100,000, but its Content Filtering page loads every entry, so opening or editing {{ $policy->provider_name ?: 'this filter' }} in the UniFi web interface may be slow. Filtering itself is not affected.@if(!$policy->isLayer() && !$policy->layer) A layer keeps the feeds in a second filter so this one stays quick to manage.@endif</div>
     @endif
 
-    @if($policy->isLayer())
+    @if($policy->isHoursLayer())
+        <section class="panel policy-section layer-panel">
+            <h2>School-hours layer of <a href="{{ route('admin.policy.policies.show', $policy->layerOf) }}">{{ $policy->layerOf?->name }}</a></h2>
+            <p>{{ $policy->provider_name }} is a second {{ $policy->typeLabel() }} filter that UniFi switches on by its own schedule ({{ $policy->sync_details['schedule'] ?? 'set in UniFi' }}). Filterdesk never changes the schedule. It keeps this layer's own allow and block lists, and adds everything {{ $policy->layerOf?->name }} allows, so an approval works in school hours too. Approvals marked <em>outside school hours only</em> are left out. {{ $policy->layerOf?->name }}'s blocks are not copied here: that filter is on all the time.</p>
+            <p class="hint">UniFi applies every filter on a network. While this one is on, a site blocked by either filter is blocked, so a block here wins over an allow in {{ $policy->layerOf?->provider_name ?: $policy->layerOf?->name }} during these hours.</p>
+        </section>
+    @elseif($policy->isLayer())
         <section class="panel policy-section layer-panel">
             <h2>Layer of {{ $policy->layerOf?->name }}</h2>
             <p>{{ $policy->provider_name }} is a second content filter on the same networks as {{ $policy->layerOf?->provider_name ?: $policy->layerOf?->name }}. UniFi applies both, and a block in either one wins, so this layer only blocks. It carries every blocklist feed that applies to {{ $policy->layerOf?->name }}, plus this layer's own block lists. Anything {{ $policy->layerOf?->name }} allows is left out, so allow lists and approved requests still win. Its content categories follow {{ $policy->layerOf?->name }}.</p>
         </section>
     @elseif($policy->layer)
+        @if($policy->hoursLayer)<section class="panel policy-section layer-panel"><h2>School-hours layer: <a href="{{ route('admin.policy.policies.show', $policy->hoursLayer) }}">{{ $policy->hoursLayer->name }}</a></h2><p>{{ $policy->hoursLayer->sync_details['schedule'] ?? 'On a schedule' }}. Gets this policy's allows too, so approvals work in school hours.</p></section>@endif
         <section class="panel policy-section layer-panel">
             <h2>Layer: <a href="{{ route('admin.policy.policies.show', $policy->layer) }}">{{ $policy->layer->name }}</a></h2>
             <p>Blocklist feeds for this policy are pushed to {{ $policy->layer->provider_name ?: $policy->layer->name }}, a second filter on the same networks, so {{ $policy->provider_name ?: 'this filter' }} only holds entries added by IT and requests.@if(!$policy->activeLayer()) The layer is disabled or not linked, so feeds stay here for now.@endif</p>
+        </section>
+    @elseif($policy->hoursLayer)
+        <section class="panel policy-section layer-panel">
+            <h2>School-hours layer: <a href="{{ route('admin.policy.policies.show', $policy->hoursLayer) }}">{{ $policy->hoursLayer->name }}</a></h2>
+            <p>{{ $policy->hoursLayer->provider_name ?: $policy->hoursLayer->name }} also filters {{ $policy->typeLabel() }} networks, {{ $policy->hoursLayer->sync_details['schedule'] ?? 'on its UniFi schedule' }}. Everything this policy allows goes into it too, so approvals work in school hours (unless an approval is kept to outside school hours). Its own blocks apply only while it is on.</p>
         </section>
     @elseif($canPush && auth()->user()->isAdmin())
         <details class="panel policy-section layer-panel">

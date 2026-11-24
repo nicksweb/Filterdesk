@@ -334,6 +334,7 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .chip-filter.chip-group{background:#e8f1fd;color:#0b4fa3}
 .chip-filter.chip-sitewide{background:#f2f4f7;color:#475467}
 .chip-filter.chip-layer{background:#fdf2e8;color:#93370d}
+.chip-filter.chip-hours{background:#eef4ff;color:#3538cd;border-color:#c7d7fe;border-style:dashed}
 .chip-filter.chip-paused{text-decoration:line-through;opacity:.6}
 .chip-filter form{display:inline;margin:0}
 .chip-remove{border:0;background:transparent;color:inherit;opacity:.55;padding:0 2px;font-size:.95rem;line-height:1;cursor:pointer}
@@ -355,4 +356,17 @@ details.probe-plan summary small{color:var(--muted);font-weight:500}
 .chip-more .chips{display:inline-flex}
 .pending>summary{cursor:pointer}
 .pending small{display:block;color:var(--muted);margin-top:4px;word-break:break-word}
-@media(prefers-color-scheme:dark){.chip-filter.chip-group{background:#13294b;color:#9cc3ff}.chip-filter.chip-sitewide{background:#262c36;color:#c0c7d2}.row-tabs .tab.active{background:#13294b}}
+@media(prefers-color-scheme:dark){.chip-filter.chip-group{background:#13294b;color:#9cc3ff}.chip-filter.chip-sitewide{background:#262c36;color:#c0c7d2}.chip-filter.chip-hours{background:#1d2150;color:#b4bcff;border-color:#3e4495}.row-tabs .tab.active{background:#13294b}}
+.schedule-when{display:block;color:#3538cd;font-size:.74rem;margin-top:2px}
+.test-sign-in{display:flex;gap:16px;align-items:center;justify-content:space-between;border:1px dashed var(--line,#d0d5dd);border-radius:10px;padding:12px 14px;margin:12px 0}
+.test-sign-in small{display:block;color:var(--muted);margin-top:2px}
+.oidc-test-result{border:1px solid var(--line,#d0d5dd);border-radius:10px;padding:12px 14px;margin:8px 0 16px}
+.oidc-verdict{margin:0 0 8px}.oidc-verdict small{display:block;color:var(--muted)}
+.oidc-groups{list-style:none;padding:0;margin:8px 0;display:grid;gap:6px}
+.oidc-groups li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.oidc-groups .button-row{gap:4px}
+details.oidc-advanced{margin:8px 0}details.oidc-advanced summary{cursor:pointer;font-weight:600}
+.alert.warning{background:#fffaeb;border:1px solid #fedf89;color:#7a2e0e}
+@media(prefers-color-scheme:dark){.alert.warning{background:#3a2a0a;border-color:#7a5a12;color:#fde7b0}}
+.hours-choice{border:0;padding:0;margin:8px 0}.hours-choice legend{font-weight:600}
+@media(max-width:640px){.test-sign-in{flex-direction:column;align-items:stretch}}

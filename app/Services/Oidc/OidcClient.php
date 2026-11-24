@@ -30,7 +30,19 @@ class OidcClient
         'picture', 'profile', 'website', 'phone_number', 'phone_number_verified', 'address', 'birthdate', 'gender', 'zoneinfo', 'locale', 'oid', 'sid', 'nonce', 'at_hash', 'c_hash',
         'iat', 'exp', 'nbf', 'iss', 'aud', 'azp', 'auth_time', 'acr', 'amr', 'jti', 'uti', 'rh', 'tid', 'ver', 'ipaddr'];
 
+    /** A configuration not saved yet (the installer's Test sign-in), used instead of the stored one. */
+    private ?IntegrationConfig $override = null;
+
     public function __construct(private readonly OidcDiscoveryService $discovery) {}
+
+    /** The same client with a configuration that is not saved (for Test sign-in). */
+    public function using(IntegrationConfig $configuration): static
+    {
+        $client = clone $this;
+        $client->override = $configuration;
+
+        return $client;
+    }
 
     /** @return array{0: string, 1: string, 2: ?string} the URL, the state and the PKCE verifier (if used) */
     public function authorizationUrl(): array
@@ -66,7 +78,7 @@ class OidcClient
      * here (OIDC Core 3.1.3.7) because it came straight from the token
      * endpoint over a TLS back-channel, not from the browser.
      *
-     * @return array{sub: string, email: string, name: string, groups: list<string>}
+     * @return array{sub: string, email: string, name: string, groups: list<string>, visible: array<string, string>, group_claims: list<string>}
      */
     public function claims(AccessTokenInterface $token): array
     {
@@ -104,12 +116,14 @@ class OidcClient
             ->map(fn ($value) => trim((string) $value))->filter()->unique(fn (string $value) => strtolower($value))->values()->all();
 
         // What the provider sends, for writing role rules: every claim name, and the values of non-personal ones (role, type, group…).
-        Cache::put(self::LAST_CLAIMS_KEY, ['at' => now()->toIso8601String(), 'claims' => collect($claims)->map(fn ($value, $key) => in_array(strtolower((string) $key), self::PRIVATE_CLAIMS, true)
-            ? '(not shown)' : str(is_scalar($value) ? (string) $value : (string) json_encode($value))->limit(120)->toString())->all()], now()->addDays(7));
+        $visible = collect($claims)->map(fn ($value, $key) => in_array(strtolower((string) $key), self::PRIVATE_CLAIMS, true)
+            ? '(not shown)' : str(is_scalar($value) ? (string) $value : (string) json_encode($value))->limit(120)->toString())->all();
+        Cache::put(self::LAST_CLAIMS_KEY, ['at' => now()->toIso8601String(), 'claims' => $visible], now()->addDays(7));
 
         $name = (string) ($claims['name'] ?? trim(($claims['given_name'] ?? '').' '.($claims['family_name'] ?? '')) ?: $email);
 
-        return ['sub' => $subject, 'email' => $email, 'name' => $name ?: $email, 'groups' => $groups];
+        return ['sub' => $subject, 'email' => $email, 'name' => $name ?: $email, 'groups' => $groups, 'visible' => $visible,
+            'group_claims' => array_values(array_filter($claimNames, fn ($claim) => array_key_exists($claim, $claims)))];
     }
 
     /** Remember why the last sign-in failed, for Settings → Authentication. */
@@ -138,6 +152,10 @@ class OidcClient
 
     public function integration(): IntegrationConfig
     {
+        if ($this->override) {
+            return $this->override;
+        }
+
         return IntegrationConfig::query()->where('provider', 'oidc')->where('enabled', true)->firstOrFail();
     }
 

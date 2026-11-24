@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.15
+
+### Added
+- **Test sign-in**, in the installer and under Settings → Authentication: sign in at the provider with the settings as they are and see the claims (personal values hidden), the groups, and the role the rules give ("would be: admin, matched `group:itstaff=admin`"). Each group has buttons that add a role rule. No account or session is created, and the normal redirect URI is used.
+- **The installer's sign-in step has *Provider-specific options*** (extra scopes, claims holding groups) and *Re-apply rules at every sign-in*, on by default. For CloudWork ID, its profile scope is added automatically when a rule uses `group:`, because CloudWork only sends groups with it. A warning shows on the step and on the review when group rules cannot match (a missing scope, Google, or a provider that lists no groups claim).
+- **Accounts the rules would change** (Settings → Authentication): SSO accounts whose role differs from what the rules give, from the groups at their last sign-in, with **Apply the rules to these accounts**. IT and admin access is never taken away.
+- **School-hours layers**: a scheduled filter beside an always-on one for the same type (*Student - School Time* beside *Students - All Hours*) is learned and managed as a layer of that policy. It keeps its own allows and blocks and UniFi's schedule, and gets the policy's allows too, so approvals also work in school hours. Choose it in Guided setup or under *Managed by*. A filter brought in earlier as its own policy is converted, keeping its lists.
+- **When** on approvals, for types with a school-hours layer: *All hours* (both filters) or *Outside school hours only*.
+- **Schedules in words**: "Mon–Fri 08:30–15:10" instead of "Scheduled", on Networks & filters, Guided setup, the Policies table and the policy page.
+- **Networks with only the school-hours filter** are explained on their row ("Students filtering only in school hours…") with a button to add the all-hours filter, and listed on the policy's sync status instead of *Networks differ*.
+
+### Fixed
+- A scheduled filter with its own allows, linked as an *extra blocklist layer*, was treated as blocks-only: publishing removed the allows that Filterdesk also knew from other lists, and flagged the rest for review. A school-hours layer keeps them. Blocklist layers are now only for feeds.
+
 ## 2026.12.14
 
 ### Changed

@@ -152,3 +152,22 @@
     }
   });
 })();
+
+// Test sign-in: a group's role button adds "group:<name>=<role>" to the role rules box,
+// replacing an earlier line for the same group.
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-append-rule]');
+  if (!button) return;
+  const box = document.querySelector(`textarea[name="${button.dataset.target || 'role_rules'}"]`);
+  if (!box) return;
+  const rule = button.dataset.appendRule;
+  const group = rule.slice(0, rule.indexOf('=') + 1);
+  const lines = box.value.split(/\r?\n/).filter(line => line.trim() !== '' && !line.trim().toLowerCase().startsWith(group.toLowerCase()));
+  // A group rule goes before email_domain rules, so the more specific match wins (first match wins).
+  const firstDomain = lines.findIndex(line => line.trim().toLowerCase().startsWith('email_domain:') || line.trim().toLowerCase().startsWith('domain:'));
+  lines.splice(firstDomain === -1 ? lines.length : firstDomain, 0, rule);
+  box.value = lines.join('\n');
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  button.closest('li')?.querySelectorAll('[data-append-rule]').forEach(other => other.classList.toggle('primary', other === button));
+  box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+});
