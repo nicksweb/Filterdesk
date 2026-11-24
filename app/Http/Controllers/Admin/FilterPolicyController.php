@@ -127,6 +127,18 @@ class FilterPolicyController extends Controller
         return redirect()->route('admin.policy.index')->with('success', 'Policy deleted. Its own lists were removed; site-wide and network type lists are unchanged.');
     }
 
+    /** Keep a policy but take its link to a UniFi filter away (for one whose filter was deleted in UniFi). */
+    public function unlink(FilterPolicy $policy, AuditLogger $audit): RedirectResponse
+    {
+        $audit->log('policy.filter_unlinked', $policy, ['filter' => $policy->provider_name, 'reference' => $policy->provider_reference]);
+        $policy->forceFill([
+            'provider_reference' => null, 'provider_name' => null, 'sync_status' => null, 'sync_details' => null, 'sync_baseline' => null,
+            'current_allowlist' => null, 'current_blocklist' => null, 'snapshot_at' => null, 'controller_managed' => null, 'push_hold' => null,
+        ])->save();
+
+        return back()->with('success', "{$policy->name} is kept, not linked to a UniFi filter. Its lists stay; link it to a filter on Networks & filters to push them again.");
+    }
+
     public function snapshot(Request $request, FilterPolicy $policy, PolicyListParser $parser, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validate([

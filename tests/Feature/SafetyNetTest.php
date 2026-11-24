@@ -13,6 +13,7 @@ use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProtectedSites;
+use App\Services\Policy\SyncChecker;
 use App\Services\Requests\RequestWorkflow;
 use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -202,5 +203,41 @@ class SafetyNetTest extends TestCase
         $this->assertSame(['ADULT', 'GAMBLING'], $this->filter('sim-filter-students')['categories']);
         $this->assertSame(['ADULT', 'GAMBLING'], $this->filter('sim-filter-staff')['categories']);
         $this->actingAs($this->admin)->get(route('admin.policy.policies.show', $students))->assertOk()->assertSee('Also save this selection to')->assertSee('Copy the categories of another filter');
+    }
+
+    public function test_a_policy_whose_unifi_filter_was_deleted_is_listed_skipped_and_can_be_kept_or_deleted(): void
+    {
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        $staff = FilterPolicy::query()->where('provider_reference', 'sim-filter-staff')->sole();
+        Cache::forever('mock.content_filters', collect((new MockNetworkProvider)->contentFilters())->reject(fn (array $filter) => $filter['id'] === 'sim-filter-staff')->values()->all());
+        app(ControllerSync::class)->forget();
+        app(SyncChecker::class)->checkAll(notify: false);
+        $this->assertStringContainsString('was deleted. Delete this policy, keep it unlinked', $staff->refresh()->sync_details['summary']);
+
+        $this->actingAs($this->admin)->get(route('admin.policy.index'))->assertOk()
+            ->assertSee('Its UniFi filter Staff was deleted')->assertSee('Keep, unlinked')->assertSee('Delete policy');
+        $this->actingAs($this->admin)->get('/admin/policy/policies/'.$staff->id)->assertOk();
+
+        $results = app(ControllerPusher::class)->pushAll($this->admin);
+        $skipped = $results->firstWhere('policy.id', $staff->id);
+        $this->assertTrue($skipped['ok'] && $skipped['skipped']);
+
+        $this->actingAs($this->admin)->post(route('admin.policy.policies.unlink', $staff))->assertSessionHas('success');
+        $this->assertNull($staff->refresh()->provider_reference);
+    }
+
+    public function test_a_mapping_saved_from_an_out_of_date_page_is_refused_and_a_save_names_the_mapping(): void
+    {
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        $staff = FilterPolicy::query()->where('provider_reference', 'sim-filter-staff')->sole();
+        $students = FilterPolicy::query()->where('provider_reference', 'sim-filter-students')->sole();
+
+        $this->actingAs($this->admin)->put(route('admin.policy.networks.update'), ['assignments' => ['sim-guest' => $staff->id], 'was' => ['sim-guest' => '']])
+            ->assertSessionHas('success', fn (string $message) => str_contains($message, 'Guest Wi-Fi (VLAN 80) → Staff'));
+
+        // The page still shows "Not managed" for the row, and posts Students: refused, Staff stays.
+        $this->actingAs($this->admin)->put(route('admin.policy.networks.update'), ['assignments' => ['sim-guest' => $students->id], 'was' => ['sim-guest' => '']])
+            ->assertSessionHas('error', fn (string $message) => str_contains($message, 'Guest Wi-Fi (VLAN 80) is now Staff'));
+        $this->assertSame($staff->id, NetworkAssignment::query()->where('provider_network_id', 'sim-guest')->value('filter_policy_id'));
     }
 }

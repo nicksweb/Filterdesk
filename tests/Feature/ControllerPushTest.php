@@ -192,7 +192,7 @@ class ControllerPushTest extends TestCase
         $this->artisan('policy:check-sync')->assertSuccessful();
 
         $this->assertSame('error', $this->students->refresh()->sync_status);
-        $this->assertStringContainsString('no longer exists', $this->students->sync_details['summary']);
+        $this->assertStringContainsString('was deleted. Delete this policy', $this->students->sync_details['summary']);
     }
 
     public function test_the_controller_is_the_source_of_truth_for_entries_added_or_removed_there(): void

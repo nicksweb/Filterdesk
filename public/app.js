@@ -141,22 +141,35 @@
       return;
     }
     form.dataset.armed = '';
+    // One save at a time per form: a second submit while one is in flight is dropped.
+    if (form.dataset.busy === '1') return;
+    form.dataset.busy = '1';
     const region = document.querySelector(form.dataset.async);
     region?.classList.add('is-busy');
+    const body = new FormData(form);
+    // Lock the form's drop-downs while it saves, so a scroll or arrow key cannot send a second value.
+    form.querySelectorAll('select').forEach(select => { select.disabled = true; });
     if (button) { button.disabled = true; button.textContent = 'Working…'; }
+    // Only the newest response for a region is shown; an older one arriving late is ignored.
+    const ticket = String(Date.now()) + Math.random();
+    if (region) region.dataset.ticket = ticket;
     try {
-      const response = await fetch(form.action, { method: 'POST', body: new FormData(form), headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'text/html' }, credentials: 'same-origin' });
+      const response = await fetch(form.action, { method: 'POST', body, headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'text/html' }, credentials: 'same-origin' });
       const page = new DOMParser().parseFromString(await response.text(), 'text/html');
       const fresh = page.querySelector(form.dataset.async);
+      if (region && region.dataset.ticket !== ticket) return;
       if (!region || !fresh) { window.location.reload(); return; }
       region.innerHTML = fresh.innerHTML;
       const slot = region.querySelector('[data-flash-slot]');
       if (slot) page.querySelectorAll('main .alert').forEach(alert => slot.appendChild(document.importNode(alert, true)));
       applyTabs(region);
     } catch (error) {
+      form.querySelectorAll('select').forEach(select => { select.disabled = false; });
       form.submit();
     } finally {
-      region?.classList.remove('is-busy');
+      form.dataset.busy = '';
+      form.querySelectorAll('select').forEach(select => { select.disabled = false; });
+      if (!region || region.dataset.ticket === ticket) region?.classList.remove('is-busy');
     }
   });
 })();

@@ -46,6 +46,13 @@ class FilterTable
                 'report' => $policy ? ($reports[$policy->id] ?? null) : null,
             ];
         }
+        // Linked policies whose filter was deleted in UniFi: listed so they can be deleted, kept or relinked.
+        $filterIds = array_column($state['filters'], 'id');
+        foreach ($policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference) && ! in_array($policy->provider_reference, $filterIds, true)) as $policy) {
+            $rows[] = ['name' => $policy->name, 'paused' => false, 'policy' => $policy, 'gone' => true,
+                'role' => 'Its UniFi filter '.($policy->provider_name ?: $policy->provider_reference).' was deleted',
+                'networks' => [], 'categories' => [], 'safe_search' => [], 'schedule' => '', 'allow' => null, 'block' => null, 'report' => null];
+        }
         foreach ($policies->filter(fn (FilterPolicy $policy) => blank($policy->provider_reference)) as $policy) {
             $rows[] = ['name' => $policy->name, 'paused' => false, 'policy' => $policy, 'role' => ($policy->isHoursLayer() ? 'School-hours layer' : ($policy->isLayer() ? 'Blocklist layer' : $policy->typeLabel())).' · not linked to UniFi',
                 'networks' => [], 'categories' => [], 'safe_search' => [], 'schedule' => '', 'allow' => null, 'block' => null, 'report' => $reports[$policy->id] ?? null];

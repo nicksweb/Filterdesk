@@ -14,6 +14,17 @@
                 <td>{{ $row['safe_search'] ? implode(', ', $row['safe_search']) : '–' }}</td>
                 <td>{{ $row['schedule'] ?: '–' }}</td>
                 <td>
+                    @if(!$preview && ($row['gone'] ?? false))
+                        @php($ownEntries = \App\Models\PolicyEntry::query()->whereIn('policy_list_id', $row['policy']->ownLists()->pluck('id'))->count())
+                        <span class="network-status warn">Not pushed: delete it, keep it unlinked, or link it to another filter.</span>
+                        @if(auth()->user()->isAdmin())
+                            <span class="row-fixes">
+                                <form method="post" action="{{ route('admin.policy.policies.unlink', $row['policy']) }}">@csrf<button class="button small secondary">Keep, unlinked</button></form>
+                                <a class="button small secondary" href="{{ route('admin.policy.networks.index') }}">Link to another filter…</a>
+                                <form method="post" action="{{ route('admin.policy.policies.destroy', $row['policy']) }}">@csrf @method('DELETE')<button class="button small secondary" data-confirm="Delete the policy {{ $row['policy']->name }}?{{ $ownEntries ? ' Its own lists ('.$ownEntries.' entries) are deleted too: move any you need to a site-wide or network type list first.' : '' }} Site-wide and network type lists are not changed.">Delete policy</button></form>
+                            </span>
+                        @endif
+                    @endif
                     @if($row['allow'] !== null){{ number_format($row['allow']) }} allowed · {{ number_format($row['block']) }} blocked @endif
                     @if(!$preview && $row['report'])
                         @php($adds = count($row['report']['allow_add']) + count($row['report']['block_add']))

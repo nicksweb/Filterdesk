@@ -168,6 +168,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/policies', [FilterPolicyController::class, 'store'])->name('policies.store');
                     Route::put('/policies/{policy}', [FilterPolicyController::class, 'update'])->name('policies.update');
                     Route::delete('/policies/{policy}', [FilterPolicyController::class, 'destroy'])->name('policies.destroy');
+                    Route::post('/policies/{policy}/unlink', [FilterPolicyController::class, 'unlink'])->name('policies.unlink');
                     Route::post('/policies/{policy}/merge', [FilterPolicyController::class, 'merge'])->name('policies.merge');
                     Route::post('/policies/{policy}/entries/{entry}/split', [FilterPolicyController::class, 'splitEntry'])->name('policies.entries.split');
                     Route::post('/policies/{policy}/entries/keep', [FilterPolicyController::class, 'keepEntry'])->name('policies.entries.keep');

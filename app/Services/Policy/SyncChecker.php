@@ -132,7 +132,7 @@ class SyncChecker
 
         $filter = $this->sync->filterFor($policy, $state);
         if (! $filter) {
-            return $this->record($policy, 'error', ['summary' => 'The linked controller filter no longer exists. Re-link it under Networks & filters.']);
+            return $this->record($policy, 'error', ['summary' => 'The UniFi filter '.($policy->provider_name ?: $policy->provider_reference).' was deleted. Delete this policy, keep it unlinked, or link it to another filter (Policies & lists → Content filters).', 'gone' => true]);
         }
 
         $this->sync->pull($policy, null, refresh: false);

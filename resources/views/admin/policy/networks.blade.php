@@ -131,6 +131,7 @@
                                 <td>
                                     @if($isAdmin && $row['assignment'])
                                         <form method="post" action="{{ route('admin.policy.networks.update') }}" data-async="#networks-live">@csrf @method('PUT')
+                                            <input type="hidden" name="was[{{ $row['id'] }}]" value="{{ $row['policy']?->id }}">
                                             <select name="assignments[{{ $row['id'] }}]" data-autosubmit aria-label="Policy for {{ $row['name'] }}">
                                                 <option value="">Not managed</option>
                                                 @foreach($policies->reject(fn ($policy) => $policy->isSitewide()) as $policy)<option value="{{ $policy->id }}" @selected($row['policy']?->is($policy))>{{ $policy->name }}</option>@endforeach
@@ -150,7 +151,7 @@
                                                 @elseif($action === 'add_filter' && ($row['status']['filter_id'] ?? null) && $writable && $row['assignment'])
                                                     <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live" data-confirm-inline="Add {{ $row['status']['filter_name'] }} to {{ $row['name'] }}?">@csrf<input type="hidden" name="filter_id" value="{{ $row['status']['filter_id'] }}"><button class="button small secondary">Add {{ $row['status']['filter_name'] }}</button></form>
                                                 @elseif($action === 'remap' && ($row['status']['policy'] ?? null))
-                                                    <form method="post" action="{{ route('admin.policy.networks.update') }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="assignments[{{ $row['id'] }}]" value="{{ $row['status']['policy']->id }}"><button class="button small secondary">Map to {{ $row['status']['policy']->name }}</button></form>
+                                                    <form method="post" action="{{ route('admin.policy.networks.update') }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="was[{{ $row['id'] }}]" value="{{ $row['policy']?->id }}"><input type="hidden" name="assignments[{{ $row['id'] }}]" value="{{ $row['status']['policy']->id }}"><button class="button small secondary">Map to {{ $row['status']['policy']->name }}</button></form>
                                                 @elseif($action === 'follow')
                                                     <form method="post" action="{{ route('admin.policy.networks.follow') }}" data-async="#networks-live">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary">Follow UniFi</button></form>
                                                 @elseif($action === 'allow' && $row['assignment'])

@@ -175,4 +175,13 @@ class FilterPolicy extends Model
     {
         return 'slug';
     }
+
+    /** By slug, or by id for a plain number (/policies/4). */
+    public function resolveRouteBinding($value, $field = null): ?self
+    {
+        $value = (string) $value;
+
+        return static::query()->where($field ?? 'slug', $value)->first()
+            ?? ($field === null && ctype_digit($value) ? static::query()->find((int) $value) : null);
+    }
 }

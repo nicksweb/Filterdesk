@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.23
+
+### Fixed
+- **Policies whose UniFi filter was deleted can be found and dealt with.** They now have a row in Policies & lists → Content filters, saying the filter was deleted, with *Keep, unlinked*, *Link to another filter…* and *Delete policy*. Deleting warns how many entries the policy's own lists hold. The sync message names the deleted filter and offers the same choices.
+- ***Push all* skips policies whose UniFi filter was deleted**, with a note, instead of reporting the whole run as unfinished.
+- **Policy pages open by number too** (`/admin/policy/policies/4`), as well as by name.
+- **A network's Policy drop-down can't be undone by a stale save.**
+  - Each save sends the mapping the page showed, and a save from an out-of-date page is refused with what the mapping is now.
+  - The drop-down is locked while its save runs, and a late response no longer redraws over a newer one.
+  - The result names what was saved, for example "Guest Wi-Fi (VLAN 80) → Guests".
+
 ## 2026.12.22
 
 ### Fixed

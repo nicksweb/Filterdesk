@@ -242,23 +242,39 @@ class NetworkMapController extends Controller
         $validated = $request->validate([
             'assignments' => ['array'],
             'assignments.*' => ['nullable', 'integer', 'exists:filter_policies,id'],
+            // What the page showed for each row: a save from a page that is out of date is refused, not applied.
+            'was' => ['nullable', 'array'],
+            'was.*' => ['nullable', 'integer'],
         ]);
 
-        $changed = 0;
+        $saved = [];
+        $stale = [];
+        $names = FilterPolicy::query()->pluck('name', 'id');
         foreach ($validated['assignments'] ?? [] as $networkId => $policyId) {
             $assignment = NetworkAssignment::query()->where('provider_network_id', (string) $networkId)->first();
             if (! $assignment) {
                 continue;
             }
+            $label = $assignment->name.($assignment->vlan ? " (VLAN {$assignment->vlan})" : '');
+            if (array_key_exists($networkId, $validated['was'] ?? []) && (int) ($validated['was'][$networkId] ?? 0) !== (int) ($assignment->filter_policy_id ?? 0)) {
+                $stale[] = $label.' is now '.($names[$assignment->filter_policy_id] ?? 'Not managed');
+
+                continue;
+            }
             $assignment->filter_policy_id = $policyId ?: null;
             if ($assignment->isDirty()) {
                 $assignment->save();
-                $changed++;
+                $saved[] = $label.' → '.($policyId ? ($names[$policyId] ?? 'a policy') : 'Not managed');
             }
         }
-        $audit->log('policy.networks_mapped', null, ['changed' => $changed]);
+        $audit->log('policy.networks_mapped', null, ['changed' => count($saved), 'saved' => $saved, 'stale' => $stale]);
 
-        return back()->with('success', "{$changed} network mapping(s) updated.");
+        $response = back();
+        if ($stale) {
+            $response = $response->with('error', 'Not saved, because the mapping changed since this page was shown: '.implode('; ', $stale).'. Choose again if you still want to change it.');
+        }
+
+        return $saved || ! $stale ? $response->with('success', $saved ? 'Saved: '.implode('; ', $saved).'.' : 'No mapping changed.') : $response;
     }
 
     /**

@@ -166,7 +166,13 @@ class ControllerPusher
         $policies = $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference))
             ->sortBy(fn (FilterPolicy $policy) => $policy->isLayer() ? 0 : 1)->values();
 
-        return $policies->map(fn (FilterPolicy $policy) => ['policy' => $policy] + $this->push($policy, $actor, $trigger))->values();
+        // A policy whose filter was deleted in UniFi is skipped with a note, not counted as a failure.
+        $state = $this->sync->state();
+        $filterIds = $state['error'] ? null : array_column($state['filters'], 'id');
+
+        return $policies->map(fn (FilterPolicy $policy) => ['policy' => $policy] + ($filterIds !== null && ! in_array($policy->provider_reference, $filterIds, true)
+            ? ['ok' => true, 'skipped' => true, 'message' => "{$policy->name} skipped: its UniFi filter ".($policy->provider_name ?: $policy->provider_reference).' was deleted.']
+            : $this->push($policy, $actor, $trigger)))->values();
     }
 
     /**
