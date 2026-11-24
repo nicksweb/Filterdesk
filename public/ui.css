@@ -382,3 +382,4 @@ details.oidc-advanced{margin:8px 0}details.oidc-advanced summary{cursor:pointer;
 .help-box h2{font-size:1rem;margin:0 0 8px}.help-box p{margin:6px 0;font-size:.88rem}.help-page ol,.help-page ul{padding-left:20px}.help-page li{margin:6px 0}
 .help-row{margin-top:24px;max-width:520px}
 .copy-categories{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:18px;border-top:1px solid var(--line);padding-top:16px}.copy-categories label{flex:1;min-width:220px}
+.host-list-more{display:inline}.host-list-more summary{display:inline;cursor:pointer;color:var(--blue);font-weight:600}.host-list-more[open]{display:block;max-height:16em;overflow-y:auto;word-break:break-word}

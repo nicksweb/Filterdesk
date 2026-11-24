@@ -147,6 +147,13 @@ class FilterPolicyController extends Controller
         ]);
         $allow = $parser->parseDetailed($validated['current_allowlist'] ?? '', 'current_allowlist');
         $block = $parser->parseDetailed($validated['current_blocklist'] ?? '', 'current_blocklist');
+        // A long list is not put in the form; left blank, it keeps what the last fetch found.
+        if ($request->boolean('keep_current_allowlist') && blank($validated['current_allowlist'] ?? null)) {
+            $allow['entries'] = $policy->current_allowlist ?? [];
+        }
+        if ($request->boolean('keep_current_blocklist') && blank($validated['current_blocklist'] ?? null)) {
+            $block['entries'] = $policy->current_blocklist ?? [];
+        }
 
         $policy->update([
             'current_allowlist' => $allow['entries'],
@@ -421,12 +428,13 @@ class FilterPolicyController extends Controller
 
     public function export(FilterPolicy $policy, string $kind, PolicyEngine $engine): Response
     {
-        abort_unless(in_array($kind, ['allow', 'block'], true), 404);
-        $domains = $engine->desired($policy)[$kind];
+        // The desired lists, what the controller has now, or one part of the change set.
+        abort_unless(in_array($kind, ['allow', 'block', 'current_allow', 'current_block', 'allow_add', 'allow_remove', 'block_add', 'block_remove'], true), 404);
+        $domains = in_array($kind, ['allow', 'block'], true) ? $engine->desired($policy)[$kind] : $engine->reconcile($policy)[$kind];
 
         return response(implode("\n", $domains)."\n", 200, [
             'Content-Type' => 'text/plain; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="'.$policy->slug.'-'.$kind.'list.txt"',
+            'Content-Disposition' => 'attachment; filename="'.$policy->slug.'-'.str_replace('_', '-', $kind).(in_array($kind, ['allow', 'block'], true) ? 'list' : '').'.txt"',
         ]);
     }
 

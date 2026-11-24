@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ControllerPush;
 use App\Models\FilterPolicy;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
@@ -239,5 +240,25 @@ class SafetyNetTest extends TestCase
         $this->actingAs($this->admin)->put(route('admin.policy.networks.update'), ['assignments' => ['sim-guest' => $students->id], 'was' => ['sim-guest' => '']])
             ->assertSessionHas('error', fn (string $message) => str_contains($message, 'Guest Wi-Fi (VLAN 80) is now Staff'));
         $this->assertSame($staff->id, NetworkAssignment::query()->where('provider_network_id', 'sim-guest')->value('filter_policy_id'));
+    }
+
+    public function test_long_lists_on_the_policy_page_are_shortened_and_downloadable(): void
+    {
+        $students = $this->linkStudents();
+        $list = $this->engine->defaultBlockList('student');
+        $hosts = array_map(fn (int $number) => "host{$number}.example.net", range(1, 1500));
+        foreach (array_chunk($hosts, 500) as $chunk) {
+            PolicyEntry::query()->insert(array_map(fn (string $host) => ['policy_list_id' => $list->id, 'domain' => $host, 'source' => 'feed', 'created_at' => now(), 'updated_at' => now()], $chunk));
+        }
+        $students->update(['current_blocklist' => $hosts]);
+        ControllerPush::query()->create(['filter_policy_id' => $students->id, 'provider_reference' => 'sim-filter-students', 'provider_name' => 'Students', 'trigger' => 'schedule', 'status' => 'ok',
+            'before_allow' => [], 'before_block' => [], 'after_allow' => [], 'after_block' => $hosts, 'changes' => ['allow_add' => [], 'allow_remove' => [], 'block_add' => $hosts, 'block_remove' => []], 'message' => 'test']);
+
+        $page = $this->actingAs($this->admin)->get(route('admin.policy.policies.show', $students))->assertOk();
+        $page->assertSee('and 1,488 more')->assertSee('Showing the first 1,000 of 1,500')->assertSee('entries from the last fetch are kept')->assertDontSee('host999.example.net');
+
+        $this->actingAs($this->admin)->get(route('admin.policy.policies.export', [$students, 'current_block']))->assertOk()->assertSee('host1499.example.net');
+        $this->actingAs($this->admin)->post(route('admin.policy.policies.snapshot', $students), ['current_allowlist' => '', 'current_blocklist' => '', 'keep_current_blocklist' => '1'])->assertRedirect();
+        $this->assertCount(1500, $students->refresh()->current_blocklist, 'A list left out of the form is kept');
     }
 }

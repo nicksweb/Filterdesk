@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.24
+
+### Fixed
+- **Long lists no longer slow down the policy page.**
+  - Push history, controller changes and pulled entries show the first 12 hostnames, then *and N more*, which opens up to 500 more in place.
+  - The change set and desired lists show the first 1,000 lines, with *Download .txt* for the full list. Each part of the change set and the controller's current lists can now be downloaded too.
+  - In *Paste lists manually*, a list of more than 1,000 entries isn't loaded into the box. Left blank, it keeps what the last fetch found.
+
 ## 2026.12.23
 
 ### Fixed

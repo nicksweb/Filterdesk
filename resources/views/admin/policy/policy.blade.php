@@ -27,7 +27,7 @@
                 <div class="sync-changes">
                     <p><strong>Edited directly in the controller</strong> since {{ isset($policy->sync_baseline['at']) ? \Illuminate\Support\Carbon::parse($policy->sync_baseline['at'])->local()->format('j M g:i a') : 'the last push' }}:</p>
                     @foreach(['allow_added' => 'Allowed in the controller', 'allow_removed' => 'Allow entries removed in the controller', 'block_added' => 'Blocked in the controller', 'block_removed' => 'Block entries removed in the controller', 'categories_added' => 'Categories blocked in the controller', 'categories_removed' => 'Categories unblocked in the controller'] as $key => $label)
-                        @if(!empty($details['changed_in_controller'][$key]))<p class="hint"><strong>{{ $label }}:</strong> {{ implode(', ', $details['changed_in_controller'][$key]) }}</p>@endif
+                        @if(!empty($details['changed_in_controller'][$key]))<p class="hint"><strong>{{ $label }}:</strong> <x-host-list :items="$details['changed_in_controller'][$key]" /></p>@endif
                     @endforeach
                     <p class="hint">Import entries you want to keep (below), push to restore removed managed entries, or accept the controller's state.</p>
                 </div>
@@ -36,7 +36,7 @@
                 <div class="sync-pulled">
                     <p><strong>Last pulled from the controller</strong> {{ isset($details['pulled']['at']) ? \Illuminate\Support\Carbon::parse($details['pulled']['at'])->diffForHumans() : '' }}:</p>
                     @foreach(['allow_imported' => 'Allowed there, now managed here', 'block_imported' => 'Blocked there, now managed here', 'allow_excluded' => 'Allow entries removed there', 'block_excluded' => 'Block entries removed there', 'restored' => 'Re-added there', 'categories_changed' => 'Categories changed there'] as $key => $label)
-                        @if(!empty($details['pulled'][$key]))<p class="hint"><strong>{{ $label }}:</strong> {{ implode(', ', $details['pulled'][$key]) }}</p>@endif
+                        @if(!empty($details['pulled'][$key]))<p class="hint"><strong>{{ $label }}:</strong> <x-host-list :items="$details['pulled'][$key]" /></p>@endif
                     @endforeach
                 </div>
             @endif
@@ -73,8 +73,8 @@
             <summary>Paste lists manually</summary>
             <form method="post" action="{{ route('admin.policy.policies.snapshot', $policy) }}">@csrf
                 <div class="fields two policy-editors">
-                    <label>Current allow list<textarea name="current_allowlist" rows="10">{{ implode("\n", $report['current_allow']) }}</textarea></label>
-                    <label>Current block list<textarea name="current_blocklist" rows="10">{{ implode("\n", $report['current_block']) }}</textarea></label>
+                    @if(count($report['current_allow']) > 1000)<label>Current allow list<textarea name="current_allowlist" rows="10" placeholder="{{ number_format(count($report['current_allow'])) }} entries from the last fetch are kept. Paste a full list here only to replace them."></textarea><input type="hidden" name="keep_current_allowlist" value="1"></label>@else<label>Current allow list<textarea name="current_allowlist" rows="10">{{ implode("\n", $report['current_allow']) }}</textarea></label>@endif
+                    @if(count($report['current_block']) > 1000)<label>Current block list<textarea name="current_blocklist" rows="10" placeholder="{{ number_format(count($report['current_block'])) }} entries from the last fetch are kept. Paste a full list here only to replace them."></textarea><input type="hidden" name="keep_current_blocklist" value="1"></label>@else<label>Current block list<textarea name="current_blocklist" rows="10">{{ implode("\n", $report['current_block']) }}</textarea></label>@endif
                 </div>
                 <div class="form-actions"><button class="button secondary">Save snapshot and compare</button></div>
             </form>
@@ -84,7 +84,7 @@
     <section class="panel policy-section">
         <div class="panel-heading"><div><h2>2. Change set</h2><p>{{ $report['has_snapshot'] ? 'Differences between the controller and the desired state.' : 'No snapshot yet, so everything desired is shown as an addition.' }}</p></div></div>
         @if($report['controller_blocks_allowed'])
-            <div class="alert error"><strong>The controller blocks hostnames that are allowed here:</strong> {{ implode(', ', $report['controller_blocks_allowed']) }}. Remove them from the controller's block list, or remove the allow entry if the block is intended.</div>
+            <div class="alert error"><strong>The controller blocks hostnames that are allowed here:</strong> <x-host-list :items="$report['controller_blocks_allowed']" />. Remove them from the controller's block list, or remove the allow entry if the block is intended.</div>
         @endif
         @if(!empty($report['allow_paused']))
             <div class="alert warning"><strong>Kept because the filter that provides them is paused:</strong>
@@ -117,8 +117,8 @@
                             <button class="button small primary">Import selected</button>
                         </form>
                     @else
-                        <textarea rows="6" readonly id="change-{{ $key }}">{{ implode("\n", $report[$key]) }}</textarea>
-                        @if(count($report[$key]))<button type="button" class="button small secondary" data-copy="#change-{{ $key }}">Copy</button>@endif
+                        <x-host-box :items="$report[$key]" :id="'change-'.$key" :download="route('admin.policy.policies.export', [$policy, $key])" />
+                        @if(count($report[$key]))<div class="button-row">@if(count($report[$key]) <= 1000)<button type="button" class="button small secondary" data-copy="#change-{{ $key }}">Copy</button>@endif<a class="button small secondary" href="{{ route('admin.policy.policies.export', [$policy, $key]) }}">Download .txt</a></div>@endif
                     @endif
                 </article>
             @endforeach
@@ -159,7 +159,7 @@
                         <td>#{{ $push->id }} · {{ $push->created_at->local()->format('j M g:i a') }}<small>{{ ucfirst($push->trigger) }}@if($push->filter_policy_id !== $policy->id) · from {{ $push->filterPolicy?->name ?? 'another policy' }}@endif @if($push->provider_reference !== $policy->provider_reference) · to {{ $push->provider_name }}@endif</small></td>
                         <td>{{ $push->user?->name ?? 'Automatic' }}</td>
                         <td><span class="status status-{{ $push->status === 'ok' ? 'ok' : 'failed' }}">{{ $push->status === 'ok' ? 'Applied' : 'Failed' }}</span><small>{{ $push->message }}</small></td>
-                        <td>@foreach(['allow_add' => 'Allowed', 'allow_remove' => 'Unallowed', 'block_add' => 'Blocked', 'block_remove' => 'Unblocked'] as $key => $label)@if(!empty($push->changes[$key]))<small><strong>{{ $label }}:</strong> {{ implode(', ', $push->changes[$key]) }}</small>@endif @endforeach</td>
+                        <td>@foreach(['allow_add' => 'Allowed', 'allow_remove' => 'Unallowed', 'block_add' => 'Blocked', 'block_remove' => 'Unblocked'] as $key => $label)@if(!empty($push->changes[$key]))<small><strong>{{ $label }}:</strong> <x-host-list :items="$push->changes[$key]" /></small>@endif @endforeach</td>
                         <td>@if($canPush && $push->status === 'ok' && !$push->rollback_of_id && $push->changeCount())<form method="post" action="{{ route('admin.policy.pushes.rollback', $push) }}">@csrf<button class="button small secondary" data-confirm="Put {{ $push->provider_name }} back to its lists from before this push?">Roll back</button></form>@endif</td>
                     </tr>
                 @endforeach
@@ -260,10 +260,10 @@
             <form method="post" action="{{ route('admin.policy.policies.synced', $policy) }}">@csrf<button class="button secondary" data-confirm="Record that the controller now matches these desired lists?">Mark controller in sync</button></form>
         </div>
         <div class="fields two policy-editors">
-            <div><label>Desired allow list ({{ count($report['allow']) }})<textarea rows="14" readonly id="desired-allow">{{ implode("\n", $report['allow']) }}</textarea></label>
-                <div class="button-row"><button type="button" class="button small secondary" data-copy="#desired-allow">Copy</button><a class="button small secondary" href="{{ route('admin.policy.policies.export', [$policy, 'allow']) }}">Download .txt</a></div></div>
-            <div><label>Desired block list ({{ count($report['block']) }})<textarea rows="14" readonly id="desired-block">{{ implode("\n", $report['block']) }}</textarea></label>
-                <div class="button-row"><button type="button" class="button small secondary" data-copy="#desired-block">Copy</button><a class="button small secondary" href="{{ route('admin.policy.policies.export', [$policy, 'block']) }}">Download .txt</a></div></div>
+            <div><label>Desired allow list ({{ count($report['allow']) }})</label><x-host-box :items="$report['allow']" id="desired-allow" :rows="14" :download="route('admin.policy.policies.export', [$policy, 'allow'])" />
+                <div class="button-row">@if(count($report['allow']) <= 1000)<button type="button" class="button small secondary" data-copy="#desired-allow">Copy</button>@endif<a class="button small secondary" href="{{ route('admin.policy.policies.export', [$policy, 'allow']) }}">Download .txt</a></div></div>
+            <div><label>Desired block list ({{ count($report['block']) }})</label><x-host-box :items="$report['block']" id="desired-block" :rows="14" :download="route('admin.policy.policies.export', [$policy, 'block'])" />
+                <div class="button-row">@if(count($report['block']) <= 1000)<button type="button" class="button small secondary" data-copy="#desired-block">Copy</button>@endif<a class="button small secondary" href="{{ route('admin.policy.policies.export', [$policy, 'block']) }}">Download .txt</a></div></div>
         </div>
         <ul class="rule-notes">@foreach($rules->notes as $note)<li>{{ $note }}</li>@endforeach</ul>
     </section>
