@@ -440,6 +440,8 @@ Still in read-only mode (two IT officers make step 6 possible):
    - **Settings → Help and support:** your helpdesk's email, phone and hours, and a link to your own support article. Staff and students see them in a *Need help?* box and on the **How to** page, which explains checks, requests and what to do when a site is still blocked after it was allowed.
    - **Settings → School:** the sign-in page logo, and *Wording people see* (dashboard, sign-in and website check text).
    - **Settings → Network profiles → Website checks:** who sees page previews (IT only by default), and DNS-only checks.
+   - **Settings → Protected sites:** sites that are never blocked. Check the defaults and add your country's Google (for example google.com.au) and your school's own domains.
+   - **Policies → Filtering map:** one network at a time, the whole chain from UniFi filters to policies and lists.
    - **Policies → Quick block or allow:** block or allow a site on several network types at once, in school hours only if you like, with a preview first.
    - **Settings → Approval policy:** two-person approval for site-wide changes (on by default), approving alone when no other officer is available, the sensitive categories that need two IT officers, how often exceptions are reviewed (12 months) and how long an unreviewed one stays (14 days), and the wording of *Your access is on its way*, the page staff see after access is approved (close the browser, restart if needed).
    - **Settings → School:** the application name, icon, and whether the footer links to the open-source project.

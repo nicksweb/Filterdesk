@@ -93,11 +93,15 @@ class NetworkMapController extends Controller
                     'wrong_filter' => 'Mapped to '.$network['policy']->name.' here, but UniFi uses other filters.',
                     'layer_missing' => 'Missing the layer '.($network['layer']->provider_name ?: $network['layer']->name).', so its feeds are not blocked here.',
                     default => $network['policy']->name.' is not linked to a UniFi filter yet.',
-                }, 'actions' => []],
+                }, 'actions' => $network['status'] === 'wrong_filter' ? ['follow'] : []],
                 $network['status'] === 'hours_only' => ['level' => 'info', 'text' => 'Filtered as '.$network['policy']->name.' only in school hours ('.($network['hours']->provider_name ?: $network['hours']->name).'). Add '.($network['policy']->provider_name ?: $network['policy']->name).' to filter it at every hour.',
                     'actions' => ['add_filter'], 'filter_id' => $network['policy']->provider_reference, 'filter_name' => $network['policy']->provider_name ?: $network['policy']->name],
                 $network['status'] === 'multiple_filters' => ['level' => 'info', 'text' => 'Also in '.collect($network['others'])->pluck('name')->join(', ').': a site '.($network['policy']->provider_name ?: $network['policy']->name).' allows can still be blocked there.', 'actions' => []],
-                default => ['level' => 'ok', 'text' => $lesson && $lesson['types'] ? collect($lesson['types'])->map(fn ($type) => NetworkType::labelFor($type))->join(' and ').' filtering' : 'Filtered', 'actions' => []],
+                default => ['level' => 'ok', 'text' => match (true) {
+                    $lesson && $lesson['types'] => collect($lesson['types'])->map(fn ($type) => NetworkType::labelFor($type))->join(' and ').' filtering',
+                    $lesson && $lesson['sitewide'] => 'Site-wide filtering only ('.implode(', ', $lesson['sitewide']).')'.(($lesson['kind'] ?? null) === 'device' ? ': as expected for a device network' : ''),
+                    default => 'Filtered',
+                }, 'actions' => []],
             };
             $rows[] = [
                 'id' => $network['id'], 'assignment' => $network['assignment'], 'name' => $network['name'], 'vlan' => $network['vlan'], 'subnet' => $network['subnet'] ?? null,
@@ -114,6 +118,20 @@ class NetworkMapController extends Controller
         }
 
         return collect($rows)->sortBy(fn (array $row) => [$row['attention'] ? 0 : 1, $row['vlan'] ?? 0])->values()->all();
+    }
+
+    /** Map networks to the policy behind the filters UniFi has on them (or to none), where the two disagree. */
+    public function follow(Request $request, ControllerSync $sync): RedirectResponse
+    {
+        $validated = $request->validate(['networks' => ['nullable', 'array', 'max:500'], 'networks.*' => ['string', 'max:190']]);
+        $state = $sync->state();
+        if ($state['error']) {
+            return back()->with('error', $state['error']);
+        }
+        $changes = $sync->followController($sync->networkReport($state), $request->user(), $validated['networks'] ?? null);
+        app(SyncChecker::class)->checkAll(notify: false);
+
+        return back()->with('success', $changes ? 'Now following UniFi: '.implode('; ', $changes).'.' : 'Nothing to change: the mappings already match UniFi.');
     }
 
     /** Take what baseline filtering added on its own off those networks again. */
@@ -271,8 +289,26 @@ class NetworkMapController extends Controller
             return back()->with('error', 'That content filter is no longer in the controller. Refresh and try again.');
         }
 
-        if (filled($validated['filter_policy_id'] ?? null)) {
-            $policy = FilterPolicy::query()->findOrFail($validated['filter_policy_id']);
+        // Moving a link changes what gets pushed where, so it is never done on a drop-down change alone.
+        $current = FilterPolicy::query()->where('provider_reference', $filter['id'])->first();
+        $chosen = filled($validated['filter_policy_id'] ?? null) ? FilterPolicy::query()->findOrFail($validated['filter_policy_id']) : null;
+        if ($chosen && $current?->is($chosen)) {
+            return back()->with('success', "{$filter['name']} is already linked to {$chosen->name}.");
+        }
+        $moves = array_values(array_filter([
+            $chosen && filled($chosen->provider_reference) ? "{$chosen->name} stops managing {$chosen->provider_name}, which keeps its current lists in UniFi but is no longer updated" : null,
+            $current ? "{$current->name} stops managing {$filter['name']}" : null,
+        ]));
+        if ($moves !== [] && ! $request->boolean('confirmed')) {
+            return back()->with('link_confirm', [
+                'filter_id' => $filter['id'], 'managed_by' => $managedBy, 'filter' => $filter['name'],
+                'policy' => $chosen?->name ?? 'a new policy', 'moves' => $moves,
+                'counts' => count($filter['allow']).' allowed and '.count($filter['block']).' blocked',
+            ]);
+        }
+
+        if ($chosen) {
+            $policy = $chosen;
         } else {
             $audience = $validated['audience'];
             $policy = FilterPolicy::query()->create([
@@ -285,10 +321,15 @@ class NetworkMapController extends Controller
             $policy->update(['role' => 'sitewide']);
         }
 
+        // Keep what the filter holds: its entries go into the policy's own lists before the link, so
+        // the next push (automatic or not) writes them back instead of deleting them.
+        $imported = app(ControllerImporter::class)->importEntries($policy->refresh(), $filter, $request->user());
         $pulled = $sync->link($filter, $policy->refresh(), $request->user());
-        $audit->log('policy.filter_linked', $policy, ['filter' => $filter['name']]);
+        // A new link is treated like a first push: a person checks the plan before anything is sent.
+        $policy->refresh()->forceFill(['push_hold' => "Linked to {$filter['name']} by {$request->user()->name} on ".now()->local()->format('j M Y g:i a').'.'])->save();
+        $audit->log('policy.filter_linked', $policy, ['filter' => $filter['name'], 'imported' => $imported, 'moved_from' => $current?->name, 'moved' => $moves]);
 
-        return back()->with('success', "{$filter['name']} is linked to {$policy->name}. ".$pulled['message']);
+        return back()->with('success', "{$filter['name']} is linked to {$policy->name}.".($imported ? ' Kept its '.number_format($imported).' existing entr'.($imported === 1 ? 'y' : 'ies').' in the policy\'s own lists, so nothing in the filter is removed.' : '').' '.$pulled['message'].' Nothing is pushed to it automatically until someone pushes '.$policy->name.' from its page.');
     }
 
     /**

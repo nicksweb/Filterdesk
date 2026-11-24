@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.22
+
+### Fixed
+- **Moving a filter link no longer happens silently.** Choosing a policy that's already linked to another filter, or relinking a filter that already has a policy, now shows what will change and waits for *Move the link*. Before, the drop-down moved the link straight away, and the next automatic push wrote that policy's lists over a different filter.
+- **Linking a filter keeps what's in it.** Linking a filter to a policy, new or existing, first copies the filter's current allows and blocks into that policy's own lists, so the first plan removes nothing. Before, a new policy started empty and the next automatic push emptied the filter.
+- **Nothing is pushed automatically after a link change.** The policy is put *On hold* until someone checks its change set and pushes it from the policy page. That clears the hold.
+- **An automatic push never removes most of a filter.** If a push would remove 3 or more entries and at least half of the filter, it's refused and recorded, whatever the automatic change limit is. A person pushing that one policy from its page can still send it.
+- **Push history follows the filter.** A policy's page lists every push to its filter, including ones made while another policy was linked, so *Roll back* is there after a link change.
+- **Device networks with site-wide filtering** (cameras, phones, management networks) are no longer told to add Students filtering. They show *Site-wide filtering only: as expected*. Only a device network with no filter at all gets a suggestion.
+- **Network mappings follow UniFi.** When UniFi no longer has a policy's filter on a network but other filters are there, the 15-minute check maps the network to the policy behind those filters, or clears the mapping, and logs it (when the controller is the source of truth). Rows that disagree have a *Follow UniFi* button, and the *Networks differ* notice says what to do.
+
+### Added
+- **Protected sites** (Settings → Protected sites): a safety net of sites that are never blocked, whatever a list, feed, website scan, request or UniFi says.
+  - The defaults cover search, sign-in and updates: google.com, bing.com, microsoft.com, apple.com, office.com, live.com, icloud.com, accounts.google.com, \*.gstatic.com, \*.googleapis.com, \*.microsoftonline.com, \*.windowsupdate.com and others.
+  - `google.com` protects the top level, so a subdomain such as gemini.google.com can still be blocked. `*.gstatic.com` protects the whole domain. A public suffix on its own (com, com.au) is always protected.
+  - Protected sites are left out of every filter's blocks, and one blocked in UniFi is taken out on the next push. Adding one to a block list, a quick block or a block request is refused with a message. The domain scanner marks them and leaves third-party ones unticked.
+- **Filtering map** (Policies → Filtering map). Pick a network to see the whole chain: every content filter UniFi puts on it and why it's there, the Filterdesk policy behind each one, its sync state, the categories it blocks, and the site-wide, network type and policy lists that fill it, with entry counts.
+- **Copy content categories between filters.** On a policy's *Content categories*, *Copy the categories of another filter* takes another filter's selection, and *Also save this selection to* writes the same selection to other filters, for example Students and Guests.
+
 ## 2026.12.21
 
 ### Added

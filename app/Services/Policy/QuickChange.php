@@ -34,6 +34,7 @@ class QuickChange
         private readonly CategoryCoverage $coverage,
         private readonly TwoPersonRule $twoPerson,
         private readonly AuditLogger $audit,
+        private readonly ProtectedSites $protectedSites,
     ) {}
 
     /**
@@ -45,6 +46,10 @@ class QuickChange
         $parsed = $this->parser->parseDetailed($input['domains'], 'domains');
         $domains = ($input['include_www'] ?? false) ? $this->withWww($parsed['entries']) : $parsed['entries'];
         $kind = $input['kind'] === 'block' ? ListKind::Block : ListKind::Allow;
+        $protected = [];
+        if ($kind === ListKind::Block) {
+            ['allowed' => $domains, 'protected' => $protected] = $this->protectedSites->partition($domains);
+        }
         $scope = in_array('site', $input['types'], true) ? Reach::siteWide() : Reach::types($input['types']);
         $when = $this->when($kind, $input['when']);
 
@@ -69,7 +74,8 @@ class QuickChange
 
         return [
             'domains' => $domains,
-            'notes' => $parsed['notes'],
+            'notes' => $protected ? [...$parsed['notes'], ProtectedSites::message($protected)] : $parsed['notes'],
+            'protected' => $protected,
             'kind' => $kind,
             'scope' => $scope,
             'when' => $when,

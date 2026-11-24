@@ -130,6 +130,9 @@
     @php($pending = count($report['allow_add']) + count($report['allow_remove']) + count($report['block_add']) + count($report['block_remove']))
     <x-push-status :status="$pushStatus ?? null" />
     <section class="panel policy-section push-panel">
+        @if(filled($policy->push_hold))
+            <div class="alert error"><strong>On hold: nothing is pushed to {{ $policy->provider_name ?: 'its filter' }} automatically.</strong> {{ $policy->push_hold }} Check the change set above, then push it here (or fix the lists first). Pushing it here clears the hold.</div>
+        @endif
         <div class="panel-heading">
             <div><h2>Push to the controller</h2><p>
                 @if($canPush)
@@ -153,7 +156,7 @@
             <div class="table-wrap compact"><table><thead><tr><th>When</th><th>By</th><th>Result</th><th>Changes</th><th></th></tr></thead><tbody>
                 @foreach($pushes as $push)
                     <tr>
-                        <td>{{ $push->created_at->local()->format('j M g:i a') }}<small>{{ ucfirst($push->trigger) }}</small></td>
+                        <td>#{{ $push->id }} · {{ $push->created_at->local()->format('j M g:i a') }}<small>{{ ucfirst($push->trigger) }}@if($push->filter_policy_id !== $policy->id) · from {{ $push->filterPolicy?->name ?? 'another policy' }}@endif @if($push->provider_reference !== $policy->provider_reference) · to {{ $push->provider_name }}@endif</small></td>
                         <td>{{ $push->user?->name ?? 'Automatic' }}</td>
                         <td><span class="status status-{{ $push->status === 'ok' ? 'ok' : 'failed' }}">{{ $push->status === 'ok' ? 'Applied' : 'Failed' }}</span><small>{{ $push->message }}</small></td>
                         <td>@foreach(['allow_add' => 'Allowed', 'allow_remove' => 'Unallowed', 'block_add' => 'Blocked', 'block_remove' => 'Unblocked'] as $key => $label)@if(!empty($push->changes[$key]))<small><strong>{{ $label }}:</strong> {{ implode(', ', $push->changes[$key]) }}</small>@endif @endforeach</td>
@@ -229,8 +232,25 @@
                         <label class="choice compact"><input type="checkbox" name="categories[]" value="{{ $category }}" data-group="category" @checked(in_array($category, $categories['blocked'], true))><span>{{ str($category)->replace('_', ' ')->lower()->ucfirst() }}</span></label>
                     @endforeach
                 </div>
-                <div class="form-actions"><button class="button primary" data-confirm="Save the blocked categories to {{ $policy->provider_name }}? This changes filtering on every network it applies to.">Save categories to controller</button></div>
+                @if($categories['others'])
+                    <fieldset class="choice-group"><legend>Also save this selection to</legend>
+                        @foreach($categories['others'] as $other)
+                            <label class="choice compact"><input type="checkbox" name="also_to[]" value="{{ $other['id'] }}"><span>{{ $other['name'] }}<small>{{ $other['count'] }} blocked now{{ $other['differs'] ? ', '.$other['differs'].' different' : ', the same' }}</small></span></label>
+                        @endforeach
+                    </fieldset>
+                @endif
+                <div class="form-actions"><button class="button primary" data-confirm="Save the blocked categories to {{ $policy->provider_name }} (and any filters ticked above)? This changes filtering on every network they apply to.">Save categories to controller</button></div>
             </form>
+            @if($categories['others'])
+                <form method="post" action="{{ route('admin.policy.policies.categories', $policy) }}" class="copy-categories">@csrf
+                    <label>Copy the categories of another filter<select name="copy_from" required>
+                        @foreach($categories['others'] as $other)
+                            <option value="{{ $other['id'] }}">{{ $other['name'] }} ({{ $other['count'] }} blocked{{ $other['differs'] ? ', '.$other['differs'].' different' : ', the same' }})</option>
+                        @endforeach
+                    </select></label>
+                    <button class="button secondary" data-confirm="Replace the categories of {{ $policy->provider_name }} with the chosen filter's? This changes filtering on every network it applies to.">Copy to {{ $policy->provider_name }}</button>
+                </form>
+            @endif
         </details>
     @endif
 

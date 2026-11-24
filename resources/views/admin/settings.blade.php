@@ -358,6 +358,15 @@
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
 
+    @elseif($section === 'protected')
+        @php($protectedSites = app(\App\Services\Policy\ProtectedSites::class))
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'protected') }}">@csrf @method('PUT')
+            <p class="section-copy">A safety net: these sites are never blocked, whatever a list, blocklist feed, website scan, request or UniFi says. A block of one is left out of every filter when Filterdesk pushes, and one added in UniFi is taken out on the next push. Adding one to a block list is refused with a message. Allowing them is not affected.</p>
+            <label>Protected sites<textarea name="sites" rows="14" spellcheck="false">{{ old('sites', implode("\n", $protectedSites->all())) }}</textarea>@error('sites')<small class="field-error">{{ $message }}</small>@enderror</label>
+            <p class="hint">One per line. <code>google.com</code> protects the top level: google.com and www.google.com, so nothing can block the whole of Google, while a subdomain such as <code>gemini.google.com</code> can still be blocked. <code>*.gstatic.com</code> protects the whole domain, every subdomain too. A single hostname such as <code>accounts.google.com</code> protects just that hostname. Public suffixes on their own (<code>com</code>, <code>com.au</code>) are always protected. Add your country's versions too, for example <code>google.com.au</code>, and your school's own domains.</p>
+            <div class="form-actions"><button class="button primary">Save</button><button class="button secondary" name="restore_defaults" value="1" data-confirm="Replace the list with the defaults?">Restore the defaults</button></div>
+        </form>
+
     @elseif($section === 'types')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'types') }}">@csrf @method('PUT')
             <p class="section-copy">A network type is a kind of network the tool manages, such as Staff, Students, CCTV or Exam rooms. Each type has its own shared allow and block lists; every filter policy of that type inherits them, along with the site-wide lists and the policy's own. Requests choose which types they are for. Names can change freely; the key stays the same.</p>

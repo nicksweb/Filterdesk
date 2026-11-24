@@ -72,9 +72,13 @@ class ControllerIntegrationTest extends TestCase
         $this->assertSame($student->id, NetworkAssignment::query()->where('provider_network_id', 'net-student')->value('filter_policy_id'));
 
         $report = $this->engine->reconcile($student);
-        $this->assertSame(['handmade.example.org'], $report['allow_review']);
-        $this->assertSame(['games.example.org'], $report['block_review'], 'A hand-made controller block is reviewed, not silently removed');
-        $this->assertSame(['wanted.example.org'], $report['block_remove']);
+        // Linking keeps what the filter holds: its entries go into the policy's own lists first.
+        $this->assertSame([], $report['allow_review']);
+        $this->assertSame([], $report['block_review']);
+        $this->assertContains('handmade.example.org', $report['allow']);
+        $this->assertContains('games.example.org', $report['block'], 'A hand-made controller block is kept, not removed');
+        $this->assertSame(['wanted.example.org'], $report['block_remove'], 'An entry added on purpose still beats an imported one');
+        $this->assertNotNull($student->push_hold, 'Nothing is pushed automatically until a person has checked the plan');
         $this->assertSame(['wanted.example.org'], $report['controller_blocks_allowed']);
 
         $this->actingAs($admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Students filtering');

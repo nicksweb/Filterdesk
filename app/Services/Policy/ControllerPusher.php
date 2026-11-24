@@ -124,16 +124,16 @@ class ControllerPusher
     }
 
     /** @return array{ok: bool, message: string, push?: ControllerPush} */
-    public function push(FilterPolicy $policy, ?User $actor, string $trigger = 'manual'): array
+    public function push(FilterPolicy $policy, ?User $actor, string $trigger = 'manual', bool $reviewed = false): array
     {
         if (! $this->enabled()) {
             return ['ok' => false, 'message' => 'Pushing is off. An admin can turn it on under Settings → Network provider (Mode: Active).'];
         }
 
         // Every write belongs to a policy version (joining one already open, such as "publish everything").
-        return $this->publisher()->within($trigger, $actor, function () use ($policy, $actor, $trigger): array {
+        return $this->publisher()->within($trigger, $actor, function () use ($policy, $actor, $trigger, $reviewed): array {
             try {
-                return Cache::lock('controller-push:'.$policy->provider_reference, 60)->block(30, fn () => $this->pushLocked($policy, $actor, $trigger));
+                return Cache::lock('controller-push:'.$policy->provider_reference, 60)->block(30, fn () => $this->pushLocked($policy, $actor, $trigger, $reviewed));
             } catch (LockTimeoutException) {
                 return ['ok' => false, 'message' => "Another push to {$policy->name} is still running. Try again in a minute."];
             }
@@ -234,14 +234,21 @@ class ControllerPusher
     }
 
     /** @return array{ok: bool, message: string, push?: ControllerPush} */
-    private function pushLocked(FilterPolicy $policy, ?User $actor, string $trigger): array
+    private function pushLocked(FilterPolicy $policy, ?User $actor, string $trigger, bool $reviewed = false): array
     {
+        // After a link change nothing goes to the filter until a person pushes this policy on its own.
+        if (filled($policy->push_hold) && ! $reviewed) {
+            return ['ok' => false, 'held' => true, 'message' => "{$policy->name} is on hold: {$policy->push_hold} Check the plan and push it from the policy page."];
+        }
         $plan = $this->plan($policy, $actor);
         if (! $plan['ok']) {
             return $plan;
         }
 
         if (collect($plan['changes'])->flatten()->isEmpty()) {
+            if ($reviewed && filled($policy->push_hold)) {
+                $policy->forceFill(['push_hold' => null])->save();
+            }
             $this->checker()->checkOne($policy->refresh(), refresh: false);
             app(RequestWorkflow::class)->settlePushed($actor);
 
@@ -261,6 +268,16 @@ class ControllerPusher
             $this->audit->log('policy.controller_push_refused', $policy, ['reason' => 'automatic_change_limit', 'changes' => $changeCount]);
 
             return ['ok' => false, 'message' => "{$policy->name}: ".number_format($changeCount).' changes are waiting. Automatic pushes stop at '.number_format($this->maxAutomaticChanges()).' changes; review them and push from the policy page.'];
+        }
+
+        // A push that would empty a filter, or remove most of it, is almost never intended: only a
+        // person pushing this policy on its own (who has seen the plan) can send it.
+        $before = count($plan['filter']['allow']) + count($plan['filter']['block']);
+        $removing = count($plan['changes']['allow_remove']) + count($plan['changes']['block_remove']);
+        if (! $reviewed && $removing >= 3 && $removing * 2 >= $before) {
+            $this->audit->log('policy.controller_push_refused', $policy, ['reason' => 'mass_removal', 'removing' => $removing, 'before' => $before, 'trigger' => $trigger]);
+
+            return ['ok' => false, 'held' => true, 'message' => "{$policy->name}: this push would remove ".number_format($removing).' of '.number_format($before)." entries in {$plan['filter']['name']}. Nothing was sent; check the plan and push it from the policy page if it is right."];
         }
 
         $record = [
@@ -287,6 +304,10 @@ class ControllerPusher
 
         $message = "{$plan['filter']['name']}: {$plan['message']}";
         $push = ControllerPush::query()->create($record + ['status' => 'ok', 'message' => $message]);
+        if (filled($policy->push_hold)) {
+            $this->audit->log('policy.push_hold_cleared', $policy, ['hold' => $policy->push_hold, 'push' => $push->id]);
+            $policy->forceFill(['push_hold' => null])->save();
+        }
         $managed = $policy->managed();
         $policy->forceFill(['controller_managed' => [
             'allow' => array_values(array_diff(array_unique([...$managed['allow'], ...$plan['changes']['allow_add']]), $plan['changes']['allow_remove'])),

@@ -22,6 +22,7 @@ use App\Services\Network\UnsupportedProviderOperation;
 use App\Services\Policy\AccessPlanner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Policy\ProtectedSites;
 use App\Services\Website\WebsiteChecker;
 use App\Support\Reach;
 use Carbon\CarbonImmutable;
@@ -91,6 +92,16 @@ class RequestWorkflow
         // A second approver who leaves the form as it is confirms what the first approver chose.
         $first = $websiteRequest->first_approval;
         $domains = array_values(array_unique($domains ?: ($first['domains'] ?? null) ?: $websiteRequest->domains));
+        // The safety net: a block request never blocks a protected site.
+        if ($websiteRequest->isBlock()) {
+            ['allowed' => $domains, 'protected' => $protected] = app(ProtectedSites::class)->partition($domains);
+            if ($domains === []) {
+                throw new InvalidRequestTransition(ProtectedSites::message($protected).' Decline the request instead, or change the protected sites first.');
+            }
+            if ($protected) {
+                $note = trim(ProtectedSites::message($protected).($note ? "\n\n{$note}" : ''));
+            }
+        }
         $scope ??= isset($first['scope']) ? Reach::tryFrom((string) $first['scope']) : null;
         $scope ??= $websiteRequest->access_scope;
         $window ??= $first ? ['from' => isset($first['from']) ? CarbonImmutable::parse($first['from']) : null, 'until' => isset($first['until']) ? CarbonImmutable::parse($first['until']) : null] : null;

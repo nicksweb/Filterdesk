@@ -58,6 +58,10 @@ class SyncChecker
 
         $state = $this->sync->state(true);
         $networks = $state['error'] ? collect() : $this->sync->networkReport($state);
+        // The controller is the source of truth: mappings it no longer agrees with follow it.
+        if (! $state['error'] && $this->authoritative() && $this->sync->followController($networks) !== []) {
+            $networks = $this->sync->networkReport($state);
+        }
         $alerts = [];
 
         foreach ($policies as $policy) {
@@ -197,7 +201,7 @@ class SyncChecker
             $summary[] = 'Changed in the controller: '.$this->count($changedInController, ['allow_added' => 'allow +', 'allow_removed' => 'allow −', 'block_added' => 'block +', 'block_removed' => 'block −', 'categories_added' => 'categories +', 'categories_removed' => 'categories −']).'.';
         }
         if ($networkIssues) {
-            $summary[] = 'Networks differ: '.collect($networkIssues)->take(4)->join('; ').(count($networkIssues) > 4 ? ' and '.(count($networkIssues) - 4).' more' : '').'.';
+            $summary[] = 'Networks differ: '.collect($networkIssues)->take(4)->join('; ').(count($networkIssues) > 4 ? ' and '.(count($networkIssues) - 4).' more' : '').'. Filterdesk maps these networks to '.($owner?->name ?? 'this policy').', but UniFi does not: fix it on Networks & filters ("Follow UniFi" maps them to the filter UniFi uses).';
         }
         if ($hoursOnly->isNotEmpty() && ! $policy->isLayer()) {
             $summary[] = 'Filtered only in school hours on '.$hoursOnly->count().' network(s), which have '.($hoursLayer->provider_name ?: $hoursLayer->name).' but not '.$filter['name'].': '
@@ -205,6 +209,11 @@ class SyncChecker
         }
         if ($stackedNetworks > 0) {
             $summary[] = "Shares {$stackedNetworks} network(s) with ".$stacked->unique()->take(4)->join(', ').($stacked->unique()->count() > 4 ? ' and others' : '').' (see Networks & filters).';
+        }
+        $protectedHere = array_values(array_intersect(array_keys($report['protected'] ?? []), $live['block']));
+        if ($protectedHere !== []) {
+            $summary[] = implode(', ', array_slice($protectedHere, 0, 4)).(count($protectedHere) > 4 ? ' and '.(count($protectedHere) - 4).' more' : '')
+                .' '.(count($protectedHere) === 1 ? 'is' : 'are')." blocked in {$filter['name']} but protected (Settings → Protected sites), so the next push takes ".(count($protectedHere) === 1 ? 'it' : 'them').' out.';
         }
         $paused = collect($report['allow_paused'] ?? []);
         if ($paused->isNotEmpty()) {

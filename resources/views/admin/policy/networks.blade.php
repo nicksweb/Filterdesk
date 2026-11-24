@@ -35,6 +35,21 @@
 
     <div id="networks-live">
         <div data-flash-slot></div>
+        @if($isAdmin && ($confirm = session('link_confirm')))
+            <div class="alert error link-confirm">
+                <strong>Move the link? Nothing has changed yet.</strong>
+                <p>Linking {{ $confirm['filter'] }} to {{ $confirm['policy'] }} means:</p>
+                <ul>@foreach($confirm['moves'] as $move)<li>{{ $move }}.</li>@endforeach
+                    <li>{{ $confirm['filter'] }}'s current entries ({{ $confirm['counts'] }}) are kept: they are copied into {{ $confirm['policy'] }}'s own lists, so nothing is removed from the filter.</li>
+                    <li>{{ $confirm['policy'] }}'s lists are then added to {{ $confirm['filter'] }}, on its networks. Nothing is pushed automatically until someone checks the plan and pushes from the policy page.</li>
+                </ul>
+                <form method="post" action="{{ route('admin.policy.networks.link') }}" class="button-row">@csrf
+                    <input type="hidden" name="filter_id" value="{{ $confirm['filter_id'] }}"><input type="hidden" name="managed_by" value="{{ $confirm['managed_by'] }}"><input type="hidden" name="confirmed" value="1">
+                    <button class="button primary">Move the link</button>
+                    <a class="button secondary" href="{{ route('admin.policy.networks.index') }}">Cancel</a>
+                </form>
+            </div>
+        @endif
         @if($isAdmin && $automatic->isNotEmpty())
             @foreach($automatic as $item)
                 <div class="notice baseline-added">
@@ -136,6 +151,8 @@
                                                     <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live" data-confirm-inline="Add {{ $row['status']['filter_name'] }} to {{ $row['name'] }}?">@csrf<input type="hidden" name="filter_id" value="{{ $row['status']['filter_id'] }}"><button class="button small secondary">Add {{ $row['status']['filter_name'] }}</button></form>
                                                 @elseif($action === 'remap' && ($row['status']['policy'] ?? null))
                                                     <form method="post" action="{{ route('admin.policy.networks.update') }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="assignments[{{ $row['id'] }}]" value="{{ $row['status']['policy']->id }}"><button class="button small secondary">Map to {{ $row['status']['policy']->name }}</button></form>
+                                                @elseif($action === 'follow')
+                                                    <form method="post" action="{{ route('admin.policy.networks.follow') }}" data-async="#networks-live">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary">Follow UniFi</button></form>
                                                 @elseif($action === 'allow' && $row['assignment'])
                                                     <details class="inline-allow"><summary class="button small secondary">Allow unfiltered…</summary>
                                                         <form method="post" action="{{ route('admin.policy.networks.unfiltered', $row['assignment']) }}" data-async="#networks-live">@csrf @method('PUT')<input type="hidden" name="allow" value="1">
@@ -195,7 +212,7 @@
                                                     </optgroup>
                                                 @endif
                                                 <optgroup label="An existing policy">
-                                                    @foreach($policies as $policy)<option value="policy:{{ $policy->id }}" @selected($filter['policy']?->is($policy))>{{ $policy->name }} · {{ $policy->isSitewide() ? 'site-wide layer' : $policy->typeLabel() }}{{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' (now on '.$policy->provider_name.')' : '' }}</option>@endforeach
+                                                    @foreach($policies as $policy)<option value="policy:{{ $policy->id }}" @selected($filter['policy']?->is($policy))>{{ $policy->name }} · {{ $policy->isSitewide() ? 'site-wide layer' : $policy->typeLabel() }}{{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' (linked to '.$policy->provider_name.': asks before moving)' : '' }}</option>@endforeach
                                                 </optgroup>
                                                 <optgroup label="A new policy">
                                                     @foreach(\App\Models\NetworkType::options() as $value => $label)<option value="new:{{ $value }}">New policy for {{ $label }}</option>@endforeach

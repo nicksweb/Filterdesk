@@ -138,8 +138,10 @@ class ControllerLearner
                 $hours = $learned->get($groups->first()['id']);
                 $advice = ['level' => 'info', 'action' => 'add_filter', 'filter_id' => $hours['parent'], 'filter_name' => $hours['parent_name'],
                     'text' => NetworkType::labelFor($hours['audience']).' filtering only in school hours ('.$groups->pluck('name')->join(', ').': '.$hours['when'].'). Outside those hours only site-wide filters apply. Add '.$hours['parent_name'].' to filter it at every hour.'];
-            } elseif ($kind === 'device' && ! $studentLevel) {
-                $advice = ['level' => 'info', 'action' => 'protect', 'text' => 'A device network without Students filtering. Recommended: add it, so anyone who gets onto this network is filtered.'];
+            } elseif ($kind === 'device' && ! $studentLevel && $attached->isEmpty()) {
+                // A device network (cameras, phones, management…) with site-wide filtering is as intended:
+                // only one with no filter at all gets the suggestion.
+                $advice = ['level' => 'info', 'action' => 'protect', 'text' => 'A device network with no filter in UniFi. Add the baseline filter, or allow it unfiltered and say why.'];
             }
             $mapped = $assignment?->filterPolicy;
             if (! $advice && $mapped && $types->isNotEmpty() && ! $types->contains($mapped->audience)) {

@@ -38,6 +38,7 @@ class PolicyEngine
     public function __construct(
         private readonly NetworkProviderManager $providers,
         private readonly DomainRecommender $recommender,
+        private readonly ProtectedSites $protectedSites,
     ) {}
 
     public function rules(): DomainRules
@@ -420,9 +421,19 @@ class PolicyEngine
             $block = array_filter($block, fn ($rank, string $domain) => ! ($siteBlocks[$domain] ?? false), ARRAY_FILTER_USE_BOTH);
         }
 
+        // The safety net: protected sites (Settings → Protected sites) are never blocked.
+        $protected = [];
+        foreach (array_keys($block) as $domain) {
+            if (($reason = $this->protectedSites->reason((string) $domain)) !== null) {
+                $protected[$domain] = $reason;
+                unset($block[$domain]);
+            }
+        }
+        ksort($protected);
+
         $rules = $this->rules();
         $allowList = $this->recommender->compact(array_keys($allow), $rules);
-        $blockList = array_keys($block);
+        $blockList = array_map('strval', array_keys($block));
         sort($blockList);
 
         $shadowed = [];
@@ -447,6 +458,7 @@ class PolicyEngine
             'shadowed' => $shadowed,
             'sources' => $sources,
             'excluded' => $exclusions,
+            'protected' => $protected,
         ];
     }
 
@@ -477,7 +489,7 @@ class PolicyEngine
         $managedBlocks = array_flip($written['block']) + ($blockExtra === [] ? [] : array_flip(PolicyEntry::query()->whereIn('domain', array_slice($blockExtra, 0, 5000))
             ->whereHas('policyList', fn ($query) => $query->where('kind', ListKind::Block))->pluck('domain')->all()));
         $blockRemove = array_values(array_filter($blockExtra, fn (string $domain) => isset($managedBlocks[$domain])
-            || isset($desiredAllowSet[$domain]) || $this->coveredBy($desiredAllowSet, $domain, $rules)));
+            || isset($desiredAllowSet[$domain]) || $this->coveredBy($desiredAllowSet, $domain, $rules) || $this->protectedSites->protects($domain)));
 
         $known = collect($written['allow'])->merge(PolicyEntry::query()->whereIn('domain', array_slice($allowExtra, 0, 5000))->pluck('domain'))
             ->merge(WebsiteRequest::query()->whereIn('status', [RequestStatus::Expired, RequestStatus::Revoked])->latest()->limit(2000)->get()->flatMap->effectiveDomains())

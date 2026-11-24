@@ -30,6 +30,7 @@ use App\Services\Oidc\OidcProviderHints;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
+use App\Services\Policy\ProtectedSites;
 use App\Services\Requests\RequestFormSettings;
 use App\Services\SchoolCalendar;
 use App\Services\SettingsRepository;
@@ -68,6 +69,7 @@ class SettingsController extends Controller
         'integrations' => 'Integrations',
         'certificate' => 'HTTPS inspection',
         'support' => 'Help and support',
+        'protected' => 'Protected sites',
     ];
 
     public function show(Request $request, string $section, SettingsRepository $settings, NetworkProviderManager $providers): View
@@ -136,6 +138,7 @@ class SettingsController extends Controller
             'approval' => $this->updateApproval($request, $settings),
             'certificate' => $this->updateCertificate($request),
             'support' => $this->updateSupport($request),
+            'protected' => $this->updateProtectedSites($request),
         };
 
         $audit->log("settings.{$section}_updated");
@@ -267,6 +270,14 @@ class SettingsController extends Controller
             'app_url' => rtrim($validated['app_url'], '/'),
             'schoolbox_origin' => filled($validated['schoolbox_origin'] ?? null) ? rtrim($validated['schoolbox_origin'], '/') : null,
         ]);
+    }
+
+    /** Sites that are never blocked: one per line, "example.com" for the top level or "*.example.com" for the whole domain. */
+    private function updateProtectedSites(Request $request): void
+    {
+        $validated = $request->validate(['sites' => ['nullable', 'string', 'max:20000'], 'restore_defaults' => ['nullable', 'boolean']]);
+        $sites = $request->boolean('restore_defaults') ? ProtectedSites::DEFAULTS : (preg_split('/[\s,]+/', (string) ($validated['sites'] ?? '')) ?: []);
+        app(ProtectedSites::class)->save($sites);
     }
 
     /** The helpdesk contact and support article shown to staff and students. */

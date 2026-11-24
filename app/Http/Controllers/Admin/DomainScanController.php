@@ -7,6 +7,7 @@ use App\Models\PolicyList;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Policy\DomainScanner;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Policy\ProtectedSites;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -17,7 +18,7 @@ class DomainScanController extends Controller
 {
     public function show(PolicyEngine $engine): View
     {
-        return view('admin.policy.scan', ['lists' => PolicyList::query()->ordered()->with('feed:id,policy_list_id')->get(), 'scan' => null, 'rules' => $engine->rules()]);
+        return view('admin.policy.scan', ['lists' => PolicyList::query()->ordered()->with('feed:id,policy_list_id')->get(), 'scan' => null, 'rules' => $engine->rules(), 'protectedSites' => app(ProtectedSites::class)]);
     }
 
     public function store(Request $request, DomainNormalizer $normalizer, DomainScanner $scanner, PolicyEngine $engine): View
@@ -52,6 +53,7 @@ class DomainScanController extends Controller
             'websites' => implode("\n", $values),
             'certificates' => $request->boolean('certificates'),
             'rules' => $engine->rules(),
+            'protectedSites' => app(ProtectedSites::class),
         ]);
     }
 }

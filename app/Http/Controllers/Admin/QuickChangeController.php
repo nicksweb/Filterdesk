@@ -7,6 +7,7 @@ use App\Jobs\RunManualPush;
 use App\Models\NetworkType;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Policy\ProtectedSites;
 use App\Services\Policy\QuickChange;
 use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
@@ -32,7 +33,7 @@ class QuickChangeController extends Controller
         $input = $this->validated($request);
         $plan = $quick->plan($input);
         if ($plan['domains'] === []) {
-            throw ValidationException::withMessages(['domains' => 'Enter at least one hostname.']);
+            throw ValidationException::withMessages(['domains' => $plan['protected'] ? ProtectedSites::message($plan['protected']) : 'Enter at least one hostname.']);
         }
 
         return $this->page($input, $plan);

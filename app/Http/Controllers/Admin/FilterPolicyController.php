@@ -13,6 +13,7 @@ use App\Models\PolicyEntry;
 use App\Models\PolicyList;
 use App\Services\AuditLogger;
 use App\Services\Network\ProviderRequestFailed;
+use App\Services\Network\WritesContentFilters;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
@@ -54,7 +55,10 @@ class FilterPolicyController extends Controller
             'autoPush' => $pusher->automatic(),
             'categories' => $pusher->enabled() && filled($policy->provider_reference) && ! $policy->isLayer() ? $this->categoryOptions($policy, $sync) : null,
             'pushStatus' => Cache::get(RunManualPush::statusKey('policy', $policy->id)),
-            'pushes' => ControllerPush::query()->where('filter_policy_id', $policy->id)->with('user:id,name')->latest('id')->limit(10)->get(),
+            // By policy and by filter: a push made while another policy was linked to this filter can still be rolled back here.
+            'pushes' => ControllerPush::query()->where(fn ($query) => $query->where('filter_policy_id', $policy->id)
+                ->when(filled($policy->provider_reference), fn ($query) => $query->orWhere('provider_reference', $policy->provider_reference)))
+                ->with('user:id,name', 'filterPolicy:id,name')->latest('id')->limit(15)->get(),
             'profiles' => NetworkProfile::query()->orderBy('sort_order')->get(),
             'rules' => $engine->rules(),
         ]);
@@ -197,7 +201,7 @@ class FilterPolicyController extends Controller
 
         $message = count($restored).' hostname(s) restored to '.$policy->name.'.';
         if ($pusher->automatic()) {
-            $message .= ' '.$pusher->push($policy, $request->user(), 'restore')['message'];
+            $message .= ' '.$pusher->push($policy, $request->user(), 'restore', reviewed: true)['message'];
         } else {
             $message .= ' Push to put them back in the controller.';
         }
@@ -205,33 +209,92 @@ class FilterPolicyController extends Controller
         return back()->with('success', $message);
     }
 
-    /** Change which content categories the linked controller filter blocks. */
+    /**
+     * Change which content categories the linked controller filter blocks:
+     * the ticked ones, or a copy of another filter's ("copy_from"), and
+     * optionally the same set on other filters too ("also_to"), so Students
+     * and Guests can share one selection.
+     */
     public function categories(Request $request, FilterPolicy $policy, ControllerPusher $pusher, ControllerSync $sync, SyncChecker $checker, AuditLogger $audit): RedirectResponse
     {
-        $validated = $request->validate(['categories' => ['nullable', 'array', 'max:300'], 'categories.*' => ['string', 'max:80', 'regex:/^[A-Z0-9_]+$/']]);
+        $validated = $request->validate([
+            'categories' => ['nullable', 'array', 'max:300'], 'categories.*' => ['string', 'max:80', 'regex:/^[A-Z0-9_]+$/'],
+            'copy_from' => ['nullable', 'integer', Rule::exists('filter_policies', 'id')->whereNotNull('provider_reference')],
+            'also_to' => ['nullable', 'array', 'max:50'], 'also_to.*' => ['integer', Rule::exists('filter_policies', 'id')->whereNotNull('provider_reference')],
+        ]);
         $writer = $pusher->writer();
         if (! $writer || ! $pusher->enabled() || blank($policy->provider_reference)) {
             return back()->with('error', 'Link this policy to a controller filter and set the network provider to Active first.');
         }
 
         $sync->forget();
-        $filter = $sync->filterFor($policy, $sync->state(true));
+        $state = $sync->state(true);
+        $filter = $sync->filterFor($policy, $state);
         if (! $filter) {
             return back()->with('error', 'The linked controller filter could not be read.');
         }
 
+        $requested = $validated['categories'] ?? [];
+        $copiedFrom = null;
+        if (filled($validated['copy_from'] ?? null)) {
+            $copiedFrom = FilterPolicy::query()->findOrFail($validated['copy_from']);
+            $source = $sync->filterFor($copiedFrom, $state);
+            if (! $source || $copiedFrom->is($policy)) {
+                return back()->with('error', 'That filter could not be read from the controller.');
+            }
+            $requested = $source['categories'];
+        }
+
         $available = $sync->reader()?->availableCategories() ?? [];
-        $categories = collect($validated['categories'] ?? [])->filter(fn ($category) => in_array($category, $available, true) || in_array($category, $filter['categories'], true))->unique()->sort()->values()->all();
+        $targets = collect([$policy])->merge(FilterPolicy::query()->whereIn('id', $validated['also_to'] ?? [])->whereKeyNot($policy->id)->get()
+            ->reject(fn (FilterPolicy $other) => $other->isLayer()));
+        $messages = [];
+        $errors = [];
+        foreach ($targets as $target) {
+            $targetFilter = $target->is($policy) ? $filter : $sync->filterFor($target, $state);
+            if (! $targetFilter) {
+                $errors[] = "{$target->name}: its controller filter could not be read.";
+
+                continue;
+            }
+            $categories = collect($requested)->filter(fn ($category) => in_array($category, $available, true) || in_array($category, $targetFilter['categories'], true))->unique()->sort()->values()->all();
+            $result = $this->saveCategories($target, $targetFilter, $categories, $writer, $sync, $checker, $audit, $copiedFrom);
+            if (is_string($result)) {
+                $errors[] = "{$targetFilter['name']}: {$result}";
+            } elseif ($result === []) {
+                $messages[] = "{$targetFilter['name']}: no category changes.";
+            } else {
+                $messages[] = "{$targetFilter['name']} now blocks ".count($categories).' categories ('.($result['added'] ? '+'.implode(', +', $result['added']) : '').($result['added'] && $result['removed'] ? '; ' : '').($result['removed'] ? '−'.implode(', −', $result['removed']) : '').').';
+            }
+        }
+
+        $response = back();
+        if ($errors) {
+            $response = $response->with('error', implode(' ', $errors));
+        }
+
+        return $messages ? $response->with('success', ($copiedFrom ? 'Copied from '.($copiedFrom->provider_name ?: $copiedFrom->name).'. ' : '').implode(' ', $messages)) : $response;
+    }
+
+    /**
+     * Write one filter's categories (and its layer's), then check it.
+     *
+     * @param  array<string, mixed>  $filter
+     * @param  list<string>  $categories
+     * @return array{added: list<string>, removed: list<string>}|array{}|string the change, nothing to change, or the error
+     */
+    private function saveCategories(FilterPolicy $policy, array $filter, array $categories, WritesContentFilters $writer, ControllerSync $sync, SyncChecker $checker, AuditLogger $audit, ?FilterPolicy $copiedFrom): array|string
+    {
         $added = array_values(array_diff($categories, $filter['categories']));
         $removed = array_values(array_diff($filter['categories'], $categories));
         if ($added === [] && $removed === []) {
-            return back()->with('success', 'No category changes.');
+            return [];
         }
 
         try {
             $writer->writeContentFilterCategories($filter['id'], $categories);
         } catch (ProviderRequestFailed $exception) {
-            return back()->with('error', $exception->getMessage());
+            return $exception->getMessage();
         }
 
         $checker->setCategoryBaseline($policy, $categories);
@@ -254,9 +317,10 @@ class FilterPolicyController extends Controller
             // Newly blocked categories may cover sites approved without an allow entry.
             Artisan::call('categories:guard');
         }
-        $audit->log('policy.controller_categories_changed', $policy, ['filter' => $filter['name'], 'added' => $added, 'removed' => $removed, 'before' => $filter['categories']]);
+        $audit->log('policy.controller_categories_changed', $policy, ['filter' => $filter['name'], 'added' => $added, 'removed' => $removed, 'before' => $filter['categories']]
+            + ($copiedFrom ? ['copied_from' => $copiedFrom->provider_name ?: $copiedFrom->name] : []));
 
-        return back()->with('success', "{$filter['name']} now blocks ".count($categories).' categories ('.($added ? '+'.implode(', +', $added) : '').($added && $removed ? '; ' : '').($removed ? '−'.implode(', −', $removed) : '').').');
+        return ['added' => $added, 'removed' => $removed];
     }
 
     /** Apply this policy's change set to its linked controller filter. */
@@ -354,7 +418,7 @@ class FilterPolicyController extends Controller
         ]);
     }
 
-    /** @return array{available: list<string>, blocked: list<string>}|null */
+    /** @return array{available: list<string>, blocked: list<string>, others: list<array{id: int, name: string, count: int, differs: int}>}|null */
     private function categoryOptions(FilterPolicy $policy, ControllerSync $sync): ?array
     {
         $filter = $sync->filterFor($policy);
@@ -368,7 +432,19 @@ class FilterPolicyController extends Controller
             return null;
         }
 
-        return ['available' => collect([...$available, ...$filter['categories']])->unique()->sort()->values()->all(), 'blocked' => $filter['categories']];
+        // Other linked filters, to copy a selection from or save the same one to (Students and Guests often match).
+        $state = $sync->state();
+        $others = FilterPolicy::query()->whereNotNull('provider_reference')->whereKeyNot($policy->id)->whereNull('layer_of_id')->ordered()->get()
+            ->map(function (FilterPolicy $other) use ($sync, $state, $filter): ?array {
+                $otherFilter = $sync->filterFor($other, $state);
+
+                return $otherFilter ? [
+                    'id' => $other->id, 'name' => $otherFilter['name'], 'count' => count($otherFilter['categories']),
+                    'differs' => count(array_diff($otherFilter['categories'], $filter['categories'])) + count(array_diff($filter['categories'], $otherFilter['categories'])),
+                ] : null;
+            })->filter()->values()->all();
+
+        return ['available' => collect([...$available, ...$filter['categories']])->unique()->sort()->values()->all(), 'blocked' => $filter['categories'], 'others' => $others];
     }
 
     /** @return array<string, mixed> */

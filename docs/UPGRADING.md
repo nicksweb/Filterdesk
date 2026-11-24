@@ -45,6 +45,13 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.21 → 2026.12.22
+
+- Update as usual (`bin/update`). A migration adds the push hold to filter policies.
+- **Protected sites are on from the start.** If one of your filters blocks a default protected site on purpose (google.com, bing.com, microsoft.com, apple.com…), the next push takes that block out. Check Settings → Protected sites first, remove any you need to block, and add your own (your country's Google, for example google.com.au, and your school's domains).
+- When the controller is the source of truth (the default), the sync check now remaps networks whose filter changed in UniFi. Each change is in the audit log (`policy.network_mapping_followed`).
+- Linking a filter on Networks & filters now puts that policy on hold. Push it from its page once you've checked the plan.
+
 ## 2026.12.20 → 2026.12.21
 
 - Update as usual (`bin/update`). A migration adds the two-factor sign-in columns to users.

@@ -76,6 +76,7 @@
         @if(auth()->check() && auth()->user()->isIt() && request()->routeIs('admin.policy.*') && ! request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.policy.blocklists.*'))
             <nav class="subnav" aria-label="Policies">
                 <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.index', 'admin.policy.lists.*', 'admin.policy.policies.*')])>Policies &amp; lists</a>
+                <a href="{{ route('admin.policy.map') }}" @class(['active' => request()->routeIs('admin.policy.map')])>Filtering map</a>
                 <a href="{{ route('admin.policy.networks.index') }}" @class(['active' => request()->routeIs('admin.policy.networks.*')])>Networks &amp; filters</a>
                 <a href="{{ route('admin.policy.explorer') }}" @class(['active' => request()->routeIs('admin.policy.explorer')])>Access explorer</a>
                 @foreach(\App\Models\NetworkType::query()->ordered()->get() as $navType)<a href="{{ route('admin.policy.types.show', $navType) }}" @class(['active' => request()->routeIs('admin.policy.types.show') && request()->route('type')?->is($navType)])>{{ $navType->name }}</a>@endforeach

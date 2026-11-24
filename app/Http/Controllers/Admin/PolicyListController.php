@@ -12,6 +12,7 @@ use App\Services\Approval\TwoPersonRule;
 use App\Services\AuditLogger;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\PolicyListParser;
+use App\Services\Policy\ProtectedSites;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -75,6 +76,12 @@ class PolicyListController extends Controller
             return back()->with('error', "{$list->name} is filled from a blocklist feed and cannot be imported into.");
         }
         $parsed = $parser->parseDetailed($validated['domains'] ?? '', 'domains');
+        if ($list->kind === ListKind::Block) {
+            ['allowed' => $parsed['entries'], 'protected' => $protected] = app(ProtectedSites::class)->partition($parsed['entries']);
+            if ($protected) {
+                $parsed['notes'][] = ProtectedSites::message($protected);
+            }
+        }
 
         // Site-wide lists: the import is a proposal a second IT officer confirms.
         $proposal = app(TwoPersonRule::class)->appliesToList($list);

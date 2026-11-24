@@ -20,7 +20,7 @@ class FilterPolicy extends Model
         'name', 'slug', 'audience', 'layer_of_id', 'description', 'network_profile_id', 'provider_reference', 'provider_name',
         'enabled', 'sort_order', 'current_allowlist', 'current_blocklist', 'snapshot_at', 'snapshot_by_id',
         'sync_status', 'sync_checked_at', 'sync_details', 'sync_baseline', 'controller_exclusions', 'controller_managed',
-        'role', 'receives_site_blocks', 'layer_kind',
+        'role', 'receives_site_blocks', 'layer_kind', 'push_hold',
     ];
 
     protected function casts(): array

@@ -18,6 +18,7 @@ use App\Services\Policy\ControllerSync;
 use App\Services\Policy\FilterTable;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\PolicyListParser;
+use App\Services\Policy\ProtectedSites;
 use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -83,6 +84,13 @@ class PolicyController extends Controller
         if ($request->boolean('include_www')) {
             $parsed['entries'] = $this->withWwwCounterparts($parsed['entries'], $suffixes);
         }
+        $protected = [];
+        if ($list->kind === ListKind::Block) {
+            ['allowed' => $parsed['entries'], 'protected' => $protected] = app(ProtectedSites::class)->partition($parsed['entries']);
+            if ($parsed['entries'] === []) {
+                throw ValidationException::withMessages(['domains' => ProtectedSites::message($protected)]);
+            }
+        }
 
         $alreadyInList = $list->entries()->whereIn('domain', $parsed['entries'])->pluck('domain')->all();
         $elsewhere = [];
@@ -110,9 +118,12 @@ class PolicyController extends Controller
 
         $added = count($parsed['entries']) - count($alreadyInList);
         if ($proposal) {
-            return redirect()->route('admin.policy.lists.show', $list)->with('success', "{$added} hostname(s) proposed for {$list->name}. Site-wide changes need a second IT officer: they go live once another officer confirms them under Changes.");
+            return redirect()->route('admin.policy.lists.show', $list)->with('success', "{$added} hostname(s) proposed for {$list->name}. Site-wide changes need a second IT officer: they go live once another officer confirms them under Changes.".($protected ? ' '.ProtectedSites::message($protected) : ''));
         }
         $messages = ["{$added} hostname(s) added to {$list->name}."];
+        if ($protected) {
+            $messages[] = ProtectedSites::message($protected);
+        }
         if ($alreadyInList) {
             $messages[] = 'Already in this list: '.implode(', ', $alreadyInList).'.';
         }

@@ -24,6 +24,8 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - **Exception reviews:** every exception has an owner and a review date; unreviewed ones are removed after a grace period.
 - **Insights and Health:** a termly report with suggestions drawn from requests, and a coverage score with links to each fix.
 - **Integrations:** API, signed webhooks, Microsoft Teams cards and one-click decision links; sign-in groups set network types and departments.
+- **Filtering map:** pick a network and see every UniFi filter on it, the policy behind each one and the lists that fill them.
+- **Protected sites:** a safety net so search, sign-in and update sites (google.com, bing.com, microsoft.com, apple.com…) are never blocked by a list, feed, scan, request or UniFi.
 - **Quick block or allow:** IT blocks or allows a site on several network types at once, with a preview of the lists, UniFi filters, categories and conflicting entries first.
 - **School-hours filters:** a school-hours filter (such as *Student - School Time*) becomes a layer of the always-on one. Blocks can apply in school hours only, chosen by IT or suggested by the requester; allows can apply outside school hours only.
 - **Plain answers for students and staff:** website checks show *Allowed*, *Blocked* or *Couldn't check right now* per network. Page previews are for IT only unless you open them up, and checks can be DNS-only.

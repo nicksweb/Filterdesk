@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\ControllerSetupController;
 use App\Http\Controllers\Admin\CoverageController;
 use App\Http\Controllers\Admin\DiagnosticsController;
 use App\Http\Controllers\Admin\DomainScanController;
+use App\Http\Controllers\Admin\FilteringMapController;
 use App\Http\Controllers\Admin\FilterPolicyController;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\InsightsController;
@@ -100,6 +101,7 @@ Route::middleware('installed')->group(function (): void {
                 Route::delete('/entries/{entry}', [PolicyController::class, 'destroyEntry'])->name('entries.destroy');
 
                 Route::get('/networks', [NetworkMapController::class, 'index'])->name('networks.index');
+                Route::get('/map', [FilteringMapController::class, 'show'])->middleware('throttle:60,1')->name('map');
                 Route::post('/networks/pull', [NetworkMapController::class, 'pullAll'])->middleware('throttle:10,1')->name('networks.pull');
                 Route::get('/scan', [DomainScanController::class, 'show'])->name('scan.show');
                 Route::post('/scan', [DomainScanController::class, 'store'])->middleware('throttle:10,1')->name('scan.store');
@@ -149,6 +151,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/setup/cleanup', [ControllerSetupController::class, 'cleanup'])->middleware('throttle:10,1')->name('setup.cleanup');
                     Route::get('/setup/compose-vlan', [ControllerSetupController::class, 'compose'])->name('setup.compose');
                     Route::post('/networks/link', [NetworkMapController::class, 'link'])->name('networks.link');
+                    Route::post('/networks/follow', [NetworkMapController::class, 'follow'])->middleware('throttle:20,1')->name('networks.follow');
                     Route::post('/networks/baseline', [NetworkMapController::class, 'baseline'])->middleware('throttle:10,1')->name('networks.baseline');
                     Route::post('/networks/baseline/{event}/undo', [NetworkMapController::class, 'undoBaseline'])->middleware('throttle:10,1')->name('networks.baseline-undo');
                     Route::put('/networks/baseline-policy', [NetworkMapController::class, 'baselinePolicy'])->name('networks.baseline-policy');

@@ -30,9 +30,10 @@
                         @foreach(collect($scan['hosts'])->groupBy(fn ($host) => $host['same_site'] ? 'Same site: '.$host['apex'] : 'Third-party hosts') as $group => $hosts)
                             <tr class="scan-group"><td colspan="5">{{ $group }}</td></tr>
                             @foreach($hosts as $host)
+                                @php($protectedBy = $protectedSites->reason($host['host']))
                                 <tr>
-                                    <td><input type="checkbox" name="hosts[]" value="{{ $host['host'] }}" data-group="scan-host" aria-label="Select {{ $host['host'] }}" @checked(in_array($host['origin'], ['requested', 'apex', 'page_load'], true))></td>
-                                    <td><strong>{{ $host['host'] }}</strong>@if(!$host['same_site'] && $host['apex'])<small>{{ $host['apex'] }}</small>@endif</td>
+                                    <td><input type="checkbox" name="hosts[]" value="{{ $host['host'] }}" data-group="scan-host" aria-label="Select {{ $host['host'] }}" @checked(in_array($host['origin'], ['requested', 'apex', 'page_load'], true) && ($protectedBy === null || $host['origin'] === 'requested'))></td>
+                                    <td><strong>{{ $host['host'] }}</strong>@if(!$host['same_site'] && $host['apex'])<small>{{ $host['apex'] }}</small>@endif @if($protectedBy)<span class="status status-ok" title="Protected by {{ $protectedBy }} (Settings → Protected sites)">Protected: never blocked</span>@endif</td>
                                     <td>{{ ['requested' => 'Entered', 'apex' => 'Domain', 'page_load' => 'Page load', 'certificate' => 'Certificate'][$host['origin']] ?? $host['origin'] }}</td>
                                     <td>@if($host['origin'] === 'page_load'){{ $host['failed_on'] ? 'Failed on '.implode(', ', array_map('ucfirst', $host['failed_on'])) : 'Loaded everywhere' }}@else<span class="hint">—</span>@endif</td>
                                     <td>@forelse($host['listed'] as $listed)<span class="status status-{{ $listed['kind'] === 'allow' ? 'ok' : 'rejected' }}">{{ $listed['list'] }}</span> @empty<span class="hint">No</span>@endforelse</td>

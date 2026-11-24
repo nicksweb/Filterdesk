@@ -7,6 +7,7 @@ use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
 use App\Models\User;
+use App\Services\AuditLogger;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ProviderRequestFailed;
 use App\Services\Network\ReadsContentFilters;
@@ -188,6 +189,42 @@ class ControllerSync
         $checker->checkOne($policy->refresh(), refresh: false);
 
         return $pulled;
+    }
+
+    /**
+     * Make network mappings follow UniFi where they disagree: a network
+     * mapped to a policy whose filter UniFi no longer has on it, while other
+     * filters are on it, is mapped to the policy behind those filters (when
+     * there is exactly one), or left not mapped. Networks with no filter at
+     * all are left to baseline filtering. Each change is logged.
+     *
+     * @param  Collection<int, array<string, mixed>>  $networks  from networkReport()
+     * @param  list<string>|null  $only  provider network ids to fix, or all
+     * @return list<string> one line per change
+     */
+    public function followController(Collection $networks, ?User $actor = null, ?array $only = null): array
+    {
+        $linked = FilterPolicy::query()->whereNotNull('provider_reference')->with('layerOf')->get()->keyBy('provider_reference');
+        $changes = [];
+        foreach ($networks as $network) {
+            if ($network['status'] !== 'wrong_filter' || ! $network['assignment'] || ($only !== null && ! in_array($network['id'], $only, true))) {
+                continue;
+            }
+            $owners = collect($network['attached'])->filter(fn (array $filter) => $filter['enabled'] ?? true)
+                ->map(fn (array $filter) => $linked->get($filter['id']))->filter()
+                ->map(fn (FilterPolicy $policy) => $policy->isLayer() ? $policy->layerOf : $policy)->filter()
+                ->reject(fn (FilterPolicy $policy) => $policy->isSitewide())->unique('id')->values();
+            $target = $owners->count() === 1 ? $owners->first() : null;
+            $from = $network['policy'];
+            $network['assignment']->forceFill(['filter_policy_id' => $target?->id])->save();
+            $label = $network['name'].($network['vlan'] ? " (VLAN {$network['vlan']})" : '');
+            $changes[] = $target ? "{$label}: {$from->name} → {$target->name}" : "{$label}: no longer mapped to {$from->name}";
+            app(AuditLogger::class)->log('policy.network_mapping_followed', $network['assignment'], [
+                'network' => $label, 'from' => $from->name, 'to' => $target?->name, 'attached' => collect($network['attached'])->pluck('name')->all(), 'by' => $actor?->id,
+            ]);
+        }
+
+        return $changes;
     }
 
     /**

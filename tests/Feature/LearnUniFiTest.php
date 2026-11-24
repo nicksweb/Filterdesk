@@ -155,7 +155,10 @@ class LearnUniFiTest extends TestCase
         $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('filtered as Students in UniFi')->assertSee('Map to Students');
 
         // One "Managed by" control: an existing policy, or a new one for a type.
-        $this->actingAs($this->admin)->post(route('admin.policy.networks.link'), ['filter_id' => 'sim-block-site', 'managed_by' => 'new:guest'])->assertSessionHas('success');
+        // sim-block-site is already linked, so moving it asks first and changes nothing until confirmed.
+        $this->actingAs($this->admin)->post(route('admin.policy.networks.link'), ['filter_id' => 'sim-block-site', 'managed_by' => 'new:guest'])->assertSessionHas('link_confirm');
+        $this->assertNotSame('guest', FilterPolicy::query()->where('provider_reference', 'sim-block-site')->value('audience'));
+        $this->actingAs($this->admin)->post(route('admin.policy.networks.link'), ['filter_id' => 'sim-block-site', 'managed_by' => 'new:guest', 'confirmed' => '1'])->assertSessionHas('success');
         $this->assertSame('guest', FilterPolicy::query()->where('provider_reference', 'sim-block-site')->value('audience'));
     }
 }

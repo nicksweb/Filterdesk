@@ -70,7 +70,7 @@ class RunManualPush implements ShouldBeUnique, ShouldQueue
         $messages = match ($this->kind) {
             'release' => [$publisher->publishAll($actor)],
             'rollback' => ($release = PolicyRelease::query()->find($this->targetId)) ? [$publisher->rollback($release, $actor)] : [],
-            'policy' => ($policy = FilterPolicy::query()->find($this->targetId)) ? [$pusher->push($policy, $actor)] : [],
+            'policy' => ($policy = FilterPolicy::query()->find($this->targetId)) ? [$pusher->push($policy, $actor, 'manual', reviewed: true)] : [],
             'all' => $pusher->pushAll($actor)->all(),
             'firewall' => ($list = FirewallList::query()->find($this->targetId)) ? [$firewall->push($list, $actor, $this->force)] : [],
             default => [],
