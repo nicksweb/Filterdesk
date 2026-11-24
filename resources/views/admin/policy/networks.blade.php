@@ -2,7 +2,10 @@
     <x-slot:head><link rel="stylesheet" href="{{ asset('admin.css') }}"></x-slot:head>
     @php
         $isAdmin = auth()->user()->isAdmin();
-        $baselineName = $baselinePolicy?->name ?? 'Students';
+        $baselineName = $baselineLabel ?? $baselinePolicy?->name ?? 'Students';
+        $baselineFilter = $baselinePolicy ? collect($state['filters'])->firstWhere('id', $baselinePolicy->provider_reference) : null;
+        $baselineWhat = $baselineFilter ? 'the UniFi filter '.$baselineFilter['name'].' ('.($baselineFilter['schedule_label'] ?? \App\Services\Network\FilterSchedule::label($baselineFilter['schedule'] ?? null)).'; '.count($baselineFilter['categories'] ?? []).' blocked categories'.(! empty($baselineFilter['safe_search']) ? ', SafeSearch' : '').')' : $baselineName;
+        $addedBy = collect($automatic)->flatMap(fn ($item) => $item['networks']->map(fn ($network) => [$network->provider_network_id.'|'.$item['filter_id'], $item]))->mapWithKeys(fn ($pair) => [$pair[0] => $pair[1]]);
         $roleLabel = ['sitewide' => 'site-wide', 'layer' => 'blocklist layer', 'hours' => 'school hours', 'group' => null];
         $writable = $canPush;
     @endphp
@@ -35,7 +38,7 @@
         @if($isAdmin && $automatic->isNotEmpty())
             @foreach($automatic as $item)
                 <div class="notice baseline-added">
-                    <div><strong>Baseline filtering added {{ $item['filter_name'] }} to {{ $item['networks']->count() }} {{ $item['networks']->count() === 1 ? 'network' : 'networks' }}</strong> on {{ $item['event']->created_at->local()->format('j M Y g:i a') }}, because they had no filter.
+                    <div><strong>Filterdesk added {{ $item['filter_name'] }} to {{ $item['networks']->count() }} {{ $item['networks']->count() === 1 ? 'network' : 'networks' }}</strong> on {{ $item['event']->created_at->local()->format('j M Y g:i a') }}, {{ $item['by'] }}, for baseline filtering.
                         <x-chips :items="$item['networks']->pluck('name')->all()" :max="6" /></div>
                     @if($writable)
                         <form method="post" action="{{ route('admin.policy.networks.baseline-undo', $item['event']) }}" data-async="#networks-live" data-confirm-inline="Take {{ $item['filter_name'] }} off {{ $item['networks']->count() }} network(s)?">@csrf<button class="button small secondary">Take it off again</button></form>
@@ -54,7 +57,7 @@
                 <div class="panel-heading">
                     <div>
                         <h2>Networks</h2>
-                        <p>How it works: each network gets the filters attached to it in UniFi. <strong>Group</strong> filters are for one type of user (Staff, Students, Guests); <strong>site-wide</strong> filters are on every network. A network with no filter at all gets {{ $baselineName }} at the next check, unless you allow it unfiltered. Device networks don't need a group filter, but {{ $baselineName }} protects them if a student gets on.</p>
+                        <p>How it works: each network gets the filters attached to it in UniFi. <strong>Group</strong> filters are for one type of user (Staff, Students, Guests); <strong>site-wide</strong> filters are on every network. A new <em>user</em> network with no filter gets {{ $baselineName }} at the next check (Active mode only). Device networks, networks found at setup or while read-only, and networks whose filters are paused are never changed by themselves: they wait for you. Device networks don't need a group filter, but adding one protects them if a student gets on.</p>
                     </div>
                 </div>
                 <div class="row-tabs" role="tablist" data-row-tabs="#network-rows">
@@ -89,6 +92,7 @@
                                         @forelse($row['filters'] as $filter)
                                             <span @class(['chip', 'chip-filter', 'chip-'.$filter['role'], 'chip-paused' => $filter['paused']]) title="{{ $filter['paused'] ? 'Paused in UniFi' : ($roleLabel[$filter['role']] ?? 'group').($filter['when'] ? ' · '.$filter['when'] : '') }}">
                                                 {{ $filter['name'] }}@if($roleLabel[$filter['role']] ?? null)<em>{{ $roleLabel[$filter['role']] }}</em>@endif
+                                                @if($added = $addedBy->get($row['id'].'|'.$filter['id']))<em class="added-by" title="Added {{ $added['by'] }} for baseline filtering">added {{ $added['event']->created_at->local()->format('j M') }}</em>@endif
                                                 @if($isAdmin && $writable)
                                                     <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live" data-confirm-inline="Remove from {{ $row['name'] }}?">@csrf<input type="hidden" name="filter_id" value="{{ $filter['id'] }}"><input type="hidden" name="remove" value="1"><button class="chip-remove" aria-label="Remove {{ $filter['name'] }} from {{ $row['name'] }}">×</button></form>
                                                 @endif
@@ -127,7 +131,7 @@
                                         <span class="row-fixes">
                                             @foreach($row['status']['actions'] as $action)
                                                 @if($action === 'protect' && $baselinePolicy && $writable)
-                                                    <form method="post" action="{{ route('admin.policy.networks.protect') }}" data-async="#networks-live" data-confirm-inline="Add {{ $baselineName }} to {{ $row['name'] }}?">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary">Add {{ $baselineName }}</button></form>
+                                                    <form method="post" action="{{ route('admin.policy.networks.protect') }}" data-async="#networks-live" data-confirm-inline="Add to {{ $row['name'] }}?" data-confirm-detail="Adds {{ $baselineWhat }} to {{ $row['name'] }} in UniFi.{{ $row['kind'] === 'device' ? ' This is a device network (infrastructure, cameras, uplinks…): it only needs this if people\'s devices can get onto it.' : '' }} Undo from the top of this page.">@csrf<input type="hidden" name="networks[]" value="{{ $row['id'] }}"><button class="button small secondary">Add {{ $baselineName }}</button></form>
                                                 @elseif($action === 'add_filter' && ($row['status']['filter_id'] ?? null) && $writable && $row['assignment'])
                                                     <form method="post" action="{{ route('admin.policy.networks.filter', $row['assignment']) }}" data-async="#networks-live" data-confirm-inline="Add {{ $row['status']['filter_name'] }} to {{ $row['name'] }}?">@csrf<input type="hidden" name="filter_id" value="{{ $row['status']['filter_id'] }}"><button class="button small secondary">Add {{ $row['status']['filter_name'] }}</button></form>
                                                 @elseif($action === 'remap' && ($row['status']['policy'] ?? null))

@@ -129,7 +129,15 @@
     if (form.dataset.confirmInline && form.dataset.armed !== '1') {
       form.dataset.armed = '1';
       if (button) { button.dataset.label = button.textContent; button.textContent = form.dataset.confirmInline + ' Confirm'; button.classList.add('confirming'); }
-      setTimeout(() => { form.dataset.armed = ''; if (button?.dataset.label) { button.textContent = button.dataset.label; button.classList.remove('confirming'); } }, 5000);
+      // A longer explanation (which filter, when it applies, a warning) shows beside the button while it waits.
+      let detail = null;
+      if (form.dataset.confirmDetail) {
+        detail = document.createElement('small');
+        detail.className = 'confirm-detail';
+        detail.textContent = form.dataset.confirmDetail;
+        form.after(detail);
+      }
+      setTimeout(() => { form.dataset.armed = ''; detail?.remove(); if (button?.dataset.label) { button.textContent = button.dataset.label; button.classList.remove('confirming'); } }, detail ? 12000 : 5000);
       return;
     }
     form.dataset.armed = '';

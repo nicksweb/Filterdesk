@@ -164,6 +164,21 @@
         <div class="notice"><strong>{{ number_format($largest) }} entries in one list.</strong> UniFi accepts up to about 100,000, but its Content Filtering page loads every entry, so opening or editing {{ $policy->provider_name ?: 'this filter' }} in the UniFi web interface may be slow. Filtering itself is not affected.@if(!$policy->isLayer() && !$policy->layer) A layer keeps the feeds in a second filter so this one stays quick to manage.@endif</div>
     @endif
 
+    @if($runTogether->isNotEmpty())
+        <section class="panel policy-section">
+            <h2>{{ $runTogether->count() === 1 ? 'An entry looks' : $runTogether->count().' entries look' }} like two hostnames run together</h2>
+            <p class="hint">Probably a missing line break when it was typed into UniFi. As it is, it matches no site{{ $policy->hoursLayer ? ', and it is copied into the school-hours layer too' : '' }}.</p>
+            @foreach($runTogether as $item)
+                <div class="list-row static"><span><strong class="mono">{{ $item['domain'] }}</strong><small>looks like {{ $item['parts'][0] }} and {{ $item['parts'][1] }}</small></span>
+                    @if(auth()->user()->isAdmin())<span class="button-row">
+                        @if($item['entry'])<form method="post" action="{{ route('admin.policy.policies.entries.split', [$policy, $item['entry']]) }}">@csrf<button class="button small primary">Split into {{ $item['parts'][0] }} and {{ $item['parts'][1] }}</button></form>@else<small>Only in UniFi: fix it there</small>@endif
+                        <form method="post" action="{{ route('admin.policy.policies.entries.keep', $policy) }}">@csrf<input type="hidden" name="domain" value="{{ $item['domain'] }}"><button class="button small secondary">Keep</button></form>
+                    </span>@endif
+                </div>
+            @endforeach
+        </section>
+    @endif
+
     @if($policy->isHoursLayer())
         <section class="panel policy-section layer-panel">
             <h2>School-hours layer of <a href="{{ route('admin.policy.policies.show', $policy->layerOf) }}">{{ $policy->layerOf?->name }}</a></h2>

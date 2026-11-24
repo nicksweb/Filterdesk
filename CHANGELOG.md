@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.17
+
+### Fixed
+- **Filters Filterdesk put on networks are marked, and can be undone.** This covers every baseline addition: *Filter it now*, the *Add Students filtering* buttons (including 2026.12.13's network check), and automatic ones. Each is listed at the top of Networks & filters with when, who and the networks, with **Take it off again**. Each filter chip it added says *added 24 Nov*. Undo previously only covered automatic additions and returned an error for button ones.
+- **Add buttons say exactly what they do.** They name the UniFi filter, when it applies, its blocked-category count and SafeSearch, and warn when the network is a device network. Before, they said "Students" even when the filter was a school-hours one. There is no bulk add for device networks.
+- **Networks found while read-only wait for a decision**, instead of all being filtered the moment Active mode is switched on.
+- **Turning a filter that was brought in as the main policy into a school-hours layer** no longer depends on picking the right *Policy to use*:
+  - That policy isn't offered to the other filter, and a pick that would merge the two filters' lists is ignored, with a message.
+  - The probe profile moves to the all-hours policy.
+  - When the layer had the general name ("Students"), the names swap: the all-hours policy becomes *Students*, and the layer is named after its UniFi filter.
+- **"Leave it alone" lets go of a filter** that a policy was managing: it is unlinked and its networks unmapped.
+- **No probe profile for VPN-only filters** (remote-user or WireGuard networks with no VLAN).
+
+### Added
+- **Clean-up in Guided setup**: policies that manage no filter and hold only imported entries, and switched-off probe profiles nobody uses, listed to delete in one go. Built-in profiles and policies with requests or entries added by hand are never listed.
+- **Entries that look like two hostnames run together** (for example `wistia.comfast.wistia.net`) are flagged when imported and on the policy page, with **Split** (into `wistia.com` and `fast.wistia.net`; the old one is taken out of UniFi at the next publish) or **Keep**.
+
 ## 2026.12.16
 
 ### Fixed

@@ -26,6 +26,16 @@ class ProbePlanner
 
     private const BUILT_IN = ['student' => ['service' => 'probe-student', 'env' => 'STUDENT'], 'staff' => ['service' => 'probe-staff', 'env' => 'STAFF']];
 
+    /** A VPN or remote-user network: no VLAN on the trunk, so no probe. */
+    public static function isVpn(NetworkAssignment $network): bool
+    {
+        if (str_contains(strtolower((string) $network->purpose), 'vpn')) {
+            return true;
+        }
+
+        return ! $network->vlan && (bool) preg_match('/(^|[^a-z])(vpn|wg|wireguard|openvpn|ipsec|l2tp|remote[- ]?user)([^a-z]|$)/i', (string) $network->name);
+    }
+
     /** Stands in for the trunk until it is set, so the commands cannot run as pasted. */
     public const TRUNK_PLACEHOLDER = '<trunk>';
 
@@ -110,7 +120,8 @@ class ProbePlanner
         $takenKeys = $pinned->pluck('key')->all();
         $policies = FilterPolicy::query()->main()->where('enabled', true)->with('networkProfile')->ordered()->get()
             ->map(function (FilterPolicy $policy) use ($parent, $covered, $takenKeys): ?array {
-                $networks = NetworkAssignment::query()->where('filter_policy_id', $policy->id)->orderBy('vlan')->get();
+                // VPN and remote-user networks have no VLAN to put a probe on.
+                $networks = NetworkAssignment::query()->where('filter_policy_id', $policy->id)->orderBy('vlan')->get()->reject(fn (NetworkAssignment $network) => self::isVpn($network))->values();
                 if ($networks->isEmpty() || $networks->contains(fn (NetworkAssignment $network) => in_array($network->provider_network_id, $covered, true))) {
                     return null;
                 }

@@ -131,6 +131,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/setup/probes', [ControllerSetupController::class, 'saveProbes'])->name('setup.probes');
                     Route::post('/setup/profiles', [ControllerSetupController::class, 'profiles'])->name('setup.profiles');
                     Route::post('/setup/import-all', [ControllerSetupController::class, 'importAll'])->middleware('throttle:6,1')->name('setup.import-all');
+                    Route::post('/setup/cleanup', [ControllerSetupController::class, 'cleanup'])->middleware('throttle:10,1')->name('setup.cleanup');
                     Route::get('/setup/compose-vlan', [ControllerSetupController::class, 'compose'])->name('setup.compose');
                     Route::post('/networks/link', [NetworkMapController::class, 'link'])->name('networks.link');
                     Route::post('/networks/baseline', [NetworkMapController::class, 'baseline'])->middleware('throttle:10,1')->name('networks.baseline');
@@ -150,6 +151,8 @@ Route::middleware('installed')->group(function (): void {
                     Route::put('/policies/{policy}', [FilterPolicyController::class, 'update'])->name('policies.update');
                     Route::delete('/policies/{policy}', [FilterPolicyController::class, 'destroy'])->name('policies.destroy');
                     Route::post('/policies/{policy}/merge', [FilterPolicyController::class, 'merge'])->name('policies.merge');
+                    Route::post('/policies/{policy}/entries/{entry}/split', [FilterPolicyController::class, 'splitEntry'])->name('policies.entries.split');
+                    Route::post('/policies/{policy}/entries/keep', [FilterPolicyController::class, 'keepEntry'])->name('policies.entries.keep');
                 });
             });
         });

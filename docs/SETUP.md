@@ -331,6 +331,8 @@ If sign-in fails, Settings → Authentication → *Provider details* shows the p
 
 Stacked filters like these are normal and no longer show as *Changed in controller*: that status now only means someone edited a filter's lists or categories in UniFi. A network mapped to one policy but filtered differently in UniFi shows as *Networks differ*.
 
+**Leftovers.** *Leave it alone* unlinks a policy that was managing that filter. *Not used by any filter* lists policies that manage no filter and hold only imported entries, and switched-off probe profiles nobody uses (or on a VPN with no VLAN), to delete in one go. Entries that look like two hostnames typed without a line break (`wistia.comfast.wistia.net`) are flagged on the policy page with *Split* or *Keep*.
+
 Nothing changes in UniFi. If a suggestion is wrong, open **Change a choice** and pick what each filter is for: filtering for a type of network (Students, Staff, Guest…), an *extra blocklist layer* on top of another filter (optional; only for big blocklist feeds), or *leave it alone*. *Advanced* picks a particular policy or skips importing.
 
 **Networks with no filter (baseline filtering).** The *No filter* tab on Networks & filters lists every network without a working UniFi content filter. Baseline filtering is a safety net with firm limits:
@@ -340,7 +342,9 @@ Nothing changes in UniFi. If a suggestion is wrong, open **Change a choice** and
 - **A new *device* network** (infrastructure, ISP or WAN hand-offs, cameras, phones…) is never filtered automatically. It is listed for a decision and IT is emailed. Whether a network is a user or device network is learned from its name; change it in the row's *Kind* column.
 - **Paused filters are left alone.** A network whose filters are all paused in UniFi is flagged, never changed.
 - **Never a scheduled filter on its own.** If the only Students filter is on a school-hours schedule, nothing is added automatically until you choose the baseline filter yourself.
-- **It can be undone.** Each automatic addition shows at the top of Networks & filters (*Baseline filtering added Students - All Hours to 3 networks*) with **Take it off again**, which removes that filter from those networks and lists them for a decision; the guard does not add it back.
+- **Read-only waits.** In read-only mode nothing is changed. Networks found then wait for a decision, so switching Active mode on doesn't filter them all at once.
+- **Buttons say what they do.** *Add …* names the UniFi filter, when it applies and its categories, and warns when the network is a device network.
+- **It can be undone.** Every addition (automatic or from a button) shows at the top of Networks & filters (*Filterdesk added Students - All Hours to 3 networks on 24 Nov, by …*) with **Take it off again**, and each chip it added says *added 24 Nov*. Taking it off removes that filter from those networks and lists them for a decision; the guard does not add it back.
 
 The dashboard reminds admins until every network has a decision.
 
@@ -354,7 +358,7 @@ Many schools run two filters for students: one always on, and a stricter one tha
 - When approving a request for a network type with a school-hours layer, **When** offers *All hours* (the default: both filters) or *Outside school hours only* (left out of the school-hours filter, so it stays blocked there while it is on, if that filter blocks it).
 - A network that has only the school-hours filter gets that type's filtering only in school hours. Networks & filters says so on its row (*Students filtering only in school hours…*) with **Add Students - All Hours**, and the policy's sync status lists those networks instead of reporting *Networks differ*.
 
-Guided setup suggests this when it finds a scheduled filter beside an always-on one of the same type. You can also set it under *Networks & filters → Content filters → Managed by → School-hours layer of …*. A filter that was brought in earlier as a policy of its own becomes the layer, keeping its lists, and its networks move to the main policy.
+Guided setup suggests this when it finds a scheduled filter beside an always-on one of the same type. If the scheduled filter was brought in earlier as the main policy (for example *Students*), converting it moves the probe profile to the all-hours policy and swaps the names, so the all-hours policy is *Students* and the layer is named after its UniFi filter; the two filters' lists are never merged. You can also set it under *Networks & filters → Content filters → Managed by → School-hours layer of …*. A filter that was brought in earlier as a policy of its own becomes the layer, keeping its lists, and its networks move to the main policy.
 
 **How UniFi combines filters on one network.** Ubiquiti does not document how several content filters on the same network combine. Filterdesk assumes the cautious case: every filter that is on applies, and a site blocked by any of them is blocked, so an allow in one filter does not undo a block or blocked category in another. That is why allows go into every filter on a network, and why a school-hours block wins during its hours. To check this on your own console: put a test hostname in one filter's block list and another filter's allow list on the same VLAN, then run a website check for it from that VLAN's probe (or a device on it), during and outside the schedule.
 

@@ -42,6 +42,13 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.16 → 2026.12.17
+
+- Pull and restart as usual.
+- Networks & filters lists every filter Filterdesk added to networks for baseline filtering (including from 2026.12.13's *Add Students filtering* buttons) that is still on them, with **Take it off again**. If you already removed them in UniFi, nothing is listed.
+- Guided setup now lists **Not used by any filter**: delete leftover policies and probe profiles from earlier runs there.
+- If you converted a filter into a school-hours layer on 2026.12.15 and the names or probe stayed on the layer, fix them by hand once (policy page → Policy settings). Conversions from now on hand them over.
+
 ## 2026.12.15 → 2026.12.16
 
 - Pull and restart as usual.

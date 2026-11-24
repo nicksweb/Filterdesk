@@ -9,6 +9,7 @@ use App\Jobs\RunManualPush;
 use App\Models\ControllerPush;
 use App\Models\FilterPolicy;
 use App\Models\NetworkProfile;
+use App\Models\PolicyEntry;
 use App\Models\PolicyList;
 use App\Services\AuditLogger;
 use App\Services\Network\ProviderRequestFailed;
@@ -17,6 +18,7 @@ use App\Services\Policy\ControllerSync;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\PolicyListParser;
 use App\Services\Policy\PolicyMerger;
+use App\Services\Policy\RunTogetherEntries;
 use App\Services\Policy\SyncChecker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -44,6 +46,7 @@ class FilterPolicyController extends Controller
             'policy' => $policy->load('networkProfile', 'snapshotBy', 'networkAssignments', 'layer', 'hoursLayer', 'layerOf'),
             'slowListSize' => ControllerPusher::SLOW_LIST_ENTRIES,
             'report' => $engine->reconcile($policy),
+            'runTogether' => app(RunTogetherEntries::class)->forPolicy($policy),
             'lists' => $lists,
             'adoptTargets' => ['allow' => $lists->where('kind', ListKind::Allow)->values(), 'block' => $lists->where('kind', ListKind::Block)->values()],
             'canPull' => $sync->available() && filled($policy->provider_reference),
@@ -89,6 +92,27 @@ class FilterPolicyController extends Controller
 
         return redirect()->route('admin.policy.policies.show', $into)->with('success', "{$policy->name} was merged into {$into->name}: "
             .number_format($result['entries']).' entries and '.$result['lists'].' list(s) moved, '.$result['networks'].' network(s) remapped. Nothing changed in UniFi.');
+    }
+
+    /** Split an entry that looks like two hostnames run together. */
+    public function splitEntry(Request $request, FilterPolicy $policy, PolicyEntry $entry, RunTogetherEntries $entries): RedirectResponse
+    {
+        try {
+            [$first, $second] = $entries->splitEntry($entry, $request->user());
+        } catch (InvalidArgumentException $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        return back()->with('success', "Split into {$first} and {$second}. The old entry is taken out of UniFi at the next publish.");
+    }
+
+    /** Keep an entry that only looks run together. */
+    public function keepEntry(Request $request, FilterPolicy $policy, RunTogetherEntries $entries): RedirectResponse
+    {
+        $validated = $request->validate(['domain' => ['required', 'string', 'max:253']]);
+        $entries->keep($validated['domain'], $request->user());
+
+        return back()->with('success', "{$validated['domain']} is kept as it is.");
     }
 
     public function destroy(FilterPolicy $policy, AuditLogger $audit): RedirectResponse

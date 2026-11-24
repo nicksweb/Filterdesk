@@ -44,6 +44,11 @@ class BaselineGuard
 
     public const UNDONE = 'Taken off again after automatic baseline filtering';
 
+    public const FOUND_READ_ONLY = 'Found without a filter while the network provider was read-only';
+
+    /** Audit actions that put a filter on networks for baseline filtering, listed with Undo. */
+    public const ADDITIONS = ['policy.baseline_filtered', 'policy.baseline_protected'];
+
     /** Ids of controller filters known to be paused (disabled in UniFi), so IT is told once. */
     public const PAUSED_KEY = 'policy.paused_filters';
 
@@ -159,6 +164,19 @@ class BaselineGuard
             }
         }
 
+        // Read-only: nothing can be changed now, so networks found meanwhile wait for a decision instead of
+        // all being filtered at once when Active mode is switched on.
+        if ($only === null && (! $this->pusher->enabled() || ! $this->pusher->writer())) {
+            $waiting = $unfiltered->where('state', 'enforce')->map(fn (array $item) => $item['network'])->values();
+            foreach ($waiting as $network) {
+                $network->update(['unfiltered_reason' => self::FOUND_READ_ONLY, 'unfiltered_reviewed_at' => null]);
+            }
+            if ($waiting->isNotEmpty()) {
+                return ['ok' => false, 'filtered' => [], 'message' => $waiting->pluck('name')->join(', ').' '.($waiting->count() === 1 ? 'has' : 'have')
+                    ." no content filter. The network provider isn't in Active mode, so nothing was changed; they're listed under Networks & filters → No filter for a decision."];
+            }
+        }
+
         $due = $unfiltered->filter(fn (array $item) => $only !== null ? in_array($item['network']->provider_network_id, $only, true) && $item['state'] !== 'allowed' : $item['state'] === 'enforce');
         if ($due->isEmpty()) {
             return ['ok' => $pausedNotice === null, 'filtered' => [], 'message' => $pausedNotice ?? 'Every network has a content filter or is allowed to stay unfiltered.'];
@@ -194,7 +212,7 @@ class BaselineGuard
         }
         $this->sync->forget();
         $this->audit->log('policy.baseline_filtered', $policy, ['networks' => $names, 'network_ids' => $due->map(fn (array $item) => $item['network']->provider_network_id)->values()->all(),
-            'filter_id' => $policy->provider_reference, 'by' => $actor ? 'admin' : 'guard']);
+            'filter_id' => $policy->provider_reference, 'by' => $actor ? 'admin' : 'guard', 'by_name' => $actor?->name]);
         $summary = implode(', ', $names).' had no content filter and now '.(count($names) === 1 ? 'has' : 'have')." {$policy->name} filtering.";
         if (! $actor) {
             $this->notifier->filterSyncAlert(new FilterSyncAlertNotification([['policy' => $policy->name, 'slug' => $policy->slug, 'status' => 'baseline', 'summary' => $summary]]));
@@ -254,7 +272,8 @@ class BaselineGuard
         }
         NetworkAssignment::query()->whereIn('id', $networks->pluck('id'))->whereNull('filter_policy_id')->update(['filter_policy_id' => $policy->id]);
         $this->sync->forget();
-        $this->audit->log('policy.baseline_protected', $policy, ['networks' => $networks->pluck('name')->all()]);
+        $this->audit->log('policy.baseline_protected', $policy, ['networks' => $networks->pluck('name')->all(), 'network_ids' => $networks->pluck('provider_network_id')->all(),
+            'filter_id' => $policy->provider_reference, 'by' => 'admin', 'by_name' => $actor->name]);
 
         return ['ok' => true, 'message' => $networks->pluck('name')->join(', ').' now '.($networks->count() === 1 ? 'has' : 'have')." {$policy->name} filtering in UniFi."];
     }
@@ -281,7 +300,7 @@ class BaselineGuard
     }
 
     /**
-     * What the guard added on its own and has not been taken off: one item
+     * What baseline filtering added (on its own, or from an Add button) and has not been taken off: one item
      * per run, with the networks still on that filter.
      *
      * @return Collection<int, array{event: AuditEvent, policy: ?FilterPolicy, networks: Collection<int, NetworkAssignment>}>
@@ -291,8 +310,8 @@ class BaselineGuard
         $state ??= $this->sync->state();
         $filters = collect($state['filters'] ?? [])->keyBy('id');
 
-        return AuditEvent::query()->where('action', 'policy.baseline_filtered')->latest('id')->limit(20)->get()
-            ->filter(fn (AuditEvent $event) => ($event->metadata['by'] ?? null) === 'guard' && empty($event->metadata['undone_at']))
+        return AuditEvent::query()->whereIn('action', self::ADDITIONS)->with('actor')->latest('id')->limit(30)->get()
+            ->filter(fn (AuditEvent $event) => empty($event->metadata['undone_at']))
             ->map(function (AuditEvent $event) use ($filters): ?array {
                 $policy = FilterPolicy::query()->find($event->subject_id);
                 // Older entries did not record the filter: the policy's filter now, or the filter named like the policy.
@@ -303,7 +322,14 @@ class BaselineGuard
                     ->where(fn ($query) => $query->whereIn('provider_network_id', (array) ($event->metadata['network_ids'] ?? []))->orWhereIn('name', (array) ($event->metadata['networks'] ?? [])))
                     ->get()->filter(fn (NetworkAssignment $network) => in_array($network->provider_network_id, $onFilter, true))->values();
 
-                return $networks->isEmpty() ? null : ['event' => $event, 'policy' => $policy, 'filter_id' => $filterId, 'filter_name' => $filters->get($filterId)['name'] ?? $policy?->provider_name, 'networks' => $networks];
+                $by = match (true) {
+                    ($event->metadata['by'] ?? null) === 'guard' => 'automatically',
+                    filled($event->actor?->name ?? $event->metadata['by_name'] ?? null) => 'by '.($event->actor?->name ?? $event->metadata['by_name']),
+                    default => 'from a button (by an account since deleted)',
+                };
+
+                return $networks->isEmpty() ? null : ['event' => $event, 'policy' => $policy, 'filter_id' => $filterId, 'filter_name' => $filters->get($filterId)['name'] ?? $policy?->provider_name,
+                    'networks' => $networks, 'by' => $by, 'automatic' => ($event->metadata['by'] ?? null) === 'guard'];
             })->filter()->values();
     }
 

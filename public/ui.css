@@ -372,3 +372,5 @@ details.oidc-advanced{margin:8px 0}details.oidc-advanced summary{cursor:pointer;
 @media(max-width:640px){.test-sign-in{flex-direction:column;align-items:stretch}}
 .notice.baseline-added{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center}.notice.baseline-added small{grid-column:1/-1;color:var(--muted)}@media(max-width:640px){.notice.baseline-added{grid-template-columns:1fr}}
 .console-choice{border:0;padding:0;margin:8px 0;display:grid;gap:6px}.console-choice legend{font-weight:600;margin-bottom:4px}
+.chip-filter em.added-by{color:#b54708;font-weight:600}
+.confirm-detail{display:block;max-width:32rem;margin-top:4px;color:#7a2e0e;font-size:.76rem}@media(prefers-color-scheme:dark){.confirm-detail{color:#fde7b0}}

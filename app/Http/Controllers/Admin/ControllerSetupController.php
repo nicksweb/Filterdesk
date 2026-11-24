@@ -11,6 +11,7 @@ use App\Services\Policy\ControllerLearner;
 use App\Services\Policy\ControllerSync;
 use App\Services\Policy\FilterTable;
 use App\Services\Policy\ProbePlanner;
+use App\Services\Policy\SetupCleanup;
 use App\Services\SettingsRepository;
 use App\Services\Website\ProbeDiagnostics;
 use Illuminate\Http\RedirectResponse;
@@ -59,6 +60,7 @@ class ControllerSetupController extends Controller
         return view('admin.policy.setup', [
             'steps' => $steps,
             'learned' => $learned,
+            'leftovers' => app(SetupCleanup::class)->candidates(),
             'previewRows' => $state['error'] ? [] : app(FilterTable::class)->rows($state, $learned, $policies, [], $suggestions),
             // Main policies sharing a name (made by repeated imports): offer to merge them.
             'duplicates' => $policies->reject(fn (FilterPolicy $policy) => $policy->isLayer())->groupBy(fn (FilterPolicy $policy) => Str::slug($policy->name))->filter(fn ($group) => $group->count() > 1)->values(),
@@ -109,7 +111,7 @@ class ControllerSetupController extends Controller
         }
 
         $choices = $this->choices($validated['filters'], $importer->suggest($state));
-        $done = $importer->apply($state, $choices, $request->user());
+        $done = [...array_unique($this->conflicts), ...$importer->apply($state, $choices, $request->user())];
 
         return redirect()->route('admin.policy.setup.show')->withFragment('probes')
             ->with('success', $done ? 'Set up: '.implode('; ', $done).'. Next: step 3, the probes.' : 'Nothing was changed.');
@@ -158,8 +160,32 @@ class ControllerSetupController extends Controller
             }
         }
 
+        // A policy kept by a filter that becomes a school-hours layer holds that filter's lists. Picking the
+        // same policy for another filter would merge both filters' entries into it, so that pick is ignored.
+        $keptByLayers = collect($choices)->filter(fn (array $choice) => ($choice['action'] ?? null) === 'hours')
+            ->keys()->map(fn ($id) => FilterPolicy::query()->where('provider_reference', (string) $id)->value('id'))->filter()->all();
+        foreach ($choices as $id => $choice) {
+            if (($choice['action'] ?? null) === 'link' && in_array((int) ($choice['policy_id'] ?? 0), array_map('intval', $keptByLayers), true)) {
+                $own = FilterPolicy::query()->main()->where('provider_reference', (string) $id)->value('id');
+                $choices[$id] = $own ? ['policy_id' => $own] + $choice : ['action' => 'create'] + array_diff_key($choice, ['policy_id' => true]);
+                $this->conflicts[] = 'A policy that keeps a school-hours filter\'s lists was also chosen for another filter; that choice was ignored so the two filters\' entries are not merged.';
+            }
+        }
+
         return $choices;
     }
+
+    /** Delete leftover policies and probe profiles from earlier set-up runs. */
+    public function cleanup(Request $request, SetupCleanup $cleanup): RedirectResponse
+    {
+        $validated = $request->validate(['policies' => ['nullable', 'array'], 'policies.*' => ['integer'], 'profiles' => ['nullable', 'array'], 'profiles.*' => ['integer']]);
+        $deleted = $cleanup->clean(array_map('intval', $validated['policies'] ?? []), array_map('intval', $validated['profiles'] ?? []), $request->user());
+
+        return back()->with('success', $deleted ? 'Deleted '.implode(', ', $deleted).'.' : 'Nothing was deleted.');
+    }
+
+    /** Choices that were changed to keep two filters' lists apart. */
+    private array $conflicts = [];
 
     /**
      * One step: take every suggestion (link the default policies, create the

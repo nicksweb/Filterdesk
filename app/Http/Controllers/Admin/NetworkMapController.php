@@ -56,6 +56,7 @@ class NetworkMapController extends Controller
             'filterRoles' => $learned['filters'],
             'baselinePolicy' => $baseline->policy(),
             'automatic' => $state['error'] ? collect() : $baseline->automaticAdditions($state),
+            'baselineLabel' => ($policy = $baseline->policy()) ? self::baselineLabel($policy, $learned) : null,
         ]);
     }
 
@@ -67,7 +68,7 @@ class NetworkMapController extends Controller
      */
     private function rows(Collection $networks, array $learned, Collection $unfiltered, ?FilterPolicy $baselinePolicy): array
     {
-        $baselineName = $baselinePolicy?->name ?? 'Students';
+        $baselineName = $baselinePolicy ? self::baselineLabel($baselinePolicy, $learned) : 'Students';
         $byNetwork = $unfiltered->keyBy(fn (array $item) => $item['network']->provider_network_id);
         $rows = [];
         foreach ($networks as $network) {
@@ -80,6 +81,7 @@ class NetworkMapController extends Controller
                 ($baselineItem['state'] ?? null) === 'decide' => ['level' => 'warn', 'text' => match ($baselineItem['network']->unfiltered_reason) {
                     BaselineGuard::NEW_DEVICE_NETWORK => "New device network with no filter. Filterdesk didn't add one by itself: add {$baselineName}, or allow it unfiltered and say why.",
                     BaselineGuard::UNDONE => "No filter (taken off again after automatic baseline filtering). Add {$baselineName}, or allow it unfiltered and say why.",
+                    BaselineGuard::FOUND_READ_ONLY => "No filter (found while read-only, so nothing was changed). Add {$baselineName}, or allow it unfiltered and say why.",
                     default => "No filter. Add {$baselineName}, or allow it unfiltered and say why.",
                 }, 'actions' => ['protect', 'allow']],
                 ($baselineItem['state'] ?? null) === 'enforce' => ['level' => 'bad', 'text' => "No filter: gets {$baselineName} at the next check.", 'actions' => ['protect', 'allow']],
@@ -117,10 +119,22 @@ class NetworkMapController extends Controller
     /** Take what baseline filtering added on its own off those networks again. */
     public function undoBaseline(Request $request, AuditEvent $event, BaselineGuard $baseline): RedirectResponse
     {
-        abort_unless($event->action === 'policy.baseline_filtered', 404);
+        abort_unless(in_array($event->action, BaselineGuard::ADDITIONS, true), 404);
         $result = $baseline->undo($event, $request->user());
 
         return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    /**
+     * The baseline filter as UniFi names it, with when it applies, so an
+     * "Add …" button says exactly what it puts on a network.
+     */
+    public static function baselineLabel(FilterPolicy $policy, array $learned): string
+    {
+        $lesson = $learned['filters'][$policy->provider_reference] ?? null;
+        $name = $policy->provider_name ?: $policy->name;
+
+        return $lesson && $lesson['scheduled'] ? "{$name} (only {$lesson['when']})" : $name;
     }
 
     /** Give unfiltered networks the baseline filter now: all that are due, or the ones picked. */

@@ -119,8 +119,19 @@ class ControllerImporter
         $ordered = collect($choices)->sortBy(fn (array $choice) => in_array($choice['action'] ?? '', ['layer', 'hours'], true) ? 1 : 0);
         foreach ($ordered as $filterId => $choice) {
             $filter = $filters->get((string) $filterId);
-            $action = $choice['action'] ?? 'skip';
-            if (! $filter || $action === 'skip') {
+            $action = $choice['action'] ?? null;
+            if (! $filter || $action === null) {
+                continue;
+            }
+            if ($action === 'skip') {
+                // Leave it alone: a policy that was managing it lets go (its lists stay; Clean up offers to delete it).
+                foreach (FilterPolicy::query()->where('provider_reference', $filter['id'])->get() as $linked) {
+                    $linked->update(['provider_reference' => null, 'provider_name' => null, 'sync_status' => null]);
+                    NetworkAssignment::query()->where('filter_policy_id', $linked->id)->update(['filter_policy_id' => null]);
+                    $this->audit->log('policy.filter_unlinked', $linked, ['filter' => $filter['name']]);
+                    $done[] = "{$filter['name']}: left alone; {$linked->name} no longer manages it";
+                }
+
                 continue;
             }
 
@@ -183,6 +194,10 @@ class ControllerImporter
             }
 
             $imported = ! empty($choice['import']) ? $this->importEntries($policy, $filter, $actor) : 0;
+            $runTogether = collect([...$filter['allow'], ...$filter['block']])->filter(fn (string $domain) => RunTogetherEntries::split($domain) !== null)->values();
+            if ($runTogether->isNotEmpty()) {
+                $this->notes[] = "{$filter['name']} has ".($runTogether->count() === 1 ? 'an entry that looks' : $runTogether->count().' entries that look').' like two hostnames run together ('.$runTogether->take(3)->join(', ').'): split or keep it on the policy page';
+            }
             $policy->refresh();
             $this->sync->link($filter, $policy, $actor, remapNetworks: ! $policy->isLayer() && ! $policy->isSitewide());
             $policyFor[$filter['id']] = $policy;
@@ -191,7 +206,7 @@ class ControllerImporter
         }
         $this->sync->forget();
 
-        return $done;
+        return [...$done, ...$this->notes];
     }
 
     /**
@@ -213,12 +228,44 @@ class ControllerImporter
         // Its networks are the parent's type, at least in school hours.
         NetworkAssignment::query()->whereIn('provider_network_id', $filter['network_ids'])->whereNull('filter_policy_id')->update(['filter_policy_id' => $parent->id]);
         if ($existing) {
+            $wasMain = ! $existing->isLayer();
             $existing->update($attributes);
+            if ($wasMain) {
+                $this->handOver($existing->refresh(), $parent->refresh(), $filter);
+            }
 
             return $existing->refresh();
         }
 
         return FilterPolicy::query()->create($attributes + ['name' => $filter['name'], 'slug' => $this->engine->uniqueSlug($filter['name']), 'sort_order' => $parent->sort_order]);
+    }
+
+    /** What converting a policy into a school-hours layer also changed, for the result message. */
+    public array $notes = [];
+
+    /**
+     * A policy that becomes a school-hours layer hands its place to the
+     * parent: the probe profile moves to the parent, and when it had a
+     * general name ("Students") while the parent is named after its UniFi
+     * filter, the names swap, so the main policy keeps the main name and the
+     * layer is named after its filter.
+     *
+     * @param  array<string, mixed>  $filter
+     */
+    private function handOver(FilterPolicy $layer, FilterPolicy $parent, array $filter): void
+    {
+        if ($layer->network_profile_id && ! $parent->network_profile_id) {
+            $parent->update(['network_profile_id' => $layer->network_profile_id]);
+            $layer->update(['network_profile_id' => null]);
+            $this->notes[] = "The probe profile moved from {$layer->name} to {$parent->name}.";
+        }
+        $named = fn (FilterPolicy $policy, ?string $filterName) => $filterName !== null && Str::slug($policy->name) === Str::slug($filterName);
+        if (! $named($layer, $filter['name']) && $named($parent, $parent->provider_name)) {
+            $general = $layer->name;
+            $layer->update(['name' => $filter['name'], 'slug' => $this->engine->uniqueSlug($filter['name'])]);
+            $parent->update(['name' => $general, 'slug' => $this->engine->uniqueSlug($general)]);
+            $this->notes[] = "Renamed: {$general} is now the all-hours policy ({$parent->provider_name}), and the layer is named {$filter['name']}.";
+        }
     }
 
     /**

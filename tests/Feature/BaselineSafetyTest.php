@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\BaselineGuard;
 use App\Services\Policy\ControllerLearner;
+use App\Services\Policy\ControllerSync;
 use App\Services\SettingsRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -80,7 +81,7 @@ class BaselineSafetyTest extends TestCase
         $this->assertSame(['Students'], $this->filtersOn('sim-guest'), 'A user network is filtered');
 
         // What it added can be taken off again, and is not added back.
-        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Baseline filtering added Students to 1 network')->assertSee('Take it off again');
+        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()->assertSee('Filterdesk added Students to 1 network')->assertSee('automatically')->assertSee('Take it off again');
         $event = AuditEvent::query()->where('action', 'policy.baseline_filtered')->latest('id')->firstOrFail();
         $this->actingAs($this->admin)->post(route('admin.policy.networks.baseline-undo', $event))->assertSessionHas('success');
         $this->assertSame([], $this->filtersOn('sim-guest'));
@@ -142,5 +143,37 @@ class BaselineSafetyTest extends TestCase
         $this->assertSame('BBBB:2', session('installation')['unifi_console_id']);
         $this->assertSame('site-manager-key', session('installation')['unifi_api_key'], 'The key entered first is kept');
         $this->assertArrayHasKey('unifi_test', session('installation'));
+    }
+
+    public function test_an_add_button_names_the_filter_and_warns_on_device_networks_and_its_additions_can_be_undone(): void
+    {
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        NetworkAssignment::query()->where('provider_network_id', 'sim-guest')->update(['role' => 'device', 'unfiltered_reason' => BaselineGuard::FOUND_AT_START]);
+        app(SettingsRepository::class)->set(BaselineGuard::STARTED_KEY, now()->toIso8601String());
+
+        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()
+            ->assertSee('data-confirm-detail="Adds the UniFi filter Students (Always; 1 blocked categories)', false)->assertSee('This is a device network');
+
+        $this->actingAs($this->admin)->post(route('admin.policy.networks.protect'), ['networks' => ['sim-guest']])->assertSessionHas('success');
+        $this->actingAs($this->admin)->get(route('admin.policy.networks.index'))->assertOk()
+            ->assertSee('Filterdesk added Students to 1 network')->assertSee('by '.$this->admin->name)->assertSee('added-by', false);
+        $event = AuditEvent::query()->where('action', 'policy.baseline_protected')->sole();
+        $this->actingAs($this->admin)->post(route('admin.policy.networks.baseline-undo', $event))->assertSessionHas('success');
+        $this->assertSame([], $this->filtersOn('sim-guest'));
+    }
+
+    public function test_networks_found_while_read_only_wait_for_a_decision_instead_of_all_being_filtered_later(): void
+    {
+        $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
+        app(SettingsRepository::class)->set(BaselineGuard::STARTED_KEY, now()->toIso8601String());
+        IntegrationConfig::query()->where('provider', 'mock')->update(['mode' => 'read_only']);
+        app(ControllerSync::class)->forget();
+
+        $this->assertStringContainsString("isn't in Active mode", app(BaselineGuard::class)->enforce()['message']);
+        $this->assertSame(BaselineGuard::FOUND_READ_ONLY, NetworkAssignment::query()->where('provider_network_id', 'sim-guest')->value('unfiltered_reason'));
+
+        IntegrationConfig::query()->where('provider', 'mock')->update(['mode' => 'active']);
+        app(BaselineGuard::class)->enforce();
+        $this->assertSame([], $this->filtersOn('sim-guest'), 'Switching Active mode on does not filter them all at once');
     }
 }

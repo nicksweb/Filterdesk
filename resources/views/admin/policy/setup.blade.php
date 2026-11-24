@@ -54,6 +54,8 @@
                 <p class="network-status warn">UniFi has no content filters yet. Create one per level of filtering in UniFi (for example Students and Staff, under Settings → Security → Content filtering), attach it to its networks, then read UniFi again.</p>
             @else
                 @php
+                    // Policies that keep a school-hours filter's lists: offering them to another filter would merge the two.
+                    $keptByLayers = $filters->filter(fn ($filter) => $filter['suggestion']['action'] === 'hours')->pluck('id')->all();
                     $describe = function (array $filter) {
                         $suggestion = $filter['suggestion'];
                         if ($suggestion['action'] === 'hours') {
@@ -146,7 +148,7 @@
                                     <label>Policy to use
                                         <select name="filters[{{ $filter['id'] }}][policy_id]">
                                             <option value="">{{ $filter['linked'] ? 'Keep '.$filter['linked']->name : 'Automatic: an unused policy of that type, or a new one' }}</option>
-                                            @foreach($policies as $policy)<option value="{{ $policy->id }}">{{ $policy->name }} ({{ $policy->typeLabel() }}){{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' · now on '.$policy->provider_name : '' }}</option>@endforeach
+                                            @foreach($policies->reject(fn ($policy) => in_array($policy->provider_reference, $keptByLayers, true) && $policy->provider_reference !== $filter['id']) as $policy)<option value="{{ $policy->id }}">{{ $policy->name }} ({{ $policy->typeLabel() }}){{ filled($policy->provider_reference) && $policy->provider_reference !== $filter['id'] ? ' · now on '.$policy->provider_name : '' }}</option>@endforeach
                                         </select>
                                     </label>
                                     <label class="choice compact"><input type="hidden" name="filters[{{ $filter['id'] }}][carries_blocks]" value="0"><input type="checkbox" name="filters[{{ $filter['id'] }}][carries_blocks]" value="1" @checked(!empty($suggestion['carries_blocks']))><span>Takes the site-wide blocks<small>Only for a site-wide layer. New site-wide blocks go only into this filter instead of every filter, so each stays under UniFi's entry limit.</small></span></label>
@@ -157,6 +159,18 @@
                         <div class="form-actions"><button class="button primary" data-confirm="Set these filters up as chosen? Nothing is changed in UniFi.">Save these choices</button></div>
                     </form>
                 </details>
+
+                @if($leftovers['policies']->isNotEmpty() || $leftovers['profiles']->isNotEmpty())
+                    <details class="setup-choices leftovers" open>
+                        <summary>Not used by any filter: {{ $leftovers['policies']->count() }} {{ $leftovers['policies']->count() === 1 ? 'policy' : 'policies' }}, {{ $leftovers['profiles']->count() }} probe {{ $leftovers['profiles']->count() === 1 ? 'profile' : 'profiles' }}</summary>
+                        <p class="hint">Left from earlier set-up runs, or filters set to <em>Leave it alone</em>. Policies listed here manage no UniFi filter and hold only imported entries (no requests, nothing added by hand, no networks). Profiles listed here are switched off and not used by a managed policy, or are on a VPN with no VLAN to probe.</p>
+                        <form method="post" action="{{ route('admin.policy.setup.cleanup') }}">@csrf
+                            @foreach($leftovers['policies'] as $policy)<label class="choice compact"><input type="checkbox" name="policies[]" value="{{ $policy->id }}" checked><span>Policy <strong>{{ $policy->name }}</strong><small>{{ $policy->typeLabel() }}</small></span></label>@endforeach
+                            @foreach($leftovers['profiles'] as $profile)<label class="choice compact"><input type="checkbox" name="profiles[]" value="{{ $profile->id }}" checked><span>Probe profile <strong>{{ $profile->name }}</strong><small>switched off</small></span></label>@endforeach
+                            <div class="form-actions"><button class="button secondary" data-confirm="Delete the ticked policies and probe profiles? Nothing is changed in UniFi.">Delete the ticked ones</button></div>
+                        </form>
+                    </details>
+                @endif
 
                 @foreach($duplicates as $group)
                     <p class="network-status warn">{{ $group->count() }} policies are called {{ $group->first()->name }}: @foreach($group as $duplicate)<a href="{{ route('admin.policy.policies.show', $duplicate) }}">{{ $duplicate->slug }}</a>{{ $duplicate->provider_name ? ' (UniFi: '.$duplicate->provider_name.')' : ' (not linked)' }}{{ $loop->last ? '' : ', ' }}@endforeach. Open the extra one and use <em>Merge into another policy</em> to combine them.</p>
