@@ -137,6 +137,7 @@
                     <label>API token<input type="password" name="categories_token" autocomplete="off" placeholder="{{ filled($data['categories_token'] ?? null) ? 'Saved; leave blank to keep it' : '' }}">@error('categories_token')<small class="field-error">{{ $message }}</small>@enderror</label>
                     <label>Account ID <span class="optional">for Intel</span><input name="categories_account_id" value="{{ old('categories_account_id', $data['categories_account_id'] ?? '') }}" maxlength="32">@error('categories_account_id')<small class="field-error">{{ $message }}</small>@enderror</label>
                 </div>
+                <x-cloudflare-token-help />
                 <div class="button-row"><button class="button secondary small" type="submit" formaction="{{ route('install.categories-test') }}" formnovalidate>Test lookup</button></div>
                 @isset($data['categories_test'])<div class="alert {{ $data['categories_test']['ok'] ? 'success' : 'error' }}">{{ $data['categories_test']['ok'] ? 'It works. ' : 'The test lookup failed: ' }}{{ $data['categories_test']['message'] }}</div>@endisset
             @else

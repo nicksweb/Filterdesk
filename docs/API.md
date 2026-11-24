@@ -9,7 +9,8 @@ Create tokens under **Settings → Integrations → API tokens** (administrators
 - acts as the IT officer who created it, so every action is recorded against them;
 - stops working if that officer is disabled or loses IT access, or when it expires or is revoked;
 - is shown once; only its SHA-256 hash is stored;
-- has one or more abilities: **read**, **requests** (submit on someone's behalf) and **decide** (approve or decline).
+- has one or more abilities: **read**, **requests** (submit on someone's behalf) and **decide** (approve or decline);
+- is not asked for a two-factor code, so store it like a password and give *decide* only to systems that need it.
 
 Send it as a bearer token. Requests are limited to 120 a minute per client.
 

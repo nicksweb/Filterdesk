@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.21
+
+### Added
+- **Two-factor sign-in** with any authenticator app (time-based codes), with 8 one-time recovery codes.
+  - Required by default for IT officers and admins who sign in with a password, and optional for everyone (Profile → Two-factor sign-in).
+  - Settings → Authentication chooses who must use it, and whether it's also asked after single sign-on.
+  - Admins can reset someone's (Users → *Reset 2FA*); there's also a host command, `filterdesk:reset-two-factor`.
+  - Wrong codes lock the second step for 15 minutes after 5 tries. Everything is audited.
+- **Help for staff and students.**
+  - A **How to** page: how to check a website, what each answer means, how to ask for access, and what to do when a site is still blocked after it was allowed (close the browser, try a private window, restart).
+  - Settings → **Help and support**: the helpdesk's name, email, phone, hours and location, and a link to your own support article. They appear in a *Need help?* box on the dashboard, website checks and requests.
+- **Your own wording and a sign-in logo** (Settings → School): the dashboard heading, the sign-in page and the website check page. The defaults are written for students and staff ("Web filtering", "Sign in with your school account…"), not IT.
+- **The setup list can be shown again** after *Hide this list*, and a step marked done by hand can be undone.
+- **How to get a Cloudflare token**, step by step with links to Cloudflare's guides, in Settings → Website categories and the installer.
+
+### Fixed
+- **A probe's internet check** no longer warns about hosts inspected with your school's uploaded HTTPS inspection certificate (often `www.google.com`, for SafeSearch). It counts them as expected and lets the other test sites decide. The probe also tests one more site outside Google.
+- **Website check results with categories**: the category row and the plain results now have the card's padding.
+- **Security review** (see [SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md#security-review-20261221)):
+  - *Remember me* after single sign-on lasted about five years; it now lasts 30 days (`AUTH_REMEMBER_MINUTES`).
+  - Images upgrade their OS packages when built, and releases pull a fresh base image. This fixed 58 high or critical issues in the web image's older Alpine base.
+  - CI audits PHP and probe dependencies and scans the images.
+  - CI's image check now expects the files `bin/update` needs. It had failed since 2026.12.18; the images themselves were fine.
+
 ## 2026.12.20
 
 ### Fixed

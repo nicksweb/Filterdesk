@@ -13,7 +13,7 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 | `db` (PostgreSQL) | The internal `app` network only | No published port. |
 | Probes | The internal `probe_control` network, plus their VLAN (macvlan) | They accept checks only with `PROBE_SHARED_KEY`, and refuse private addresses unless listed. |
 
-The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a restrictive Permissions Policy and `frame-ancestors` limited to the configured Schoolbox origin. Credentials for UniFi, OIDC and SMTP are encrypted in the database with `APP_KEY`.
+The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a restrictive Permissions Policy and `frame-ancestors` limited to the configured embedding origin (Schoolbox or another portal). Credentials for UniFi, OIDC and SMTP are encrypted in the database with `APP_KEY`.
 
 ## Essential
 
@@ -45,6 +45,8 @@ The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a rest
 - [ ] Once an SSO admin can sign in, **turn off password sign-in for the installer's local admin** (Users → untick *Password*), or turn off *Emergency local sign-in* under Settings → Authentication. Keep the break-glass command documented instead:
   `docker compose exec app php artisan filterdesk:admin-password <email> --enable-local-login`
 - [ ] Any remaining local password is 14+ characters, unique and stored in your password manager. Built-in protection locks an account after 5 failures in 15 minutes and blocks an IP after 20. Lockouts are emailed and audited.
+- [ ] **Two-factor sign-in** (Settings → Authentication) is required by default for IT officers and admins who sign in with a password. Each sets it up under Profile → Two-factor sign-in at their next sign-in, with any authenticator app, and keeps the recovery codes. Turn on *Also after single sign-on* if your identity provider doesn't ask for its own second factor. A lost phone is reset by an admin (Users → *Reset 2FA*) or on the host: `docker compose exec app php artisan filterdesk:reset-two-factor <email>`.
+- [ ] *Remember me* after single sign-on lasts 30 days (`AUTH_REMEMBER_MINUTES`). Shorten it if IT devices are shared.
 
 ### UniFi
 
@@ -77,20 +79,50 @@ The app sends a strict Content Security Policy, HSTS on HTTPS, `nosniff`, a rest
 
 ### Updates
 
-- [ ] Apply releases promptly. Rebuild at least monthly even without one (`docker compose … build --pull && docker compose … up -d`) to pick up PHP, Alpine, Chromium and PostgreSQL patches.
+- [ ] Apply releases promptly (`bin/update`). Each release image is built from a freshly pulled base with the OS packages upgraded, and CI scans it (Trivy) and audits the PHP and probe dependencies (`composer audit`, `npm audit`).
+- [ ] If you build images yourself, rebuild at least monthly even without a release (`docker compose … build --pull`, then `up -d`) to pick up PHP, Alpine, Chromium and PostgreSQL patches.
 - [ ] Watch the repository's releases and security advisories.
 
 ### Data
 
 - [ ] Requests contain staff names, emails and the reasons given. Set a retention rule that matches your school's privacy policy, and limit who has *IT* and *admin* roles.
 - [ ] **Website categories** (Settings → Website categories) send every checked or requested domain, without user details, to Cloudflare. It is off by default; turn it on only if your privacy policy allows it. Give the token read access only (Radar or Intel), nothing else.
-- [ ] Screenshots of checked sites are stored in `data/storage`. Include them in backups and in your retention rule.
-- [ ] Before a Schoolbox embed, set the exact Schoolbox origin. Without it, the app cannot be framed at all, which is the safe default.
+- [ ] Page previews (screenshots and page titles) in website checks are for IT only by default (Settings → Network profiles → *Website checks*), so a student who checks an inappropriate site doesn't see it. Checks can be DNS-only, so the probes never fetch the site. Previews are not stored with the check history.
+- [ ] Before embedding in a portal, set its exact origin (Settings → School → Embedding origin). Without it, the app cannot be framed at all, which is the safe default.
 
 ### Blocklists
 
 - [ ] Subscribe only to lists from publishers you trust. Lists are downloaded at run time, and a compromised list could block legitimate sites, but cannot allow anything: allows always come from IT or approvals.
 - [ ] Keep large domain feeds in a **layer** and keep the list limits in place.
+
+## Who can change filtering
+
+Every page and action checks the signed-in account's role on the server, on every request; hiding a button is never the only protection.
+
+| Role | Can | Cannot |
+| --- | --- | --- |
+| Student | Check websites (their own network types only), ask for access when allowed, see their own requests | See other people's requests, anything under Policies, Changes, settings or users |
+| Staff (teacher) | Check websites on every network, ask for access or a block, reply on their own requests, keep their own exceptions | Approve anything, change lists, publish to UniFi, settings or users |
+| IT | Approve and decline requests, change lists (Quick block or allow, policies), publish and roll back, run probes and Guided setup | Settings, users, integrations (admin only). Site-wide changes need a second IT officer |
+| Admin | Everything IT can, plus settings, users, API tokens and webhooks | |
+
+- Publishing to UniFi (pushes, rollbacks, Guided setup, quick changes, approvals) is only reachable through the IT and admin routes (`role:it,admin`), or the API with a token that has the *decide* ability, which acts as the IT officer who created it.
+- UniFi is written to only in **Active** mode, and only by those code paths. Students and staff never reach code that writes to UniFi.
+- Approvals and site-wide changes follow two-person approval; quick changes to site-wide lists wait for a second officer too.
+- Requests are visible only to their requester and IT; internal notes only to IT.
+
+## Security review (2026.12.21)
+
+What was checked, and the result:
+
+- **Access control:** every state-changing route was listed with its middleware. All filtering, publishing, probe and setup actions require IT or admin; settings, users and integrations require admin. The remaining routes (sign-in, profile, your own requests and replies, keeping your own exceptions, website checks) check ownership themselves. The installer returns 404 once installation is complete. No gaps found.
+- **API:** tokens are hashed, scoped to abilities, expire, stop working when their owner loses IT access, and approvals through the API still follow two-person approval. API tokens are not subject to two-factor sign-in, so treat them like passwords and give *decide* only where needed.
+- **Injection and output:** no unescaped Blade output (`{!! !!}`); every raw SQL fragment is a constant or uses bound parameters. Uploaded icons and logos are served with a sandboxing Content Security Policy.
+- **Probes:** they refuse private and special-use addresses unless allowed, need the shared key, and resolve every page and resource through the VLAN's DNS.
+- **Dependencies:** `composer audit` (PHP) and `npm audit` (probe) report no known vulnerabilities.
+- **Images (Trivy, fixable high and critical):** the probe image was clean; the app image had 1 (libxml2) and the web image 58 (curl, OpenSSL, brotli, from an older Alpine base). Images now upgrade OS packages at build and CI scans them, failing on fixable critical issues. Rebuilt, the web image has none.
+- **Fixed in this review:** *remember me* lasted Laravel's default of about five years (now 30 days); CI's image check expected files the image now ships for `bin/update`.
+- **Known and accepted:** `/health` is public and shows the version number, for monitoring. Restrict it at the proxy if you prefer.
 
 ## Preparing for quantum computers
 

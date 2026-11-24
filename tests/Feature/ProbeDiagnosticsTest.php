@@ -76,6 +76,31 @@ class ProbeDiagnosticsTest extends TestCase
             ->assertDontSee('It cannot load a web page');
     }
 
+    public function test_a_host_inspected_with_the_schools_uploaded_certificate_is_expected_and_other_sites_decide(): void
+    {
+        $key = openssl_pkey_new(['private_key_bits' => 2048]);
+        $csr = openssl_csr_new(['commonName' => 'UniFi SSL Certificate Authority', 'organizationName' => 'Ubiquiti Inc.'], $key);
+        openssl_x509_export(openssl_csr_sign($csr, null, $key, 365), $pem);
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin)->put(route('admin.settings.update', 'certificate'), ['certificate_text' => $pem])->assertSessionHasNoErrors();
+
+        Http::fake([
+            // Google is inspected, so the probe's own internet test failed, but Cloudflare loaded.
+            'probe-student:3000/diagnose' => Http::response($this->report('10.0.20.1', '10.0.20.241/24', [
+                'internet_ok' => false,
+                'internet_results' => [['host' => 'www.google.com', 'ok' => false], ['host' => 'cp.cloudflare.com', 'ok' => true]],
+                'intercepted' => [['host' => 'www.google.com', 'issuer' => 'UniFi SSL Certificate Authority, Ubiquiti Inc.', 'error' => 'SELF_SIGNED_CERT_IN_CHAIN']],
+            ])),
+            'probe-staff:3000/diagnose' => Http::response($this->report('10.0.80.1', '10.0.80.241/24')),
+        ]);
+
+        $profile = NetworkProfile::query()->where('key', 'student')->sole();
+        $internet = collect(app(ProbeDiagnostics::class)->for($profile, refresh: true)['checks'])->firstWhere('key', 'internet');
+        $this->assertSame('ok', $internet['status']);
+        $this->assertStringContainsString("inspected with your school's certificate", $internet['detail']);
+        $this->assertStringContainsString('cp.cloudflare.com', $internet['detail']);
+    }
+
     public function test_a_probe_on_dockers_own_network_is_told_to_use_compose_vlan(): void
     {
         Http::fake([

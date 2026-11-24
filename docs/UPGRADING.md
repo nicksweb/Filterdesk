@@ -45,6 +45,13 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.20 → 2026.12.21
+
+- Update as usual (`bin/update`). A migration adds the two-factor sign-in columns to users.
+- **IT officers and admins who sign in with a password are asked to set up two-factor sign-in** at their next sign-in. They need an authenticator app. Single sign-on users are not asked unless you turn on *Also after single sign-on* (Settings → Authentication). To keep the old behaviour for now, set *Required for* to *Nobody*, or set `TWO_FACTOR_REQUIRED_FOR=off` in `.env` before upgrading.
+- *Remember me* after single sign-on now lasts 30 days (`AUTH_REMEMBER_MINUTES`), so people sign in again once a month.
+- The default wording people see changed (dashboard, sign-in, website checks). Change it under Settings → School → *Wording people see*, and add a sign-in logo there. Add your helpdesk and support article under Settings → Help and support.
+
 ## 2026.12.19 → 2026.12.20
 
 - Update as usual. No database changes.

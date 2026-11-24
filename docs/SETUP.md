@@ -144,7 +144,7 @@ Most settings (school, sign-in, UniFi, email, approvals) are entered in the wiza
 | `SESSION_LIFETIME` | `120` | Minutes of inactivity before sign-out. |
 | `SESSION_ENCRYPT` | `true` | Leave `true`. |
 | `SESSION_SECURE_COOKIE` | `true` | `true` behind HTTPS. Set `false` only for a plain `http://` trial, or sign-in will not stick. |
-| `SESSION_SAME_SITE` | `lax` | Leave. It becomes `none` automatically when a Schoolbox origin is configured for embedding. |
+| `SESSION_SAME_SITE` | `lax` | Leave. It becomes `none` automatically when an embedding origin is configured. |
 | `QUEUE_CONNECTION` / `CACHE_STORE` | `database` | Leave. Emails and pushes run in the `queue` container. |
 
 ### Email fallback
@@ -271,15 +271,17 @@ Open `https://<hostname>`. The wizard has eight steps and locks itself once fini
 | Step | Enter | Tips |
 | --- | --- | --- |
 | 1. System checks | Nothing | All four checks should be ✓. A `!` against *Proxy* means `TRUSTED_PROXIES` is wrong. |
-| 2. School | Name, timezone, the URL (same as `APP_URL`), Schoolbox origin | Fill in the Schoolbox origin (for example `https://schoolbox.example.edu.au`) only if the app will be embedded in Schoolbox. |
+| 2. School | Name, timezone, the URL (same as `APP_URL`), embedding origin | Fill in the embedding origin (for example `https://schoolbox.example.edu.au`) only if the app will be embedded in a portal. Sign-in from the embed then opens in a popup window. |
 | 3. Administrator and sign-in | The first local admin's name, email and password (14+ characters). Optionally OIDC: issuer, client ID, secret, allowed email domains, role rules, default role, *Re-apply rules at every sign-in* (on), and under **Provider-specific options** any extra scopes and the claims that hold groups. | For Entra ID the issuer is `https://login.microsoftonline.com/<tenant-id>/v2.0`. Role rules map groups or emails to *student*, *teacher*, *IT* and *admin*. For CloudWork ID, the profile scope is added for you when a rule uses `group:`. Press **Test sign-in** before continuing (see below). Leave **Emergency local sign-in** on until SSO is proven. |
 | 4. UniFi | Connection type, the console URL (local key) or a Site Manager key, **Test connection**, then the console to manage and its site, **Read-only** mode, entry matching *Explicit* | **Test connection** checks the key without saving anything. With a Site Manager key it lists the consoles the key can see: pick the one to manage and test again to see its networks and content filters, so you know it's the right one. Start read-only. All of this can be changed later under Settings → Network provider. |
 | 5. Network access profiles | Keep `http://probe-student:3000` and `http://probe-staff:3000`; optionally the Student and Staff VLAN numbers (for example 20 and 10). Under **Other networks**, add every other network to filter and test (guest Wi-Fi, BYOD, CCTV, a lab): its name, its network type (an existing one, or *New type…* with a name) and its VLAN | The VLANs are matched to UniFi networks once connected, and Guided setup plans a probe on each (step 9). Extra networks start switched off until their probe container runs; a new type gets its own allow and block lists and filter policy. |
 | 6. Email | SMTP host, port, username, password, from address, IT notification address | The IT address receives new requests, alerts and the daily digest. Settings → Email has a test button. |
-| 7. Approval policy | Auto-approval for trusted networks, whether students may request, default access length, request categories, **two-person approval** (site-wide changes need two IT officers; on), approving alone when no other officer is available (on), **sensitive categories**, and how often exceptions are **reviewed** (12 months) and how long an unreviewed one stays (14 days) | Defaults are sensible. Two-person approval only takes effect once two IT officers are enabled. All of this can be changed later under Settings → Approval policy. |
+| 7. Approval policy | Auto-approval for trusted networks, whether students may request, default access length, request categories, **two-person approval** (site-wide changes need two IT officers; on), approving alone when no other officer is available (on), **sensitive categories**, how often exceptions are **reviewed** (12 months) and how long an unreviewed one stays (14 days), and optionally **website categories** (a Cloudflare token, with **Test lookup**) | Defaults are sensible. Two-person approval only takes effect once two IT officers are enabled. *How to get a Cloudflare token* walks through creating one. All of this can be changed later under Settings → Approval policy and Settings → Website categories. |
 | 8. Review | Check, then **Complete** | |
 
-Sign in as the administrator. The home page shows **Finish setting up**: a checklist of what is left (Guided setup, probes on their VLANs, a second IT officer, the school calendar, website categories, Active mode and backups). Items tick themselves off as you complete them; mark the rest done by hand.
+Sign in as the administrator. You're asked to set up **two-factor sign-in** first (an authenticator app on your phone; keep the recovery codes), because admins signing in with a password need it.
+
+The home page then shows **Finish setting up**: a checklist of what is left (Guided setup, probes on their VLANs, a second IT officer, the school calendar, website categories, Active mode and backups). Items tick themselves off as you complete them; mark the rest done by hand. *Hide this list* keeps your progress, and *Show the setup list again* brings it back.
 
 **Check:** Settings → Network provider → **Test connection** succeeds and redirects you to Guided setup. Health → Diagnostics is all green except probes you have not set up yet.
 
@@ -434,6 +436,11 @@ Still in read-only mode (two IT officers make step 6 possible):
 6. Harden the install: [SECURITY_HARDENING.md](SECURITY_HARDENING.md).
 7. Policy settings worth a look before go-live:
    - **Users:** add (or give the IT role to) a second IT officer, so two-person approval works.
+   - **Settings → Authentication → Two-factor sign-in:** who must use it (IT officers and admins by default, for password sign-ins), and whether it's also asked after single sign-on.
+   - **Settings → Help and support:** your helpdesk's email, phone and hours, and a link to your own support article. Staff and students see them in a *Need help?* box and on the **How to** page, which explains checks, requests and what to do when a site is still blocked after it was allowed.
+   - **Settings → School:** the sign-in page logo, and *Wording people see* (dashboard, sign-in and website check text).
+   - **Settings → Network profiles → Website checks:** who sees page previews (IT only by default), and DNS-only checks.
+   - **Policies → Quick block or allow:** block or allow a site on several network types at once, in school hours only if you like, with a preview first.
    - **Settings → Approval policy:** two-person approval for site-wide changes (on by default), approving alone when no other officer is available, the sensitive categories that need two IT officers, how often exceptions are reviewed (12 months) and how long an unreviewed one stays (14 days), and the wording of *Your access is on its way*, the page staff see after access is approved (close the browser, restart if needed).
    - **Settings → School:** the application name, icon, and whether the footer links to the open-source project.
    - **Settings → School calendar:** terms, holidays, exam periods and bell times, for recurring requests that follow the calendar and for exam mode (Settings → Network types).

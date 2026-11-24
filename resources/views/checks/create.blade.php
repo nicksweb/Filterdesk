@@ -3,9 +3,9 @@
 
     <div class="page-heading">
         <div>
-            <p class="eyebrow">Network visibility</p>
+            <p class="eyebrow">Website check</p>
             <h1>Check websites</h1>
-            <p>{{ auth()->user()->isStudent() ? 'See whether a website opens on the student network, then ask for it if it is blocked.' : 'Compare access on each network, capture evidence, then raise one request for every selected domain.' }}</p>
+            <p>{{ auth()->user()->isIt() ? 'Compare access on each network, capture evidence, then raise one request for every selected domain.' : app(\App\Services\Wording::class)->get(auth()->user()->isStudent() ? 'check_intro_student' : 'check_intro_staff') }}</p>
         </div>
     </div>
 
@@ -21,7 +21,7 @@
                 <textarea name="websites" rows="5" required placeholder="example.com&#10;https://learning.example.org/resource">{{ old('websites', request('websites')) }}</textarea>
             </label>
             <div class="check-submit-row">
-                <p>Each run starts a fresh browser with an empty DNS cache, so re-running after a filter change shows the current result.</p>
+                <p>{{ auth()->user()->isIt() ? 'Each run starts a fresh browser with an empty DNS cache, so re-running after a filter change shows the current result.' : app(\App\Services\Wording::class)->get('check_hint') }}</p>
                 <button class="button primary">Run checks</button>
             </div>
         </form>
@@ -139,4 +139,5 @@
             </div>
         </form>
     @endisset
+    @unless(auth()->user()->isIt())<div class="help-row"><x-help-box /></div>@endunless
 </x-layouts.app>

@@ -24,6 +24,11 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - **Exception reviews:** every exception has an owner and a review date; unreviewed ones are removed after a grace period.
 - **Insights and Health:** a termly report with suggestions drawn from requests, and a coverage score with links to each fix.
 - **Integrations:** API, signed webhooks, Microsoft Teams cards and one-click decision links; sign-in groups set network types and departments.
+- **Quick block or allow:** IT blocks or allows a site on several network types at once, with a preview of the lists, UniFi filters, categories and conflicting entries first.
+- **School-hours filters:** a school-hours filter (such as *Student - School Time*) becomes a layer of the always-on one. Blocks can apply in school hours only, chosen by IT or suggested by the requester; allows can apply outside school hours only.
+- **Plain answers for students and staff:** website checks show *Allowed*, *Blocked* or *Couldn't check right now* per network. Page previews are for IT only unless you open them up, and checks can be DNS-only.
+- **Help for staff and students:** a How to page, a *Need help?* box with your helpdesk's details and support article, and your own wording and sign-in logo.
+- **Two-factor sign-in:** authenticator-app codes with recovery codes, required by default for IT and admin password sign-ins.
 
 **Foundations**
 
@@ -34,7 +39,7 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - Automatic Chromium screenshots and configurable block-page detection
 - Batch website checks with blocked domains preselected into one access request
 - Multi-domain staff-only or staff-and-student requests
-- Schoolbox iframe embedding with an exact-origin allowlist and secure cross-site sessions
+- Portal embedding (Schoolbox or another) with an exact-origin allowlist, secure cross-site sessions and single sign-on in a popup
 - Approval, rejection, reassignment, information requests and manual completion
 - Explicit permanent access or temporary access windows with scheduled expiry
 - Network types you define (Staff, Students, CCTV, Exam rooms…), each with shared allow and block lists, plus site-wide and per-policy lists
@@ -102,7 +107,7 @@ and point the proxy host at `http://filterdesk-web:8080` (port **8080**, not 808
 Open `APP_URL`. The wizard locks itself once finished.
 
 1. **System checks:** database, encryption key, queue and reverse proxy. Fix anything marked `!` first.
-2. **School:** name, timezone, URL, and the Schoolbox origin if it will be embedded.
+2. **School:** name, timezone, URL, and the embedding origin if it will be embedded in Schoolbox or another portal.
 3. **Administrator and sign-in:** the first local admin (password of 14+ characters), and optionally OIDC with role rules.
 4. **UniFi:** local console key (console URL) or Site Manager key (console ID), and **Read-only** mode to start.
 5. **Network access profiles:** keep `http://probe-student:3000` and `http://probe-staff:3000`; the network IDs can be filled in later.
@@ -167,13 +172,16 @@ Sites, networks and firewall IP groups use the official integration API. Content
 Configuration and data are stored in `data/` (the database and storage, as bind mounts), outside the images. Back up first, then:
 
 ```bash
+bin/update        # back up, pull, update compose.yml and bin/ scripts, restart
+```
+
+`bin/update` works in a git checkout (it runs `git pull --ff-only`, and stops first if you have local edits) and in a plain install folder (it copies the new `compose.yml`, example overrides and scripts out of the app image, keeping the old ones in `backups/`). To pin a release, set `FILTERDESK_VERSION` in `.env` first. By hand, the same is:
+
+```bash
 git pull --ff-only                       # newer compose.yml, docs and scripts
-# set FILTERDESK_VERSION in .env to the new release, then:
 docker compose pull
 docker compose up -d
 ```
-
-Leave out any override file you do not use.
 
 The one-shot `migrate` service runs `php artisan filterdesk:upgrade` (migrations, backfills, cache clearing, worker restart) before workers start. Read [CHANGELOG.md](CHANGELOG.md) and [docs/UPGRADING.md](docs/UPGRADING.md) before each upgrade.
 
@@ -189,7 +197,7 @@ Laravel Pint is the formatter. Provider integrations implement `App\Services\Net
 
 ## Security
 
-Do not open public issues containing vulnerabilities, credentials, school names, internal domains, screenshots or topology. Follow [SECURITY.md](SECURITY.md). This software can be authorised to change network policy; validate it in read-only mode and apply least privilege. Work through [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md) before going live.
+Do not open public issues containing vulnerabilities, credentials, school names, internal domains, screenshots or topology. Follow [SECURITY.md](SECURITY.md). This software can be authorised to change network policy; validate it in read-only mode and apply least privilege. Work through [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md) before going live. It also describes who can change filtering, and the latest security review (dependencies, images and access control).
 
 
 ## Third-party blocklists

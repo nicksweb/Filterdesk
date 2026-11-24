@@ -20,7 +20,7 @@ class AccessGuide
         'students' => false,
         'title' => 'Your access is on its way',
         'intro' => 'The school filters websites by name, so your computer can remember the old "blocked" answer for a few minutes after access is approved. If the site still looks blocked:',
-        'steps' => "Wait a minute or two while the change reaches the network.\nClose every browser window (not just the tab), then open the browser again.\nStill blocked? Restart your computer, or turn Wi-Fi off and on again.\nStill blocked after 15 minutes? Reply on this request and IT will check it.",
+        'steps' => "Wait a minute or two while the change reaches the network.\nClose every browser window (not just the tab), then open the browser again. Or try a private (incognito) window.\nStill blocked? Restart your computer, or turn Wi-Fi off and on again.\nStill blocked after 15 minutes? Reply on your request and IT will check it.",
     ];
 
     public function __construct(private readonly SettingsRepository $settings) {}

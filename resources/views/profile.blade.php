@@ -1,5 +1,11 @@
 <x-layouts.app title="Profile">
     <div class="page-heading"><div><p class="eyebrow">Your account</p><h1>{{ $user->name }}</h1><p>{{ $user->email }} · {{ ucfirst($user->role) }} · {{ $user->auth_source === 'oidc' ? 'Single sign-on' : 'Local account' }}</p></div></div>
+    @if($user->isIt() || $user->hasTwoFactor() || $user->auth_source !== 'oidc')
+        <section class="panel form-panel">
+            <h2>Two-factor sign-in</h2>
+            <p>{{ $user->hasTwoFactor() ? 'On. A code from your authenticator app is asked for when you sign in.' : 'Off. Add a code from an app on your phone to your sign-in.' }} <a href="{{ route('profile.two-factor') }}">{{ $user->hasTwoFactor() ? 'Manage' : 'Set it up' }}</a></p>
+        </section>
+    @endif
     <section class="panel form-panel">
         <h2>Notifications</h2>
         <form method="post" action="{{ route('profile.update') }}">@csrf @method('PUT')

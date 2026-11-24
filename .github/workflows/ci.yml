@@ -21,6 +21,10 @@ jobs:
           grep -q "mcr.microsoft.com/playwright:v${version}-" probe/Dockerfile || {
             echo "probe/Dockerfile must use mcr.microsoft.com/playwright:v${version}-noble to match probe/package.json"; exit 1; }
       - run: composer install --no-interaction --prefer-dist
+      # Known vulnerabilities in PHP and probe (Node) dependencies.
+      - run: composer audit --locked
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: probe
       - run: cp .env.example .env
       - run: vendor/bin/pint --test
       - run: php artisan test
@@ -38,9 +42,22 @@ jobs:
       - run: docker compose -f compose.yml -f compose.build.yml build app
       - run: docker compose -f compose.yml -f compose.build.yml build web
       - run: docker compose -f compose.yml -f compose.build.yml build probe-student
-      # The image must not contain site configuration, secrets or backups.
+      # The image must not contain site configuration, secrets or backups. It does carry the
+      # generic compose.yml, example overrides and bin/ scripts, which bin/update copies out.
       - run: |
           docker run --rm --entrypoint sh ghcr.io/nicksweb/filterdesk-app:local -c '
-            for path in .env .git .claude backups docs tests bin compose.yml; do
+            for path in .env .git .claude backups docs tests compose.proxy.yml compose.vlan.yml compose.local.yml compose.build.yml; do
               if [ -e "/var/www/html/$path" ]; then echo "image contains $path"; exit 1; fi
+            done
+            for path in compose.yml compose.vlan.example.yml bin/update; do
+              if [ ! -e "/var/www/html/$path" ]; then echo "image is missing $path (bin/update needs it)"; exit 1; fi
             done; echo "image is clean"'
+      # Fixable critical vulnerabilities in the images fail the build; high ones are listed.
+      - name: Scan images
+        run: |
+          for image in app web probe; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.68.1 image --quiet --scanners vuln \
+              --ignore-unfixed --severity HIGH,CRITICAL --exit-code 0 ghcr.io/nicksweb/filterdesk-$image:local
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.68.1 image --quiet --scanners vuln \
+              --ignore-unfixed --severity CRITICAL --exit-code 1 ghcr.io/nicksweb/filterdesk-$image:local
+          done

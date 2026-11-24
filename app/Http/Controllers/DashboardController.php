@@ -45,6 +45,7 @@ class DashboardController extends Controller
             'recentChecks' => WebsiteCheck::query()->where('user_id', $user->id)->latest()->limit(5)->get(),
             // Role homes: IT managers (admins) see coverage and suggestions; IT officers see what waits on them; everyone sees their reviews.
             'setup' => $user->isAdmin() && app(SetupChecklist::class)->visible() ? app(SetupChecklist::class)->items() : [],
+            'setupHidden' => $user->isAdmin() && app(SetupChecklist::class)->hiddenWithStepsLeft(),
             'coverage' => $user->isAdmin() ? app(Coverage::class)->report() : null,
             'insights' => $user->isAdmin() ? array_slice(rescue(fn () => app(PolicyInsights::class)->insights(...array_values(array_slice(app(PolicyInsights::class)->defaultPeriod(), 0, 2))), [], false), 0, 3) : [],
             'secondApprovals' => $user->isIt() ? WebsiteRequest::query()->where('status', RequestStatus::AwaitingSecondApproval)->where('first_approval->user_id', '!=', $user->id)->count()
@@ -57,8 +58,13 @@ class DashboardController extends Controller
     /** Mark a setup item done, or hide the whole checklist. */
     public function setup(Request $request, SetupChecklist $checklist): RedirectResponse
     {
-        $validated = $request->validate(['item' => ['required', 'string', 'max:40']]);
-        $validated['item'] === 'all' ? $checklist->hide() : $checklist->markDone($validated['item']);
+        $validated = $request->validate(['item' => ['required', 'string', 'max:40'], 'undo' => ['nullable', 'boolean']]);
+        match (true) {
+            $validated['item'] === 'all' => $checklist->hide(),
+            $validated['item'] === 'show' => $checklist->show(),
+            $request->boolean('undo') => $checklist->undo($validated['item']),
+            default => $checklist->markDone($validated['item']),
+        };
 
         return back();
     }

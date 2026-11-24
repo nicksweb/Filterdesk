@@ -58,7 +58,7 @@ class SetupChecklist
                 'link' => 'https://github.com/nicksweb/Filterdesk/blob/main/docs/SETUP.md#12-ongoing-operation', 'done' => false],
         ];
 
-        return array_map(fn (array $item) => ['done' => $item['done'] || in_array($item['key'], $dismissed, true)] + $item, $items);
+        return array_map(fn (array $item) => ['done' => $item['done'] || in_array($item['key'], $dismissed, true), 'dismissed' => ! $item['done'] && in_array($item['key'], $dismissed, true)] + $item, $items);
     }
 
     public function visible(): bool
@@ -74,5 +74,23 @@ class SetupChecklist
     public function hide(): void
     {
         $this->settings->set('setup.hidden', true);
+    }
+
+    /** Bring the list back after Hide this list. */
+    public function show(): void
+    {
+        $this->settings->set('setup.hidden', false);
+    }
+
+    /** Count a step marked done by hand as not done again. */
+    public function undo(string $key): void
+    {
+        $this->settings->set('setup.done', array_values(array_diff((array) $this->settings->get('setup.done', []), [$key])));
+    }
+
+    /** Hidden by an admin while steps are still left: the dashboard offers to show it again. */
+    public function hiddenWithStepsLeft(): bool
+    {
+        return (bool) $this->settings->get('setup.hidden', false) && collect($this->items())->contains('done', false);
     }
 }

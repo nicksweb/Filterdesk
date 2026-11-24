@@ -23,6 +23,17 @@
                 <label>Browser and header icon <span class="optional">PNG, SVG, WebP, JPEG or ICO, square, up to 512 KB</span><input type="file" name="icon" accept="image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon"></label>
                 <div class="icon-preview"><img src="{{ route('brand.icon', ['v' => config('app.icon_version')]) }}" alt="Current icon" width="48" height="48">@if(filled($branding['icon_data'] ?? null))<label class="choice compact"><input type="checkbox" name="remove_icon" value="1"><span>Use the built-in icon again</span></label>@else<small class="hint">Built-in icon</small>@endif</div>
             </div>
+            <div class="fields two">
+                <label>Sign-in page logo <span class="optional">optional · PNG, SVG, WebP or JPEG, up to 512 KB; shown above the sign-in box</span><input type="file" name="logo" accept="image/png,image/svg+xml,image/webp,image/jpeg"></label>
+                <div class="icon-preview">@if(filled($branding['logo_data'] ?? null))<img src="{{ route('brand.logo', ['v' => substr(md5($branding['logo_data']), 0, 8)]) }}" alt="Current logo" height="48"><label class="choice compact"><input type="checkbox" name="remove_logo" value="1"><span>Remove the logo</span></label>@else<small class="hint">No logo</small>@endif</div>
+            </div>
+            <details class="wording-settings" @if($errors->has('wording.*')) open @endif><summary>Wording people see</summary>
+                <p class="hint">The words on the dashboard, sign-in page and website check page. Leave a box blank to use the default shown in it.</p>
+                @php($wording = app(\App\Services\Wording::class)->saved())
+                @foreach(\App\Services\Wording::FIELDS as $key => $field)
+                    <label>{{ $field['label'] }}<input name="wording[{{ $key }}]" maxlength="{{ $field['max'] }}" placeholder="{{ $field['default'] }}" value="{{ old("wording.{$key}", $wording[$key] ?? '') }}"></label>
+                @endforeach
+            </details>
             <label>School or organisation name<input name="school_name" required value="{{ old('school_name', $settings->get('school.name')) }}"></label>
             <div class="fields two">
                 <label>Timezone<select name="timezone">@foreach(timezone_identifiers_list() as $zone)<option @selected(old('timezone', $settings->get('school.timezone', config('app.timezone'))) === $zone)>{{ $zone }}</option>@endforeach</select></label>
@@ -75,6 +86,12 @@
                 <label class="choice compact"><input type="hidden" name="sync_roles" value="0"><input type="checkbox" name="sync_roles" value="1" @checked(old('sync_roles', $oidc?->configuration['sync_roles'] ?? false))><span><strong>Re-apply rules at every sign-in</strong><small>Never removes IT or administrator access granted by hand.</small></span></label>
             </div>
             <label class="choice"><input type="hidden" name="emergency_local_login" value="0"><input type="checkbox" name="emergency_local_login" value="1" @checked(old('emergency_local_login', $settings->get('auth.emergency_local_login', true)))><span><strong>Emergency local sign-in</strong><small>Password sign-in for local accounts. Restrict /login at the reverse proxy where possible. Recover from the host with <code>php artisan filterdesk:admin-password</code>.</small></span></label>
+            @php($twoFactorPolicy = app(\App\Services\Auth\TwoFactor::class)->policy())
+            <h3>Two-factor sign-in</h3>
+            <label>Required for <span class="optional">password sign-ins</span>
+                <select name="two_factor_required_for">@foreach(\App\Services\Auth\TwoFactor::REQUIRED_FOR as $value => $label)<option value="{{ $value }}" @selected($twoFactorPolicy['required_for'] === $value)>{{ $label }}</option>@endforeach</select>
+                <small>A code from an authenticator app as well as the password. Accounts that need it and haven't set it up are taken to Profile → Two-factor sign-in at their next sign-in. Anyone can turn it on for themselves. Lost phone: an admin can reset it under Users, or on the host: <code>php artisan filterdesk:reset-two-factor you@school</code>.</small></label>
+            <label class="choice"><input type="hidden" name="two_factor_after_sso" value="0"><input type="checkbox" name="two_factor_after_sso" value="1" @checked($twoFactorPolicy['after_sso'])><span><strong>Also after single sign-on</strong><small>Usually your identity provider asks for its own second factor (Microsoft Authenticator, Google prompts); turn this on if it doesn't.</small></span></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
 
@@ -328,6 +345,19 @@
             @endif
         @endforeach
 
+    @elseif($section === 'support')
+        <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'support') }}">@csrf @method('PUT')
+            <p class="section-copy">Shown to staff and students in a <em>Need help?</em> box on the dashboard, the website check page, requests and the <a href="{{ route('help') }}">How to</a> page. Leave a field blank to leave it out. Your support article can explain your school's own process, for example who to ask and how to refresh a computer after a website is allowed.</p>
+            @php($support = app(\App\Services\Support::class)->all())
+            <div class="fields two">
+                @foreach(\App\Services\Support::FIELDS as $key => $field)
+                    <label>{{ $field['label'] }}<input name="{{ $key }}" maxlength="{{ $field['max'] }}" placeholder="{{ $field['placeholder'] }}" value="{{ old($key, $support[$key]) }}" @if($key === 'email') type="email" @elseif($key === 'article_url') type="url" @endif>@error($key)<small class="field-error">{{ $message }}</small>@enderror</label>
+                @endforeach
+            </div>
+            <p class="hint">The How to page also shows the steps for <em>Still blocked after it was allowed?</em>, which you can word under Approval policy → <em>Your access is on its way</em>.</p>
+            <div class="form-actions"><button class="button primary">Save</button></div>
+        </form>
+
     @elseif($section === 'types')
         <form class="panel" method="post" action="{{ route('admin.settings.update', 'types') }}">@csrf @method('PUT')
             <p class="section-copy">A network type is a kind of network the tool manages, such as Staff, Students, CCTV or Exam rooms. Each type has its own shared allow and block lists; every filter policy of that type inherits them, along with the site-wide lists and the policy's own. Requests choose which types they are for. Names can change freely; the key stays the same.</p>
@@ -508,7 +538,8 @@
                 </select>
                 <small>Radar only categorises sites in its popularity rankings, so most smaller sites come back empty. Intel categorises almost any domain.</small>
             </label>
-            <label>Cloudflare API token <span class="optional">{{ filled($categoryLookup?->credentials['token'] ?? null) ? 'saved; leave blank to keep it' : 'required' }}</span><input type="password" name="token" autocomplete="off" maxlength="200"><small>Create one at dash.cloudflare.com → Manage account → Account API Tokens (or My Profile → API Tokens) with <strong>Account → Intel → Read</strong> and <strong>Account → Radar → Read</strong>. Read access only; nothing else.</small></label>
+            <label>Cloudflare API token <span class="optional">{{ filled($categoryLookup?->credentials['token'] ?? null) ? 'saved; leave blank to keep it' : 'required' }}</span><input type="password" name="token" autocomplete="off" maxlength="200"><small>A read-only token with <strong>Account → Radar → Read</strong> (and <strong>Account → Intel → Read</strong> for any site).</small></label>
+            <x-cloudflare-token-help />
             <label>Account ID <span class="optional">needed for Intel; in the dashboard URL after dash.cloudflare.com/</span><input name="account_id" value="{{ old('account_id', $categoryLookup?->configuration['account_id'] ?? '') }}" maxlength="32" class="mono"></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>

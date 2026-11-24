@@ -14,9 +14,9 @@ Configure the proxy upstream as `http://filterdesk-web:8080` (a fixed alias on t
 override keeps the shared network attachment across container recreations while
 the PHP upstream remains isolated behind the unique `filterdesk-php` alias.
 
-## Schoolbox embedding
+## Portal embedding (Schoolbox or another)
 
-Set the exact Schoolbox origin during installation, for example
+Set the exact portal origin (the *embedding origin*) during installation, for example
 `https://schoolbox.example.edu.au`, then add the Filterdesk URL as an embedded
 external page in Schoolbox. Filterdesk permits only that configured origin in
 its Content Security Policy. When an origin is configured, session cookies are
@@ -57,7 +57,7 @@ location / {
 
 For Nginx Proxy Manager in Docker (with `compose.proxy.yml`), create a Proxy Host with scheme `http`, hostname `filterdesk-web` and port **8080**, the port inside the container. Do not use 8088: that is `APP_PORT`, published only on the host's 127.0.0.1, and another container cannot reach it. Enable Websockets, request a certificate, force SSL, and put the shared network's subnet in `TRUSTED_PROXIES`. Caddy and Traefik work with their normal reverse-proxy configuration if the same headers are supplied.
 
-The app emits HSTS for HTTPS requests, CSP, `nosniff`, a restrictive Permissions Policy and a Schoolbox-aware `frame-ancestors`. Enter the exact Schoolbox origin in the installer if embedding is required.
+The app emits HSTS for HTTPS requests, CSP, `nosniff`, a restrictive Permissions Policy and `frame-ancestors` limited to the embedding origin. Enter the exact portal origin in the installer if embedding is required.
 
 ## OIDC / Entra ID
 
@@ -71,7 +71,7 @@ For Entra ID, the issuer is normally `https://login.microsoftonline.com/<tenant-
 
 ## Schoolbox
 
-Use the app hostname as a Schoolbox tile/link. If embedding in an iframe, configure the exact Schoolbox origin in step 2. Prefer launching into a new tab unless both applications share the same registrable domain.
+Use the app hostname as a Schoolbox tile/link. If embedding in an iframe, configure the exact portal origin (embedding origin) in step 2. Prefer launching into a new tab unless both applications share the same registrable domain.
 
 ## Probe containers on the VLANs
 

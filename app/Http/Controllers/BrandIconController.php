@@ -6,15 +6,17 @@ use App\Services\SettingsRepository;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
-/** The browser icon: the one uploaded under Settings → School, or the built-in one. */
+/** The browser icon (or the sign-in page logo): uploaded under Settings → General, or the built-in icon. */
 class BrandIconController extends Controller
 {
-    public function __invoke(Request $request, SettingsRepository $settings): Response
+    public function __invoke(Request $request, SettingsRepository $settings, string $kind = 'icon'): Response
     {
         $branding = (array) $settings->get('branding', []);
-        $custom = filled($branding['icon_data'] ?? null) ? base64_decode((string) $branding['icon_data'], true) : false;
+        $field = $kind === 'logo' ? 'logo' : 'icon';
+        $custom = filled($branding["{$field}_data"] ?? null) ? base64_decode((string) $branding["{$field}_data"], true) : false;
+        abort_if($field === 'logo' && $custom === false, 404);
         [$body, $type] = $custom !== false
-            ? [$custom, (string) ($branding['icon_mime'] ?? 'image/png')]
+            ? [$custom, (string) ($branding["{$field}_mime"] ?? 'image/png')]
             : [(string) @file_get_contents(public_path('favicon.ico')), 'image/x-icon'];
         $etag = '"'.md5($body).'"';
 

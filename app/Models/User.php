@@ -12,7 +12,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 #[Fillable(['name', 'email', 'password', 'oidc_subject', 'role', 'enabled', 'last_login_at', 'notify_new_requests', 'auth_source', 'password_login_enabled', 'network_types', 'department', 'sso_groups', 'name_locked'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -37,6 +37,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'two_factor_secret' => 'encrypted',
+            'two_factor_recovery_codes' => 'encrypted:array',
+            'two_factor_confirmed_at' => 'datetime',
             'enabled' => 'boolean',
             'password_login_enabled' => 'boolean',
             'last_login_at' => 'datetime',
@@ -89,6 +92,12 @@ class User extends Authenticatable
     public function scopeItStaff(Builder $query): void
     {
         $query->whereIn('role', ['it', 'admin'])->where('enabled', true)->where('auth_source', '!=', 'preview')->orderBy('name');
+    }
+
+    /** Two-factor sign-in is set up and confirmed. */
+    public function hasTwoFactor(): bool
+    {
+        return $this->two_factor_confirmed_at !== null && filled($this->two_factor_secret);
     }
 
     public function isAdmin(): bool

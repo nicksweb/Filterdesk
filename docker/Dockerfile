@@ -10,7 +10,10 @@ COPY . .
 RUN composer dump-autoload --optimize --no-dev --classmap-authoritative
 
 FROM php:8.5-fpm-alpine AS runtime
-RUN apk add --no-cache icu-libs libpq libzip oniguruma \
+# apk upgrade: take the OS security fixes published since the base image was built. The release
+# workflow changes OS_UPDATES_STAMP every run, so this layer is never served from an old cache.
+ARG OS_UPDATES_STAMP=local
+RUN echo "$OS_UPDATES_STAMP" > /dev/null && apk upgrade --no-cache && apk add --no-cache icu-libs libpq libzip oniguruma \
     && apk add --no-cache --virtual .build-deps icu-dev postgresql-dev libzip-dev oniguruma-dev $PHPIZE_DEPS \
     && docker-php-ext-install -j$(nproc) pdo_pgsql bcmath intl zip pcntl \
     && apk del .build-deps
@@ -32,5 +35,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["php-fpm"]
 
 FROM nginx:1.29-alpine AS webserver
+ARG OS_UPDATES_STAMP=local
+RUN echo "$OS_UPDATES_STAMP" > /dev/null && apk upgrade --no-cache
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=vendor /app/public /var/www/html/public

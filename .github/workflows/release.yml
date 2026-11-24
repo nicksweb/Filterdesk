@@ -82,6 +82,10 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
+          # A fresh base image, and the OS update layer rebuilt for every release (not served from cache).
+          pull: true
+          build-args: |
+            OS_UPDATES_STAMP=${{ github.run_id }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=${{ matrix.image }}

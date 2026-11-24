@@ -37,6 +37,7 @@
                     <a href="{{ route('checks.create') }}" @class(['active' => request()->routeIs('checks.*')])>Check a website</a>
                     <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*')])>My requests</a>
                     <a href="{{ route('why') }}" @class(['active' => request()->routeIs('why')])>Why is this blocked?</a>
+                    <a href="{{ route('help') }}" @class(['active' => request()->routeIs('help')])>Help</a>
                 @endif
             </nav>
             <div class="account">

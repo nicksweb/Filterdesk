@@ -545,7 +545,8 @@ async function diagnose() {
   // www.google.com for SafeSearch, say) does not read as "no internet". A
   // certificate failure is reported with the issuer: a gateway CA there means
   // the filter is inspecting or blocking that host, not that the network is down.
-  const endpoints = ['https://www.gstatic.com/generate_204', 'https://cp.cloudflare.com/', 'https://example.com/', 'https://www.google.com/generate_204'];
+  // Not only Google: a gateway that inspects Google (SafeSearch) must not make the network look offline.
+  const endpoints = ['https://www.gstatic.com/generate_204', 'https://cp.cloudflare.com/', 'https://example.com/', 'https://detectportal.firefox.com/success.txt', 'https://www.google.com/generate_204'];
   result.internet_results = await Promise.all(endpoints.map(url => tryEndpoint(url)));
   result.internet_ok = result.internet_results.some(item => item.ok);
   result.internet_error = result.internet_ok ? null : (result.internet_results[0]?.error ?? 'no answer');

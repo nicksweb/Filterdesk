@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsureInstalled;
 use App\Http\Middleware\EnsureUserEnabled;
 use App\Http\Middleware\InstallationOnly;
 use App\Http\Middleware\RequireRole;
+use App\Http\Middleware\RequireTwoFactor;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -30,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prependToGroup('web', EnsureInstalled::class);
         $middleware->prependToGroup('web', ConfigureSchoolboxEmbedding::class);
         $middleware->appendToGroup('web', SecurityHeaders::class);
+        $middleware->appendToGroup('web', RequireTwoFactor::class);
         $middleware->redirectGuestsTo(fn () => route('login'));
 
         $trusted = array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', '127.0.0.1')))));

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Notifications\AccountLockedNotification;
 use App\Services\AuditLogger;
 use App\Services\Auth\LoginThrottle;
+use App\Services\Auth\TwoFactor;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Oidc\OidcClient;
 use App\Services\SettingsRepository;
@@ -46,7 +47,9 @@ class AuthController extends Controller
             return back()->withErrors(['email' => 'Too many failed sign-in attempts. Try again in '.max(1, (int) ceil($seconds / 60)).' minute(s).'])->onlyInput('email');
         }
 
-        if (! Auth::attempt($credentials + ['enabled' => true, 'sign_in_allowed' => fn ($query) => $query->where('password_login_enabled', true)], $request->boolean('remember'))) {
+        $provider = Auth::getProvider();
+        $user = $provider->retrieveByCredentials(['email' => $credentials['email'], 'enabled' => true, 'sign_in_allowed' => fn ($query) => $query->where('password_login_enabled', true)]);
+        if (! $user instanceof User || ! $provider->validateCredentials($user, ['password' => $credentials['password']])) {
             $locked = $throttle->failed($request);
             $audit->log($locked ? 'auth.account_locked' : 'auth.login_failed', User::query()->where('email', $credentials['email'])->first(), ['email' => $credentials['email']]);
             if ($locked) {
@@ -57,9 +60,15 @@ class AuthController extends Controller
         }
 
         $throttle->succeeded($request);
+        // Two-factor sign-in set up: the code comes next, before anyone is signed in.
+        if (app(TwoFactor::class)->challengeFor($user, 'password')) {
+            return TwoFactorController::hold($request, $user, ['method' => 'password', 'remember' => $request->boolean('remember')]);
+        }
+        Auth::login($user, $request->boolean('remember'));
         $request->session()->regenerate();
-        $request->user()->forceFill(['last_login_at' => now()])->save();
-        $audit->log('auth.login', $request->user(), ['method' => 'password']);
+        $request->session()->put('auth.method', 'password');
+        $user->forceFill(['last_login_at' => now()])->save();
+        $audit->log('auth.login', $user, ['method' => 'password']);
 
         return redirect()->intended(route('dashboard'));
     }
@@ -99,8 +108,12 @@ class AuthController extends Controller
                 throw new \RuntimeException('The identity provider returned '.$request->query('error').': '.str((string) $request->query('error_description'))->limit(300));
             }
             $user = $users->provision($client->claims($client->exchange((string) $request->query('code'), $request->session()->pull('oidc.pkce'))));
+            if (app(TwoFactor::class)->challengeFor($user, 'oidc')) {
+                return TwoFactorController::hold($request, $user, ['method' => 'oidc', 'remember' => true, 'popup' => (bool) $request->session()->pull('oidc.popup')]);
+            }
             Auth::login($user, true);
             $request->session()->regenerate();
+            $request->session()->put('auth.method', 'oidc');
 
             // In the popup: tell the embedded page it can carry on, and close.
             if ($request->session()->pull('oidc.popup')) {

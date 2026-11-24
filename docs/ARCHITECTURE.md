@@ -25,7 +25,8 @@ window; DNS, overloaded hosts and cold startup can exceed that target.
 - Checks accept only HTTP(S) domain URLs with no embedded credentials or IP literals.
 - Probe requests are revalidated, including subresources and redirects. Private/special-use DNS targets require an explicit hostname allowlist.
 - Integration credentials use Laravel's encrypted database cast and the deployment's `APP_KEY`.
-- Roles are checked server-side on every IT/admin action. Request ownership is checked separately.
+- Roles are checked server-side on every IT/admin action (`role:it,admin`, `role:admin`). Request ownership is checked separately. See [SECURITY_HARDENING.md → Who can change filtering](SECURITY_HARDENING.md#who-can-change-filtering).
+- Two-factor sign-in (TOTP, RFC 6238) is held between the password and the session: no session exists until the code is checked. Accounts that must use it and haven't set it up can only reach the set-up page (`RequireTwoFactor`).
 - The installer is guarded by a database completion flag and returns 404 after completion.
 - Forwarded headers are trusted only from `TRUSTED_PROXIES`.
 - Provider writes require both `mode=active` and an adapter-reported capability.

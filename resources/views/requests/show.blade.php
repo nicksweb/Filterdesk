@@ -291,4 +291,5 @@
             </aside>
         @endif
     </div>
+    @unless(auth()->user()->isIt())<div class="help-row"><x-help-box /></div>@endunless
 </x-layouts.app>

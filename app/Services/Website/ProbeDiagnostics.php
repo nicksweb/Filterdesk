@@ -188,14 +188,20 @@ class ProbeDiagnostics
 
         // 6. Internet.
         $intercepted = collect((array) ($report['intercepted'] ?? []))->filter(fn ($item) => is_array($item) && filled($item['host'] ?? null));
-        $checks[] = ($report['internet_ok'] ?? false)
-            ? ($intercepted->isEmpty()
-                ? $this->check('internet', 'Internet access', 'ok', 'It can load web pages.')
-                : $this->check('internet', 'Internet access', 'warn', 'Internet works, but HTTPS to '.$intercepted->map(fn ($item) => $item['host'].' is intercepted by the gateway (certificate from '.($item['issuer'] ?? 'unknown').')')->join('; ').'. A content filter, SafeSearch, ad blocking or a traffic rule is inspecting or blocking it on '.($network?->name ?? 'this network').'.', [
-                    ...($intercepted->contains(fn ($item) => app(InspectionCertificate::class)->matches($item['issuer'] ?? null))
-                        ? ['That is your HTTPS inspection certificate (Settings → HTTPS inspection). Devices that have it installed from '.route('certificate.show').' see no warning; the probe does not use it, on purpose, so it can report inspection.']
-                        : ['If this network uses HTTPS inspection on purpose, upload its CA under Settings → HTTPS inspection, so devices can install it.']),
-                    'In UniFi, look at what acts on '.$intercepted->pluck('host')->join(', ').' for this network: the content filter categories and SafeSearch, ad blocking, and traffic rules. Users there get the same certificate warning.',
+        // Hosts inspected with the school's own uploaded inspection certificate (often www.google.com, for
+        // SafeSearch) are expected: they don't count against the internet check, the other test sites decide it.
+        $certificate = app(InspectionCertificate::class);
+        $bySchoolCertificate = $intercepted->filter(fn ($item) => $certificate->matches($item['issuer'] ?? null));
+        $otherInterception = $intercepted->reject(fn ($item) => $certificate->matches($item['issuer'] ?? null))->values();
+        $loaded = collect((array) ($report['internet_results'] ?? []))->filter(fn ($item) => is_array($item) && ($item['ok'] ?? false))->pluck('host');
+        $internetOk = ($report['internet_ok'] ?? false) || ($bySchoolCertificate->isNotEmpty() && $intercepted->count() === $bySchoolCertificate->count() && $loaded->isNotEmpty());
+        $checks[] = $internetOk
+            ? ($otherInterception->isEmpty()
+                ? $this->check('internet', 'Internet access', 'ok', 'It can load web pages'.($loaded->isNotEmpty() ? ' ('.$loaded->join(', ').')' : '').'.'
+                    .($bySchoolCertificate->isNotEmpty() ? ' HTTPS to '.$bySchoolCertificate->pluck('host')->join(', ').' is inspected with your school\'s certificate ('.$bySchoolCertificate->first()['issuer'].'), as expected, so other sites were used to test the connection.' : ''))
+                : $this->check('internet', 'Internet access', 'warn', 'Internet works, but HTTPS to '.$otherInterception->map(fn ($item) => $item['host'].' is intercepted by the gateway (certificate from '.($item['issuer'] ?? 'unknown').')')->join('; ').'. A content filter, SafeSearch, ad blocking or a traffic rule is inspecting or blocking it on '.($network?->name ?? 'this network').'.', [
+                    'If this network uses HTTPS inspection on purpose, upload its CA under Settings → HTTPS inspection: hosts inspected with it then count as expected, and devices can install it from '.route('certificate.show').'.',
+                    'In UniFi, look at what acts on '.$otherInterception->pluck('host')->join(', ').' for this network: the content filter categories and SafeSearch, ad blocking, and traffic rules. Users there get the same certificate warning.',
                     'If that is intended, mark this reviewed.',
                 ]))
             : $this->check('internet', 'Internet access', 'fail', 'It cannot load a web page ('.($report['internet_error'] ?? 'no answer').'), so every check from it fails.', [

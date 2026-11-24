@@ -16,6 +16,7 @@ use App\Models\PolicyList;
 use App\Models\WebhookEndpoint;
 use App\Notifications\TestEmailNotification;
 use App\Services\AuditLogger;
+use App\Services\Auth\TwoFactor;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\InspectionCertificate;
@@ -32,8 +33,10 @@ use App\Services\Policy\ProbePlanner;
 use App\Services\Requests\RequestFormSettings;
 use App\Services\SchoolCalendar;
 use App\Services\SettingsRepository;
+use App\Services\Support;
 use App\Services\Website\ProbeDiagnostics;
 use App\Services\Website\ProbeSettings;
+use App\Services\Wording;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -64,6 +67,7 @@ class SettingsController extends Controller
         'approval' => 'Approval policy',
         'integrations' => 'Integrations',
         'certificate' => 'HTTPS inspection',
+        'support' => 'Help and support',
     ];
 
     public function show(Request $request, string $section, SettingsRepository $settings, NetworkProviderManager $providers): View
@@ -131,6 +135,7 @@ class SettingsController extends Controller
             'templates' => $this->updateTemplates($request, $settings),
             'approval' => $this->updateApproval($request, $settings),
             'certificate' => $this->updateCertificate($request),
+            'support' => $this->updateSupport($request),
         };
 
         $audit->log("settings.{$section}_updated");
@@ -229,7 +234,11 @@ class SettingsController extends Controller
             'brand_mark' => ['nullable', 'string', 'max:3'],
             'icon' => ['nullable', 'file', 'max:512', 'mimetypes:image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon,image/vnd.microsoft.icon'],
             'remove_icon' => ['nullable', 'boolean'],
-        ], ['icon.mimetypes' => 'Use a PNG, JPEG, WebP, SVG or ICO image.', 'icon.max' => 'The icon must be 512 KB or smaller.']);
+            'logo' => ['nullable', 'file', 'max:512', 'mimetypes:image/png,image/jpeg,image/webp,image/svg+xml'],
+            'remove_logo' => ['nullable', 'boolean'],
+            'wording' => ['nullable', 'array'],
+            ...collect(Wording::FIELDS)->mapWithKeys(fn (array $field, string $key) => ["wording.{$key}" => ['nullable', 'string', 'max:'.$field['max']]])->all(),
+        ], ['icon.mimetypes' => 'Use a PNG, JPEG, WebP, SVG or ICO image.', 'icon.max' => 'The icon must be 512 KB or smaller.', 'logo.mimetypes' => 'Use a PNG, JPEG, WebP or SVG image.', 'logo.max' => 'The logo must be 512 KB or smaller.']);
 
         $branding = (array) $settings->get('branding', []);
         $branding['app_name'] = trim((string) ($validated['app_name'] ?? ''));
@@ -242,7 +251,15 @@ class SettingsController extends Controller
             $branding['icon_data'] = base64_encode((string) file_get_contents($request->file('icon')->getRealPath()));
             $branding['icon_mime'] = $request->file('icon')->getMimeType();
         }
+        if ($request->boolean('remove_logo')) {
+            unset($branding['logo_data'], $branding['logo_mime']);
+        }
+        if ($request->hasFile('logo')) {
+            $branding['logo_data'] = base64_encode((string) file_get_contents($request->file('logo')->getRealPath()));
+            $branding['logo_mime'] = $request->file('logo')->getMimeType();
+        }
         $settings->set('branding', $branding);
+        app(Wording::class)->save((array) ($validated['wording'] ?? []));
 
         $settings->set('school', [
             'name' => $validated['school_name'],
@@ -250,6 +267,17 @@ class SettingsController extends Controller
             'app_url' => rtrim($validated['app_url'], '/'),
             'schoolbox_origin' => filled($validated['schoolbox_origin'] ?? null) ? rtrim($validated['schoolbox_origin'], '/') : null,
         ]);
+    }
+
+    /** The helpdesk contact and support article shown to staff and students. */
+    private function updateSupport(Request $request): void
+    {
+        $validated = $request->validate(collect(Support::FIELDS)->mapWithKeys(fn (array $field, string $key) => [$key => match ($key) {
+            'email' => ['nullable', 'email', 'max:'.$field['max']],
+            'article_url' => ['nullable', 'url', 'starts_with:https://,http://', 'max:'.$field['max']],
+            default => ['nullable', 'string', 'max:'.$field['max']],
+        }])->all());
+        app(Support::class)->save($validated);
     }
 
     private function updateAuthentication(Request $request, SettingsRepository $settings): void
@@ -270,6 +298,8 @@ class SettingsController extends Controller
             'default_role' => ['required', 'in:student,teacher,deny'],
             'sync_roles' => ['nullable', 'boolean'],
             'emergency_local_login' => ['nullable', 'boolean'],
+            'two_factor_required_for' => ['nullable', Rule::in(array_keys(TwoFactor::REQUIRED_FOR))],
+            'two_factor_after_sso' => ['nullable', 'boolean'],
         ]);
 
         if ($request->boolean('oidc_enabled')) {
@@ -305,6 +335,7 @@ class SettingsController extends Controller
         $oidc->save();
 
         $settings->set('auth.emergency_local_login', $request->boolean('emergency_local_login'));
+        $settings->set(TwoFactor::SETTINGS_KEY, ['required_for' => $validated['two_factor_required_for'] ?? 'it', 'after_sso' => $request->boolean('two_factor_after_sso')]);
     }
 
     private function updateEmail(Request $request, SettingsRepository $settings): void

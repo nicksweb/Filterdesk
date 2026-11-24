@@ -32,6 +32,7 @@ use App\Http\Controllers\ItRequestActionController;
 use App\Http\Controllers\OidcTestController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\QuickDecisionController;
+use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\WebsiteCheckController;
 use App\Http\Controllers\WebsiteRequestController;
 use Illuminate\Support\Facades\Route;
@@ -41,6 +42,7 @@ Route::get('/certificate', [CertificateController::class, 'show'])->name('certif
 Route::get('/certificate/download.{format}', [CertificateController::class, 'download'])->whereIn('format', ['crt', 'pem'])->name('certificate.download');
 
 Route::get('/brand/icon', BrandIconController::class)->name('brand.icon');
+Route::get('/brand/logo', BrandIconController::class)->defaults('kind', 'logo')->name('brand.logo');
 
 Route::middleware('installation.only')->group(function (): void {
     Route::get('/install/{step?}', [InstallController::class, 'show'])->whereNumber('step')->name('install.show');
@@ -55,6 +57,8 @@ Route::middleware('installed')->group(function (): void {
     Route::post('/login', [AuthController::class, 'local'])->middleware('throttle:login')->name('auth.local');
     Route::get('/auth/oidc', [AuthController::class, 'oidcRedirect'])->middleware('throttle:20,1')->name('auth.oidc');
     Route::get('/auth/oidc/callback', [AuthController::class, 'oidcCallback'])->middleware('throttle:20,1')->name('auth.oidc.callback');
+    Route::get('/two-factor', [TwoFactorController::class, 'challenge'])->name('two-factor.challenge');
+    Route::post('/two-factor', [TwoFactorController::class, 'verify'])->middleware('throttle:10,1')->name('two-factor.verify');
 
     Route::middleware(['auth', 'enabled'])->group(function (): void {
         Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
@@ -62,7 +66,13 @@ Route::middleware('installed')->group(function (): void {
         Route::get('/', DashboardController::class)->name('dashboard');
         Route::post('/setup-checklist', [DashboardController::class, 'setup'])->middleware('role:admin')->name('setup.done');
         Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+        Route::get('/profile/two-factor', [TwoFactorController::class, 'show'])->name('profile.two-factor');
+        Route::post('/profile/two-factor', [TwoFactorController::class, 'start'])->name('profile.two-factor.start');
+        Route::post('/profile/two-factor/confirm', [TwoFactorController::class, 'confirm'])->middleware('throttle:10,1')->name('profile.two-factor.confirm');
+        Route::post('/profile/two-factor/recovery-codes', [TwoFactorController::class, 'recoveryCodes'])->middleware('throttle:10,1')->name('profile.two-factor.recovery-codes');
+        Route::delete('/profile/two-factor', [TwoFactorController::class, 'disable'])->middleware('throttle:10,1')->name('profile.two-factor.disable');
         Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
+        Route::view('/help', 'help')->name('help');
         Route::get('/check', [WebsiteCheckController::class, 'create'])->name('checks.create');
         Route::post('/check', [WebsiteCheckController::class, 'store'])->middleware('throttle:30,1')->name('checks.store');
         Route::resource('requests', WebsiteRequestController::class)
@@ -174,6 +184,7 @@ Route::middleware('installed')->group(function (): void {
             Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
             Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
             Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])->name('users.impersonate');
+            Route::post('/users/{user}/two-factor-reset', [TwoFactorController::class, 'reset'])->name('users.two-factor-reset');
             Route::post('/preview/{role}', [ImpersonationController::class, 'preview'])->name('preview');
             Route::get('/settings/{section?}', [SettingsController::class, 'show'])->defaults('section', 'general')->name('settings.show');
             Route::put('/settings/{section}', [SettingsController::class, 'update'])->name('settings.update');

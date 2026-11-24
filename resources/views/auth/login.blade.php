@@ -1,5 +1,9 @@
 <x-layouts.app title="Sign in">
-    <div class="auth-wrap"><section class="auth-card"><p class="eyebrow">Secure school access</p><h1>Welcome back</h1><p>Sign in to check access or manage a website request.</p>
+    @php($wording = app(\App\Services\Wording::class))
+    @php($branding = (array) app(\App\Services\SettingsRepository::class)->get('branding', []))
+    <div class="auth-wrap"><section class="auth-card">
+        @if(filled($branding['logo_data'] ?? null))<img class="auth-logo" src="{{ route('brand.logo', ['v' => substr(md5($branding['logo_data']), 0, 8)]) }}" alt="{{ config('app.name') }}">@endif
+        <p class="eyebrow">{{ $wording->get('login_eyebrow') }}</p><h1>{{ $wording->get('login_title') }}</h1><p>{{ $wording->get('login_intro') }}</p>
         @if(session('success'))<div class="alert success">{{ session('success') }}</div>@endif
         @if($oidcEnabled)
             {{-- Inside a portal iframe, app.js opens this in a popup: identity providers can't sign in inside a frame on another site. --}}

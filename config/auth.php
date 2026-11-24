@@ -5,6 +5,14 @@ use App\Models\User;
 return [
 
     /*
+    | Two-factor sign-in: who must use it by default (it, admin or off) until an
+    | admin changes it under Settings → Authentication.
+    */
+    'two_factor' => [
+        'required_for' => env('TWO_FACTOR_REQUIRED_FOR', 'it'),
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Authentication Defaults
     |--------------------------------------------------------------------------
@@ -41,6 +49,8 @@ return [
         'web' => [
             'driver' => 'session',
             'provider' => 'users',
+            // "Remember me" (set after single sign-on) lasts 30 days, not Laravel's default of about five years.
+            'remember' => (int) env('AUTH_REMEMBER_MINUTES', 43200),
         ],
     ],
 
