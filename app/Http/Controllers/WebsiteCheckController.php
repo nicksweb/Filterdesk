@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FilterPolicy;
+use App\Models\NetworkAssignment;
+use App\Models\NetworkProfile;
 use App\Models\PolicyEntry;
 use App\Models\WebsiteCheck;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
+use App\Services\Policy\CategoryCoverage;
+use App\Services\Policy\PolicyEngine;
 use App\Services\Website\NetworkLocator;
 use App\Services\Website\ProbeSettings;
 use App\Services\Website\WebsiteChecker;
@@ -20,6 +25,43 @@ class WebsiteCheckController extends Controller
     public function create(Request $request, NetworkLocator $locator): View
     {
         return view('checks.create', ['here' => $locator->locate($request->ip())]);
+    }
+
+    /**
+     * Results that are blocked only by a network's school-hours filter, with
+     * its schedule: not in the always-on filter's list or categories, but in
+     * the school-hours filter's.
+     *
+     * @param  list<array<string, mixed>>  $checks
+     * @return array<string, array<string, string>> hostname => profile key => schedule
+     */
+    private function schoolHoursOnly(array $checks): array
+    {
+        $engine = app(PolicyEngine::class);
+        $coverage = app(CategoryCoverage::class)->forDomains(array_column($checks, 'hostname'));
+        $profiles = NetworkProfile::query()->get()->keyBy('key');
+        $result = [];
+        foreach ($checks as $check) {
+            $host = $check['hostname'];
+            foreach ($check['results'] as $key => $outcome) {
+                if (($outcome['status'] ?? null) !== 'blocked' || ! ($profile = $profiles->get($key))?->unifi_network_id) {
+                    continue;
+                }
+                $policy = NetworkAssignment::query()->where('provider_network_id', $profile->unifi_network_id)->first()?->filterPolicy;
+                $layer = $policy?->activeHoursLayer();
+                if (! $layer) {
+                    continue;
+                }
+                $byCategory = fn (FilterPolicy $filter) => collect($coverage[$host] ?? [])->contains(fn (array $hit) => $hit['policy']->is($filter));
+                $byParent = $engine->coveredBy(array_flip($policy->current_blocklist ?? []), $host) || $byCategory($policy);
+                $byLayer = $engine->coveredBy(array_flip($layer->current_blocklist ?? []), $host) || $byCategory($layer);
+                if ($byLayer && ! $byParent) {
+                    $result[$host][$key] = (string) ($layer->sync_details['schedule'] ?? 'school hours');
+                }
+            }
+        }
+
+        return $result;
     }
 
     public function store(Request $request, DomainNormalizer $domains, WebsiteChecker $checker, NetworkLocator $locator): View
@@ -75,7 +117,8 @@ class WebsiteCheckController extends Controller
 
         return view('checks.create', [
             'here' => $here, 'previews' => $previews,
-            'checks' => $result['checks'], 'duration' => $result['duration_ms'],
+            'checks' => $result['checks'],
+            'schoolHoursOnly' => rescue(fn () => $this->schoolHoursOnly($result['checks']), [], false), 'duration' => $result['duration_ms'],
             'categories' => rescue(fn () => app(DomainCategorizer::class)->many(collect($result['checks'])->pluck('hostname')->all()), [], false),
         ]);
     }

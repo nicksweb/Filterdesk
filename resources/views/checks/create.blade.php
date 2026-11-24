@@ -28,16 +28,20 @@
     </section>
 
     @isset($checks)
+        @php($isIt = auth()->user()->isIt())
+        @if($isIt)
         <form method="post" action="{{ route('checks.store') }}" class="rerun-form">
             @csrf
             <input type="hidden" name="websites" value="{{ collect($checks)->pluck('url')->implode(",") }}">
             <button class="button secondary small" type="submit">Re-run these checks with fresh DNS</button>
+            <a class="button secondary small" href="{{ route('admin.policy.quick.show', ['domains' => collect($checks)->pluck('hostname')->implode("\n")]) }}">Quick block or allow…</a>
         </form>
+        @endif
         <form method="get" action="{{ route('requests.create') }}" class="batch-request-form">
             <div class="result-heading">
                 <div>
                     <h2>Check results</h2>
-                    <p>{{ count($checks) }} {{ str('website')->plural(count($checks)) }} checked in {{ $duration }} ms</p>
+                    <p>{{ count($checks) }} {{ str('website')->plural(count($checks)) }} checked{{ $isIt ? " in {$duration} ms" : '' }}</p>
                 </div>
             </div>
 
@@ -46,10 +50,25 @@
                 <section class="site-result">
                     <div class="site-result-heading">
                         <span class="site-domain"><strong>{{ $check['hostname'] }}</strong><small>{{ $check['url'] }}</small></span>
-                        @if($isBlocked)<span class="selection-hint blocked">Blocked · added to shortlist</span>@else<span>{{ $check['duration_ms'] }} ms</span>@endif
+                        @if($isBlocked)<span class="selection-hint blocked">Blocked · added to shortlist</span>@elseif($isIt)<span>{{ $check['duration_ms'] }} ms</span>@endif
                     </div>
                     <x-site-categories :lookup="$categories[$check['hostname']] ?? null" :show-policies="auth()->user()->isIt()" />
 
+                    @unless($isIt)
+                        {{-- Students and staff: one line per network, no addresses, timings or probe messages. --}}
+                        <ul class="simple-results">
+                            @foreach($check['results'] as $key => $result)
+                                @php($status = $result['status'] ?? 'unknown')
+                                @php($certificate = $status === 'tls_error' && app(\App\Services\Network\InspectionCertificate::class)->matches($result['tls_issuer'] ?? null))
+                                @php([$label, $tone] = match (true) { in_array($status, ['blocked', 'dns_failed'], true) => ['Blocked', 'blocked'], $status === 'allowed' => ['Allowed', 'allowed'], $certificate => ['Works, but needs the school certificate', 'tls_error'], default => ["Couldn't check right now", 'unknown'] })
+                                @php($when = $schoolHoursOnly[$check['hostname']][$key] ?? null)
+                                <li><span><strong>{{ $result['profile'] }}</strong>@if(($here['profile'] ?? null)?->key === $key)<small>Your network</small>@endif</span>
+                                    <span><span class="probe-state {{ $tone }}">{{ $label }}</span>@if($when && $tone === 'blocked') <small>in school hours ({{ $when }}), open outside them</small>@endif
+                                    @if($certificate)<small><a href="{{ route('certificate.show') }}">Install the school certificate</a></small>@endif</span>
+                                    @if(($previews ?? false) && !empty($result['screenshot']))<figure class="probe-screenshot"><img src="data:image/jpeg;base64,{{ $result['screenshot'] }}" alt="Screenshot of {{ $check['hostname'] }} from the {{ $result['profile'] }} network"></figure>@endif</li>
+                            @endforeach
+                        </ul>
+                    @else
                     <div class="result-grid">
                         @foreach($check['results'] as $key => $result)
                             <article class="result-card">
@@ -90,9 +109,11 @@
                                     @endif
                                 @endif
                                 @if(!empty($result['page_title']))<p><strong>Page title:</strong> {{ $result['page_title'] }}</p>@endif
+                                @if($when = $schoolHoursOnly[$check['hostname']][$key] ?? null)<p class="probe-message">Blocked only by the school-hours filter ({{ $when }}).</p>@endif
                             </article>
                         @endforeach
                     </div>
+                    @endunless
                 </section>
             @endforeach
 

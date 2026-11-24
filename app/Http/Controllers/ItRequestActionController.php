@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Policy\PolicyListParser;
 use App\Services\Requests\InvalidRequestTransition;
+use App\Services\Requests\RequestFormSettings;
 use App\Services\Requests\RequestWorkflow;
 use App\Services\SettingsRepository;
 use App\Support\Reach;
@@ -35,7 +36,7 @@ class ItRequestActionController extends Controller
             'scope.*' => ['string', 'max:40'],
             'access_from' => ['nullable', 'date'],
             'access_until' => ['nullable', 'date'],
-            'hours' => ['nullable', 'in:all,outside'],
+            'hours' => ['nullable', 'in:all,outside,school'],
             'override' => ['nullable', 'boolean'],
             'override_reason' => ['nullable', 'required_if_accepted:override', 'string', 'max:1000'],
         ], [
@@ -45,9 +46,15 @@ class ItRequestActionController extends Controller
         ]);
 
         $actor = $request->user();
-        // All hours, or kept out of a school-hours layer (an allow that only applies outside school hours).
+        // When it applies: all hours; an allow kept out of a school-hours layer (outside school hours
+        // only); or a block put only in the school-hours layer (school hours only).
         if ($validated['action'] === 'approve' && isset($validated['hours'])) {
-            $websiteRequest->forceFill(['hours' => $validated['hours'] === 'outside' ? 'outside' : null])->save();
+            $hours = match (true) {
+                $websiteRequest->isBlock() && $validated['hours'] === 'school' && app(RequestFormSettings::class)->blockHours() !== 'always_all' => 'school',
+                ! $websiteRequest->isBlock() && $validated['hours'] === 'outside' => 'outside',
+                default => null,
+            };
+            $websiteRequest->forceFill(['hours' => $hours])->save();
         }
 
         try {

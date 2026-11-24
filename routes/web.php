@@ -18,6 +18,7 @@ use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\PolicyLayerController;
 use App\Http\Controllers\Admin\PolicyListController;
 use App\Http\Controllers\Admin\ProbeSetupController;
+use App\Http\Controllers\Admin\QuickChangeController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
@@ -83,6 +84,9 @@ Route::middleware('installed')->group(function (): void {
             Route::prefix('admin/policy')->name('admin.policy.')->group(function (): void {
                 Route::get('/', [PolicyController::class, 'index'])->name('index');
                 Route::post('/entries', [PolicyController::class, 'storeEntries'])->name('entries.store');
+                Route::get('/quick', [QuickChangeController::class, 'show'])->name('quick.show');
+                Route::post('/quick/preview', [QuickChangeController::class, 'preview'])->middleware('throttle:30,1')->name('quick.preview');
+                Route::post('/quick', [QuickChangeController::class, 'apply'])->middleware('throttle:20,1')->name('quick.apply');
                 Route::delete('/entries/{entry}', [PolicyController::class, 'destroyEntry'])->name('entries.destroy');
 
                 Route::get('/networks', [NetworkMapController::class, 'index'])->name('networks.index');

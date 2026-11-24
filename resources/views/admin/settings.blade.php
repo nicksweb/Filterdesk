@@ -587,6 +587,10 @@
                 <label class="choice compact"><input type="hidden" name="form[student_required]" value="0"><input type="checkbox" name="form[student_required]" value="1" @checked($form['student_required'])><span><strong>Required for students</strong><small>When students may submit requests.</small></span></label>
             </div>
             <label>Minimum length when filled in <span class="optional">characters</span><input type="number" name="form[min_length]" min="0" max="500" value="{{ $form['min_length'] }}"></label>
+            <label>Block requests: when <span class="optional">for network types with a school-hours filter</span>
+                <select name="form[block_hours]">@foreach(\App\Services\Requests\RequestFormSettings::BLOCK_HOURS as $value => $label)<option value="{{ $value }}" @selected($form['block_hours'] === $value)>{{ $label }}</option>@endforeach</select>
+                <small>A block in <em>school hours only</em> goes into the school-hours filter (for example Student - School Time), so the site is open after hours and at weekends. When the requester chooses, it is a suggestion: IT can still change it when approving. <em>Always all the time</em> hides the choice from IT too.</small>
+            </label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
     @endif

@@ -5,26 +5,81 @@
 #
 #   bin/update
 #
-# In a git checkout the host files come from git pull --ff-only. In a plain
-# install folder (copied, not cloned) they are copied out of the new app image,
-# and anything replaced is kept in backups/ first. Your own overrides
-# (compose.proxy.yml, compose.vlan.yml, compose.local.yml) and .env are never
-# touched. First time on a plain install, get this script from the image:
+# In a git checkout the host files come from git pull --ff-only. It checks the
+# checkout first and stops before changing anything if git could not pull
+# (local edits to tracked files). In a plain install folder (copied, not
+# cloned) the files are copied out of the new app image, and anything replaced
+# is kept in backups/ first. Your own overrides (compose.proxy.yml,
+# compose.vlan.yml, compose.local.yml) and .env are never touched.
+#
+# First time on a plain install (not a git checkout), get this script from the image:
 #   docker run --rm --entrypoint cat ghcr.io/nicksweb/filterdesk-app:latest /var/www/html/bin/update > bin/update && chmod +x bin/update
+# In a git checkout, run git pull --ff-only instead; it brings this script.
 set -eu
 cd "$(dirname "$0")"
 [ -f compose.yml ] || cd ..
 COMPOSE=${COMPOSE:-"docker compose"}
 STAMP=$(date +%Y-%m-%d-%H%M)
+step="checking the install folder"
+restarted=0
 
+# If any step fails, say which one and that the running version is unchanged.
+finish() {
+  status=$?
+  if [ "$status" -ne 0 ] && [ "$restarted" = 0 ]; then
+    echo "" >&2
+    echo "bin/update stopped while $step." >&2
+    case "$step" in
+      restarting*) echo "Some containers may already run the new version: check with $COMPOSE ps and $COMPOSE logs migrate." >&2 ;;
+      *) echo "Nothing was restarted: Filterdesk is still running the previous version." >&2 ;;
+    esac
+  fi
+  [ -n "${tmp:-}" ] && rm -rf "$tmp"
+  exit "$status"
+}
+trap finish EXIT
+
+if [ -d .git ]; then
+  step="checking the git checkout"
+  # Tracked files with local edits stop git pull, so stop now, before backing up or pulling images.
+  changed=$(git status --porcelain --untracked-files=no | awk '{print $2}')
+  if [ -n "$changed" ]; then
+    echo "These files have local changes, so git pull would refuse to update them:" >&2
+    echo "$changed" | sed 's/^/  /' >&2
+    echo "Move your changes to an override file (for example compose.local.yml, listed in COMPOSE_FILE in .env)," >&2
+    echo "then put the originals back with: git checkout -- <file>   (or keep a copy first). Then run bin/update again." >&2
+    exit 1
+  fi
+  step="fetching from git"
+  git fetch --quiet
+  upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo "")
+  if [ -n "$upstream" ]; then
+    # An untracked file at a path the update brings in (bin/update copied in by hand, say) also stops
+    # git pull. Remove it when it is the same as the incoming one; otherwise stop and say so.
+    for file in $(git ls-files --others --exclude-standard); do
+      if git cat-file -e "$upstream:$file" 2>/dev/null; then
+        if git show "$upstream:$file" | cmp -s - "$file"; then
+          rm -f "$file"
+        else
+          echo "$file is not in git here, but the update brings a different $file. Move it aside (for example to backups/) and run bin/update again." >&2
+          exit 1
+        fi
+      fi
+    done
+  fi
+fi
+
+step="backing up"
 sh bin/backup
+step="pulling the new images"
 $COMPOSE pull
 
 if [ -d .git ]; then
+  step="running git pull --ff-only"
   git pull --ff-only
 else
+  step="copying compose.yml and bin/ scripts out of the new image"
   tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' EXIT
   $COMPOSE run --rm --no-deps -T --entrypoint sh app -c \
     'cd /var/www/html && tar cf - compose.yml compose.proxy.example.yml compose.vlan.example.yml bin' | tar xf - -C "$tmp"
   mkdir -p backups bin
@@ -42,5 +97,7 @@ else
   [ "$changed" = 1 ] && echo "Previous copies are in backups/ (*.$STAMP)." || echo "Host files are already up to date."
 fi
 
+step="restarting with the new version (docker compose up -d)"
 $COMPOSE up -d
+restarted=1
 $COMPOSE logs --tail 20 migrate

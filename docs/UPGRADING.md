@@ -45,6 +45,12 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.18 → 2026.12.19
+
+- Update as usual (`git pull --ff-only`, or `bin/update`). No database changes.
+- Students and staff now see plain results in website checks. IT sees the same detail as before.
+- To let teachers ask for blocks in school hours only, set Settings → Approval policy → *Block requests: when*. By default IT decides when approving.
+
 ## 2026.12.17 → 2026.12.18
 
 - **This release changes `compose.yml`** (the queue and scheduler join `probe_control`). In a git checkout, `git pull --ff-only` as usual. In a plain folder (copied, not cloned), get the new `bin/update` once and run it. It backs up, pulls, copies the new `compose.yml`, example overrides and `bin/` scripts out of the image (keeping the old ones in `backups/`), and restarts:

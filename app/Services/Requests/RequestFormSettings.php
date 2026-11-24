@@ -22,9 +22,30 @@ class RequestFormSettings
         'student_required' => true,
         'min_length' => 10,
         'student_categories' => ['Schoolwork', 'Assignment research', 'Class activity', 'Other'],
+        'block_hours' => 'it',
+    ];
+
+    /** @var array<string, string> who decides whether a block applies only in school hours */
+    public const BLOCK_HOURS = [
+        'it' => 'IT decides when approving',
+        'requester_school' => 'Requester chooses (school hours pre-selected)',
+        'requester_all' => 'Requester chooses (all the time pre-selected)',
+        'always_all' => 'Always all the time',
     ];
 
     public function __construct(private readonly SettingsRepository $settings) {}
+
+    /**
+     * Who chooses whether a block applies only in school hours (it needs a
+     * school-hours layer): IT when approving, the requester (as a
+     * suggestion IT can change), or nobody (blocks are always all day).
+     */
+    public function blockHours(): string
+    {
+        $value = (string) $this->all()['block_hours'];
+
+        return array_key_exists($value, self::BLOCK_HOURS) ? $value : 'it';
+    }
 
     /** @return array<string, mixed> */
     public function all(): array

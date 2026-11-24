@@ -3,8 +3,11 @@
 namespace App\Services\Requests;
 
 use App\Enums\EntrySource;
+use App\Enums\ListKind;
 use App\Enums\RequestStatus;
 use App\Jobs\PushAfterRequestChange;
+use App\Models\FilterPolicy;
+use App\Models\NetworkType;
 use App\Models\PolicyEntry;
 use App\Models\RequestEvent;
 use App\Models\User;
@@ -164,7 +167,8 @@ class RequestWorkflow
 
             $changed = $domains !== $websiteRequest->domains || ! $scope->equals($websiteRequest->access_scope) || $websiteRequest->windowChanged();
             $windowNote = $websiteRequest->windowChanged() ? "\n\nAccess window set by IT: {$websiteRequest->windowLabel()}." : '';
-            $this->event($websiteRequest, $actor, 'approved', trim($message.$windowNote.$planNote.($note ? "\n\n{$note}" : '')), [
+            $hoursNote = $this->hoursNote($websiteRequest, $scope);
+            $this->event($websiteRequest, $actor, 'approved', trim($message.$windowNote.$hoursNote.$planNote.($note ? "\n\n{$note}" : '')), [
                 'domains' => $domains, 'scope' => $scope->value(), 'adjusted' => $changed, 'window' => $websiteRequest->windowLabel(),
             ]);
             $this->audit->log('website_request.approved', $websiteRequest, ['result' => $websiteRequest->status->value, 'domains' => $domains, 'scope' => $scope->value()]);
@@ -173,7 +177,11 @@ class RequestWorkflow
         });
 
         $opens = $websiteRequest->accessFrom()?->isFuture() ? ' Access opens '.$websiteRequest->accessFrom()->local()->format('j M Y \a\t g:i a').'.' : '';
-        $verb = $websiteRequest->isBlock() ? 'Blocked' : 'Allowed';
+        $verb = ($websiteRequest->isBlock() ? 'Blocked' : 'Allowed').match ($websiteRequest->hours) {
+            'school' => $websiteRequest->isBlock() ? ' in school hours only' : '',
+            'outside' => $websiteRequest->isBlock() ? '' : ' outside school hours only',
+            default => '',
+        };
         $opens = $opens && $websiteRequest->isBlock() ? str_replace('Access opens', 'The block starts', $opens) : $opens;
         $guide = app(AccessGuide::class);
         $tips = $guide->appliesTo($websiteRequest) ? "\n\n".$guide->settings()['intro']."\n\n".collect($guide->steps())->map(fn (string $step, int $index) => ($index + 1).'. '.$step)->join("\n") : '';
@@ -274,6 +282,21 @@ class RequestWorkflow
     }
 
     /** Push the affected filters in the background, so the page answers straight away. */
+    /** When an approval applies, for the request's history. */
+    private function hoursNote(WebsiteRequest $websiteRequest, Reach $scope): string
+    {
+        if ($websiteRequest->isBlock() && $websiteRequest->hours === 'school') {
+            $target = $this->policy->listsForHours($scope, ListKind::Block, 'school');
+            $layers = FilterPolicy::query()->whereIn('id', collect($target['lists'])->pluck('filter_policy_id'))->get();
+            $skipped = collect($target['skipped'])->map(fn (string $type) => NetworkType::labelFor($type));
+
+            return "\n\nBlocked in school hours only: added to ".($layers->map(fn (FilterPolicy $layer) => ($layer->provider_name ?: $layer->name).' ('.($layer->sync_details['schedule'] ?? 'its UniFi schedule').')')->join(', ') ?: 'no school-hours filter').'.'
+                .($skipped->isNotEmpty() ? ' '.$skipped->join(', ').' '.($skipped->count() === 1 ? 'has' : 'have').' no school-hours filter, so nothing was added there.' : '');
+        }
+
+        return ! $websiteRequest->isBlock() && $websiteRequest->hours === 'outside' ? "\n\nAllowed outside school hours only." : '';
+    }
+
     private function pushAfter(WebsiteRequest $websiteRequest, ?User $actor, Reach $scope, string $trigger): void
     {
         PushAfterRequestChange::dispatch($websiteRequest->id, $actor?->id, $scope->value(), $trigger)->afterCommit();

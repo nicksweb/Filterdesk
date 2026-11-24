@@ -195,7 +195,7 @@ class SetupFlowTest extends TestCase
         $teacher = User::factory()->teacher()->create();
         $this->actingAs($teacher)->withServerVariables(['REMOTE_ADDR' => '10.0.20.57'])->post(route('checks.store'), ['websites' => 'example.com'])->assertOk()
             ->assertSee('Staff Access')->assertSee('You\'re on <strong>Student Access</strong> (VLAN 20), which gets <strong>Students filtering</strong>', false)
-            ->assertSeeInOrder(['Your network', 'Staff network probe']);
+            ->assertSeeInOrder(['Student Access', 'Your network', 'Staff Access']);
 
         $this->actingAs($teacher)->withServerVariables(['REMOTE_ADDR' => '192.0.2.9'])->get(route('checks.create'))->assertOk()->assertDontSee('here-notice', false);
     }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\RequestStatus;
+use App\Models\FilterPolicy;
 use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
@@ -25,6 +26,7 @@ use App\Support\Schedule;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -102,6 +104,7 @@ class WebsiteRequestController extends Controller
             'prefillDomains' => $prefillDomains,
             'defaultTemporaryDays' => (int) $settings->get('approval.default_temporary_days', 30),
             'networkTypes' => NetworkType::query()->where('requestable', true)->ordered()->get(),
+            ...$this->blockHoursChoice($form),
             'siteCategories' => $prefillDomains !== '' ? rescue(fn () => app(DomainCategorizer::class)->many(explode("\n", $prefillDomains)), [], false) : [],
         ]);
     }
@@ -125,6 +128,7 @@ class WebsiteRequestController extends Controller
             'schedule' => ['nullable', 'array'],
             'requested_from' => ['nullable', 'date'],
             'requested_until' => ['nullable', 'required_if:access_duration,temporary', 'date'],
+            'hours' => ['nullable', 'in:school,all'],
         ]);
 
         // network_types[] from the form; access_scope ("staff,student") from older links and API clients.
@@ -158,6 +162,8 @@ class WebsiteRequestController extends Controller
             'requested_from' => $schedule ? $schedule->firstOpening()?->utc() : $from,
             'requested_until' => $schedule ? $schedule->lastClosing()->utc() : $until,
             'schedule' => $schedule?->toArray(),
+            // The requester's choice for a block (a suggestion IT confirms), when the settings ask them.
+            'hours' => $block && str_starts_with($form->blockHours(), 'requester') && ($validated['hours'] ?? null) === 'school' ? 'school' : null,
         ]);
 
         // Auto-approval applies when every chosen network type allows it (by default only Staff).
@@ -242,6 +248,22 @@ class WebsiteRequestController extends Controller
         }
 
         return $rows;
+    }
+
+    /**
+     * The school-hours layers a requester may route a block to, and the
+     * pre-selected answer, when the settings let requesters choose.
+     *
+     * @return array{blockHoursLayers: Collection<int, FilterPolicy>, blockHoursDefault: string}
+     */
+    private function blockHoursChoice(RequestFormSettings $form): array
+    {
+        $mode = $form->blockHours();
+        $layers = str_starts_with($mode, 'requester')
+            ? NetworkType::query()->where('requestable', true)->pluck('key')->flatMap(fn (string $type) => app(PolicyEngine::class)->hoursLayersFor($type))->unique('id')->values()
+            : collect();
+
+        return ['blockHoursLayers' => $layers, 'blockHoursDefault' => $mode === 'requester_school' ? 'school' : 'all'];
     }
 
     /**

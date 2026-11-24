@@ -17,6 +17,7 @@
                 <dl class="details">
                     <div><dt>{{ $websiteRequest->isBlock() ? 'Block for' : 'Requested access' }}</dt><dd>{{ $websiteRequest->access_scope?->label() }}</dd></div>
                     <div><dt>Category</dt><dd>{{ $websiteRequest->category }}</dd></div>
+                    @if($websiteRequest->hours)<div><dt>When</dt><dd>{{ $websiteRequest->hours === 'school' ? 'School hours only' : 'Outside school hours only' }}@unless($websiteRequest->approved_at)<small>{{ $websiteRequest->isBlock() ? 'Suggested by the requester; IT confirms it' : '' }}</small>@endunless</dd></div>@endif
                     @if($websiteRequest->domain_categories)
                         <div class="wide"><dt>What the sites are</dt><dd>@foreach($websiteRequest->domain_categories as $domain => $lookup)<x-site-categories :lookup="$lookup" :domain="$domain" :show-policies="$isIt" />@endforeach<small class="hint">From the website category service when the request was submitted; a guide, not UniFi's own categorisation.</small></dd></div>
                     @endif
@@ -105,9 +106,24 @@
                                     <label class="choice compact"><input type="checkbox" name="scope[]" value="{{ $type->key }}" @checked(in_array($type->key, (array) $chosenScope, true))><span>{{ $type->name }}{{ $requestedScope?->includes($type->key) && ! $requestedScope->siteWide ? ' (requested)' : '' }}</span></label>
                                 @endforeach
                                 <label class="choice compact"><input type="checkbox" name="scope[]" value="site" @checked(in_array('site', (array) $chosenScope, true))><span>Site-wide (every network){{ $requestedScope?->siteWide ? ' (requested)' : '' }}</span></label>
+                                @php($landsOn = \App\Models\FilterPolicy::query()->main()->where('enabled', true)->whereNotNull('provider_reference')->get()->groupBy('audience'))
+                                @if($landsOn->isNotEmpty())<small class="hint">Each type's UniFi filters: {{ $landsOn->map(fn ($policies, $type) => \App\Models\NetworkType::labelFor($type).' → '.$policies->map(fn ($policy) => $policy->provider_name ?: $policy->name)->join(', '))->join('; ') }}.</small>@endif
                             </fieldset>
                             <label>Note to requester <span class="optional">optional</span><input name="message" value="{{ old('action') === 'approve' ? old('message') : '' }}"></label>
                         </div>
+                        @if($websiteRequest->isBlock() && app(\App\Services\Requests\RequestFormSettings::class)->blockHours() !== 'always_all')
+                            @php($blockLayers = \App\Models\NetworkType::query()->pluck('key')->mapWithKeys(fn ($type) => [$type => app(\App\Services\Policy\PolicyEngine::class)->hoursLayersFor($type)])->filter(fn ($layers) => $layers->isNotEmpty()))
+                            @if($blockLayers->isNotEmpty())
+                                @php($alreadyInHours = collect(app(\App\Services\Policy\CategoryCoverage::class)->forDomains($websiteRequest->domains))->map(fn ($hits) => collect($hits)->where('school_hours', true)))
+                                <fieldset class="hours-choice"><legend>When should this be blocked?</legend>
+                                    <label class="choice compact"><input type="radio" name="hours" value="school" @checked(old('hours', $websiteRequest->hours === 'school' ? 'school' : 'all') === 'school')><span><strong>School hours only{{ $websiteRequest->hours === 'school' ? ' (requested)' : '' }}</strong><small>Added to {{ $blockLayers->flatten()->unique('id')->map(fn ($layer) => ($layer->provider_name ?: $layer->name).' ('.($layer->sync_details['schedule'] ?? 'its UniFi schedule').')')->join(', ') }} only. Open after hours and at weekends. Types without a school-hours filter ({{ \App\Models\NetworkType::query()->ordered()->get()->reject(fn ($type) => $blockLayers->has($type->key))->pluck('name')->join(', ') ?: 'none' }}) get nothing.</small></span></label>
+                                    <label class="choice compact"><input type="radio" name="hours" value="all" @checked(old('hours', $websiteRequest->hours === 'school' ? 'school' : 'all') === 'all')><span><strong>All the time</strong><small>Every filter of the chosen types, day and night.</small></span></label>
+                                    @foreach($alreadyInHours->filter(fn ($hits) => $hits->isNotEmpty()) as $domain => $hits)
+                                        <p class="hint">{{ $domain }} is already blocked in school hours by {{ $hits->map(fn ($hit) => $hit['category'].' ('.$hit['filter'].')')->unique()->join(', ') }}. You may not need an entry, unless it should be blocked all the time.</p>
+                                    @endforeach
+                                </fieldset>
+                            @endif
+                        @endif
                         @php($hoursPolicies = $websiteRequest->isBlock() ? collect() : \App\Models\FilterPolicy::query()->main()->where('enabled', true)->whereNotNull('provider_reference')->whereHas('hoursLayer', fn ($query) => $query->where('enabled', true)->whereNotNull('provider_reference'))->with('hoursLayer')->get())
                         @if($hoursPolicies->isNotEmpty())
                             <fieldset class="hours-choice"><legend>When</legend>

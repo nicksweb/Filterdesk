@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.19
+
+### Added
+- **Quick block or allow** (Policies → *Quick block or allow*, and from website check results), for IT:
+  - Enter hostnames, choose Block or Allow, tick the network types or *Everywhere*, and choose when.
+  - A preview shows the lists it goes into, the UniFi filters that change, the UniFi categories that already decide it, and entries that say the opposite. Entries added by hand can be removed in the same step; entries from requests link to the request.
+  - Then it makes the change, and publishes straight away when automatic pushing is on (otherwise there's **Publish now**).
+  - *Everywhere* still waits for a second IT officer.
+- **Blocks in school hours only.** For network types with a school-hours filter (such as *Student - School Time*), a block can go into that filter alone, so the site is open after hours and at weekends. This suits boarders on the same Wi-Fi as day students.
+  - **IT chooses when approving** a block (*School hours only* or *All the time*), and is told when a UniFi category already blocks the site in school hours.
+  - **The requester can suggest it** when Settings → Approval policy → *Block requests: when* allows it. IT can still change it.
+  - The choice is shown on the request and in its history, and the list entry says *school hours only*.
+  - Types without a school-hours filter get nothing for such a block, and the approval says so.
+- **Plain website check results for students and staff**: one line per network, *Allowed*, *Blocked* or *Couldn't check right now*. It says *Works, but needs the school certificate* when the gateway's inspection certificate is the cause, and *in school hours (Mon–Fri 08:15–15:10)* when only the school-hours filter blocks it. No addresses, timings or probe messages. IT still sees everything, and blocks that only apply in school hours are labelled for IT too.
+- The approval form names each type's UniFi filters under *Apply to*, so it's clear where a block lands before approving.
+
+### Fixed
+- **`bin/update` checks a git checkout before doing anything.**
+  - Local edits to tracked files stop it with what to do, before backing up or pulling images.
+  - An untracked file that the update brings in (a hand-copied `bin/update`) is removed when it's the same as the incoming one, and named otherwise.
+  - If any step fails, it says which one, and that the stack is still running the previous version.
+- A publish for one request now includes its type's school-hours filter.
+
 ## 2026.12.18
 
 ### Fixed

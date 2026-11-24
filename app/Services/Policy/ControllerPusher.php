@@ -160,7 +160,7 @@ class ControllerPusher
     {
         $this->sync->forget();
         $policies = $scope
-            ? $this->engine->policiesFor($scope)->flatMap(fn (FilterPolicy $policy) => array_filter([$policy->activeLayer(), $policy]))
+            ? $this->engine->policiesFor($scope)->flatMap(fn (FilterPolicy $policy) => array_filter([$policy->activeLayer(), $policy->activeHoursLayer(), $policy]))
             : FilterPolicy::query()->where('enabled', true)->ordered()->get();
         // Layers go first: a feed moving out of a parent is blocked in its layer before it leaves the parent.
         $policies = $policies->filter(fn (FilterPolicy $policy) => filled($policy->provider_reference))

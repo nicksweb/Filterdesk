@@ -147,6 +147,49 @@ class PolicyEngine
         return array_map($resolve, $scope->types);
     }
 
+    /**
+     * The lists an entry goes into, with when it applies. A block kept to
+     * school hours goes into each school-hours layer's own block list, so
+     * only that filter (on UniFi's schedule) blocks it; a type with no
+     * school-hours layer gets nothing, and is named in "skipped".
+     *
+     * @return array{lists: list<PolicyList>, skipped: list<string>}
+     */
+    public function listsForHours(Reach $scope, ListKind $kind, ?string $hours): array
+    {
+        if ($kind !== ListKind::Block || $hours !== 'school') {
+            return ['lists' => $this->targetListsFor($scope, $kind), 'skipped' => []];
+        }
+
+        $lists = [];
+        $skipped = [];
+        $types = $scope->siteWide ? NetworkType::query()->ordered()->pluck('key')->all() : $scope->types;
+        foreach ($types as $type) {
+            $layers = $this->hoursLayersFor($type);
+            if ($layers->isEmpty()) {
+                $skipped[] = $type;
+
+                continue;
+            }
+            foreach ($layers as $layer) {
+                $lists[$layer->id] = $this->ownList($layer, ListKind::Block, "Blocked in school hours only, on {$layer->name}'s UniFi schedule.");
+            }
+        }
+
+        return ['lists' => array_values($lists), 'skipped' => $skipped];
+    }
+
+    /**
+     * The enabled school-hours layers of a network type's policies.
+     *
+     * @return Collection<int, FilterPolicy>
+     */
+    public function hoursLayersFor(string $type): Collection
+    {
+        return FilterPolicy::query()->main()->where('enabled', true)->where('audience', $type)->get()
+            ->map(fn (FilterPolicy $policy) => $policy->activeHoursLayer())->filter()->unique('id')->values();
+    }
+
     public function kindFor(WebsiteRequest $request): ListKind
     {
         return $request->isBlock() ? ListKind::Block : ListKind::Allow;
@@ -168,7 +211,8 @@ class PolicyEngine
     public function grant(WebsiteRequest $request, array $domains, Reach $scope, ?User $actor): void
     {
         DB::transaction(function () use ($request, $domains, $scope, $actor): void {
-            foreach ($this->targetListsFor($scope, $this->kindFor($request)) as $list) {
+            $schoolHours = $request->isBlock() && $request->hours === 'school';
+            foreach ($this->listsForHours($scope, $this->kindFor($request), $request->hours)['lists'] as $list) {
                 foreach ($domains as $domain) {
                     $this->upsertEntry($list, $domain, [
                         'source' => EntrySource::Request,
@@ -178,7 +222,7 @@ class PolicyEngine
                         'expires_at' => $request->accessUntil(),
                         'schedule' => $request->schedule,
                         'hours' => $request->hours === 'outside' && ! $request->isBlock() ? 'outside' : null,
-                        'note' => "{$request->reference}: {$request->category}",
+                        'note' => "{$request->reference}: {$request->category}".($schoolHours ? ' (school hours only)' : ''),
                     ]);
                 }
             }
@@ -202,7 +246,7 @@ class PolicyEngine
 
             foreach ($entries as $entry) {
                 $successor = $others->first(fn (WebsiteRequest $other) => in_array($entry->domain, $other->effectiveDomains(), true)
-                    && collect($this->targetListsFor($other->effectiveScope(), $this->kindFor($other)))->contains('id', $entry->policy_list_id));
+                    && collect($this->listsForHours($other->effectiveScope(), $this->kindFor($other), $other->hours)['lists'])->contains('id', $entry->policy_list_id));
 
                 if ($successor) {
                     $entry->update([

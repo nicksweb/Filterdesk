@@ -7,6 +7,7 @@
             <h1>Policies &amp; lists</h1>
             <p>Manage allow and block lists site-wide, per network type and per policy, then reconcile each controller policy.</p>
         </div>
+        <a class="button primary" href="{{ route('admin.policy.quick.show') }}">Quick block or allow</a>
     </div>
 
     <div class="policy-stats">

@@ -721,6 +721,7 @@ class SettingsController extends Controller
             'form.student_required' => ['nullable', 'boolean'],
             'form.min_length' => ['nullable', 'integer', 'min:0', 'max:500'],
             'form.student_categories' => ['nullable', 'string', 'max:2000'],
+            'form.block_hours' => ['nullable', Rule::in(array_keys(RequestFormSettings::BLOCK_HOURS))],
         ]);
         $defaults = RequestFormSettings::DEFAULTS;
         $form = $validated['form'] ?? [];
@@ -730,6 +731,7 @@ class SettingsController extends Controller
             'staff_required' => $request->boolean('form.staff_required', $defaults['staff_required']), 'student_required' => $request->boolean('form.student_required', $defaults['student_required']),
             'min_length' => (int) ($form['min_length'] ?? $defaults['min_length']),
             'student_categories' => filled($form['student_categories'] ?? null) ? $this->commaList($form['student_categories'], lower: false) : $defaults['student_categories'],
+            'block_hours' => $form['block_hours'] ?? $defaults['block_hours'],
         ]);
 
         $settings->set('approval', [

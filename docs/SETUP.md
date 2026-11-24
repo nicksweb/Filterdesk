@@ -366,6 +366,9 @@ Rename or add network types under **Settings → Network types** if Staff and St
 
 **Check:** each policy page says *In sync*, and its change set (to add, to remove) is empty. *Networks & filters* shows each network with the policy you expect.
 
+
+**Blocks in school hours only.** A block can go into the school-hours filter alone, so the site is open after hours and at weekends (for example AI chat sites that boarders may use in the evening). IT chooses *School hours only* or *All the time* when approving a block. Under Settings → Approval policy → *Block requests: when*, requesters can be asked too: their choice is a suggestion IT confirms. If a UniFi category already blocks the site in school hours (the approval says so when website categories are on), an entry may not be needed. IT can do the same without a request under Policies → *Quick block or allow*.
+
 ## 9. Put the probes on the VLANs
 
 A check is only meaningful if the probe resolves DNS from the same network as the people it represents. UniFi filters DNS at the gateway, per network. So each probe gets its own interface on its policy's VLAN (macvlan), a fixed address, and that VLAN's gateway as its DNS server. This is not host networking: the Docker host's own network settings are untouched.
