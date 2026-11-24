@@ -28,7 +28,7 @@
                 <label>Timezone<select name="timezone">@foreach(timezone_identifiers_list() as $zone)<option @selected(old('timezone', $settings->get('school.timezone', config('app.timezone'))) === $zone)>{{ $zone }}</option>@endforeach</select></label>
                 <label>Public application URL<input name="app_url" type="url" required value="{{ old('app_url', $settings->get('school.app_url', config('app.url'))) }}"><small>Used for email links and the OIDC redirect URI.</small></label>
             </div>
-            <label>Schoolbox origin <span class="optional">optional</span><input name="schoolbox_origin" type="url" placeholder="https://schoolbox.example.edu.au" value="{{ old('schoolbox_origin', $settings->get('school.schoolbox_origin')) }}"><small>Only this exact origin may embed the app. Setting it switches session cookies to SameSite=None; Secure.</small></label>
+            <label>Embedding origin (Schoolbox or another portal) <span class="optional">optional</span><input name="schoolbox_origin" type="url" placeholder="https://schoolbox.example.edu.au" value="{{ old('schoolbox_origin', $settings->get('school.schoolbox_origin')) }}"><small>Only this exact origin may embed the app. Setting it switches session cookies to SameSite=None; Secure.</small></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
 

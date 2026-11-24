@@ -179,3 +179,55 @@ document.addEventListener('click', event => {
   button.closest('li')?.querySelectorAll('[data-append-rule]').forEach(other => other.classList.toggle('primary', other === button));
   box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
+
+/*
+ * Single sign-on from an embedded page (a portal iframe). Identity providers
+ * can't sign in inside a frame on another site (their cookies are blocked
+ * there, so the provider loses the request: "Missing required attribute
+ * 'response_type'"). So in a frame, sign-in opens in a popup; when it is done
+ * the popup tells this page, which opens the dashboard. Browsers that keep
+ * embedded pages' cookies separate (Safari, Firefox) are asked for storage
+ * access with one click.
+ */
+(() => {
+  const framed = (() => { try { return window.self !== window.top; } catch { return true; } })();
+
+  const link = document.querySelector('[data-sso-link]');
+  if (link && framed) {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      const popup = window.open(link.dataset.popupHref, 'filterdesk-sso', 'popup,width=520,height=700');
+      const waiting = document.querySelector('[data-sso-waiting]');
+      if (waiting) waiting.hidden = false;
+      if (!popup) {
+        // Popup blocked: try the whole page instead (the portal may allow that), else the new-tab link stays.
+        try { window.top.location.href = link.href; } catch { /* the notice offers a new tab */ }
+      }
+    });
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'filterdesk:signed-in') return;
+      // If this frame can see the new session, /login?sso=done sends it on to the dashboard; if not, it offers storage access.
+      window.location.href = `${window.location.pathname}?sso=done`;
+    });
+  }
+
+  const done = document.querySelector('[data-sso-done]');
+  if (done && window.opener) {
+    try { window.opener.postMessage({ type: 'filterdesk:signed-in' }, window.location.origin); } catch { /* opener gone */ }
+    setTimeout(() => window.close(), 400);
+  }
+
+  const access = document.querySelector('[data-storage-access]');
+  if (access) {
+    if (!framed) { window.location.href = access.dataset.after; return; }
+    access.addEventListener('click', async () => {
+      try {
+        if (document.requestStorageAccess) await document.requestStorageAccess();
+        window.location.href = access.dataset.after;
+      } catch {
+        const denied = document.querySelector('[data-storage-denied]');
+        if (denied) denied.hidden = false;
+      }
+    });
+  }
+})();

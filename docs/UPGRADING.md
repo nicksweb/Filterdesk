@@ -45,6 +45,11 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.19 → 2026.12.20
+
+- Update as usual. No database changes.
+- If Filterdesk is embedded in a portal, users who sign in there now finish sign-in in a popup window. Make sure the portal's origin is set as the embedding origin (Settings → School → *Embedding origin*).
+
 ## 2026.12.18 → 2026.12.19
 
 - Update as usual (`git pull --ff-only`, or `bin/update`). No database changes.

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.20
+
+### Fixed
+- **Single sign-on from an embedded page.** In a portal iframe, *Continue with single sign-on* used to send the frame to the identity provider. The browser blocks the provider's cookies there, so it lost the request ("Missing required attribute 'response_type'"). It now opens the provider in a popup window. When sign-in is done, the popup closes and the embedded page opens the dashboard.
+  - If the popup is blocked, the page offers a new tab.
+  - Browsers that keep embedded pages' cookies separate (Safari, Firefox) get **Continue here**, which asks for storage access.
+- `/login` sends someone who is already signed in to the dashboard.
+
 ## 2026.12.19
 
 ### Added

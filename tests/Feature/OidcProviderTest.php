@@ -97,6 +97,25 @@ class OidcProviderTest extends TestCase
             && filled($request['code_verifier'] ?? null) && ! isset($request['client_secret']));
     }
 
+    public function test_sign_in_from_an_embedded_page_finishes_in_a_popup(): void
+    {
+        $this->configure(['userinfo_endpoint' => self::ISSUER.'/userinfo']);
+        $this->get(route('login'))->assertOk()->assertSee('data-popup-href="'.route('auth.oidc', ['popup' => 1]).'"', false);
+
+        $location = $this->get(route('auth.oidc', ['popup' => 1]))->assertRedirect()->headers->get('Location');
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+        $this->assertSame('code', $query['response_type']);
+        Http::fake([
+            self::ISSUER.'/oauth/token' => Http::response(['access_token' => 'at', 'token_type' => 'Bearer', 'expires_in' => 3600]),
+            self::ISSUER.'/userinfo' => Http::response(['sub' => 'p1', 'email' => 'teacher@example.edu', 'name' => 'Pat Teacher']),
+        ]);
+
+        $this->get(route('auth.oidc.callback', ['code' => 'abc', 'state' => $query['state']]))->assertOk()
+            ->assertSee('data-sso-done', false)->assertSee("You're signed in", false);
+        $this->assertAuthenticated();
+        $this->get(route('login', ['sso' => 'done']))->assertRedirect(route('dashboard'));
+    }
+
     public function test_an_entra_style_provider_still_uses_userinfo_and_the_form_body(): void
     {
         $this->configure([

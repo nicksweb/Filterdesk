@@ -23,11 +23,23 @@ its Content Security Policy. When an origin is configured, session cookies are
 automatically secured with `SameSite=None` so authenticated cross-site iframe
 sessions can function.
 
-Schoolbox embedding does not bypass authentication. Users still sign in through
-the configured OIDC provider or an existing Filterdesk session. Some identity
-providers do not permit their login page inside an iframe; in that case users
-must complete sign-in in a top-level browser tab before opening the Schoolbox
-embed.
+Embedding does not bypass authentication. Users still sign in through the
+configured OIDC provider or an existing Filterdesk session. Identity providers
+can't sign in inside a frame on another site: the browser blocks their cookies
+there, so the provider loses the sign-in request (errors such as "Missing
+required attribute 'response_type'"). So when the sign-in page is embedded,
+*Continue with single sign-on* opens the provider in a small popup window. When
+it's done, the popup closes and the embedded page opens the dashboard.
+
+- If the browser blocks the popup, the page offers to open Filterdesk in a new
+  tab instead.
+- Browsers that keep an embedded page's cookies separate (Safari, Firefox, or
+  Chrome with third-party cookies blocked) show **Continue here**, which asks
+  the browser to let the embed use the sign-in. If it refuses, use Filterdesk
+  in its own tab.
+
+This works for any portal that embeds `/login` (Schoolbox or another), as long as
+its origin is set as the embedding origin.
 
 Set `APP_URL=https://filterdesk.example.edu.au`, `SESSION_SECURE_COOKIE=true`, and `TRUSTED_PROXIES` to only the proxy container address or subnet. Never use `*` on a port reachable by untrusted clients.
 

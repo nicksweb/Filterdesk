@@ -12,6 +12,7 @@ use App\Services\Oidc\OidcClient;
 use App\Services\SettingsRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -20,8 +21,13 @@ use Throwable;
 
 class AuthController extends Controller
 {
-    public function login(): View
+    public function login(): View|RedirectResponse
     {
+        // Already signed in (for example an embedded page after signing in in a popup): carry on.
+        if (Auth::check()) {
+            return redirect()->route('dashboard');
+        }
+
         return view('auth.login', [
             'oidcEnabled' => IntegrationConfig::query()->where('provider', 'oidc')->where('enabled', true)->exists(),
             'localEnabled' => (bool) app(SettingsRepository::class)->get('auth.emergency_local_login', true),
@@ -70,11 +76,14 @@ class AuthController extends Controller
         $request->session()->forget(OidcTestController::SESSION_KEY);
         $request->session()->put('oidc.state', $state);
         $request->session()->put('oidc.pkce', $pkce);
+        // Started from an embedded page (a portal iframe): sign-in runs in a popup window, because the
+        // identity provider's own cookies are blocked inside a frame on another site.
+        $request->session()->put('oidc.popup', $request->boolean('popup'));
 
         return redirect()->away($url);
     }
 
-    public function oidcCallback(Request $request, OidcClient $client, UserProvisioningService $users): RedirectResponse
+    public function oidcCallback(Request $request, OidcClient $client, UserProvisioningService $users): RedirectResponse|Response
     {
         // Back from a Test sign-in: show what came back; nobody is created or signed in.
         if ($request->session()->has(OidcTestController::SESSION_KEY)) {
@@ -92,6 +101,11 @@ class AuthController extends Controller
             $user = $users->provision($client->claims($client->exchange((string) $request->query('code'), $request->session()->pull('oidc.pkce'))));
             Auth::login($user, true);
             $request->session()->regenerate();
+
+            // In the popup: tell the embedded page it can carry on, and close.
+            if ($request->session()->pull('oidc.popup')) {
+                return response()->view('auth.sso-done', ['after' => route('dashboard')]);
+            }
 
             return redirect()->intended(route('dashboard'));
         } catch (Throwable $exception) {
