@@ -7,6 +7,7 @@ use App\Models\WebsiteCheck;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Website\NetworkLocator;
+use App\Services\Website\ProbeSettings;
 use App\Services\Website\WebsiteChecker;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -47,7 +48,10 @@ class WebsiteCheckController extends Controller
         $here = $locator->locate($request->ip());
         try {
             // Students see only their own level of access; staff and IT see every network, theirs first.
-            $result = $checker->checkMany($targets, true, $request->user()->checkAudiences(), $here['profile']?->key ?? null);
+            // Page previews (screenshot and title) only for those allowed to see them: a student checking an
+            // inappropriate site gets the answer without the page.
+            $previews = app(ProbeSettings::class)->previewsFor($request->user());
+            $result = $checker->checkMany($targets, $previews, $request->user()->checkAudiences(), $here['profile']?->key ?? null);
         } catch (RuntimeException $exception) {
             throw ValidationException::withMessages(['websites' => $exception->getMessage()]);
         }
@@ -65,9 +69,12 @@ class WebsiteCheckController extends Controller
             }
         });
         PolicyEntry::markSeen(array_column($result['checks'], 'hostname'));
+        if (! $previews) {
+            $result['checks'] = array_map(fn (array $check) => ['results' => array_map(fn (array $profile) => collect($profile)->except(['screenshot', 'page_title'])->all(), $check['results'])] + $check, $result['checks']);
+        }
 
         return view('checks.create', [
-            'here' => $here,
+            'here' => $here, 'previews' => $previews,
             'checks' => $result['checks'], 'duration' => $result['duration_ms'],
             'categories' => rescue(fn () => app(DomainCategorizer::class)->many(collect($result['checks'])->pluck('hostname')->all()), [], false),
         ]);

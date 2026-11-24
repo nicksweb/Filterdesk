@@ -9,6 +9,7 @@ services:
   probe-student:
     environment:
       PROBE_DNS_SERVERS: 10.0.20.1          # the VLAN's gateway
+    dns: [10.0.20.1]                        # the whole container, browser included
     networks: !override
       probe_control: {}
       student_vlan:
@@ -18,6 +19,7 @@ services:
   probe-staff:
     environment:
       PROBE_DNS_SERVERS: 10.0.10.1
+    dns: [10.0.10.1]
     networks: !override
       probe_control: {}
       staff_vlan:
@@ -30,6 +32,7 @@ services:
     environment:
       PROBE_DNS_SERVERS: 10.0.80.1
       ALLOWED_PRIVATE_HOSTS: ""
+    dns: [10.0.80.1]
     networks: !override
       probe_control: {}
       guest_vlan:

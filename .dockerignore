@@ -63,3 +63,10 @@ boost.json
 
 # Bind-mounted data (database and storage)
 data
+
+# Generic host files shipped in the image, so installs without git can update them (bin/update).
+# Only these: the site's own overrides (compose.proxy.yml, compose.vlan.yml) never go in.
+!compose.yml
+!compose.proxy.example.yml
+!compose.vlan.example.yml
+!bin

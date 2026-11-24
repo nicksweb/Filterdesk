@@ -21,3 +21,5 @@
 .shortlist-option:has(input:checked){border-color:#73a9ec;background:#f1f7ff;box-shadow:0 0 0 2px rgba(23,107,219,.08)}
 .batch-request-bar{position:sticky;bottom:16px;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 16px;border:1px solid #bfd4ee;border-radius:12px;background:rgba(255,255,255,.96);box-shadow:0 12px 30px rgba(17,45,80,.16);backdrop-filter:blur(8px)}
 @media(max-width:620px){.check-submit-row,.batch-request-bar,.result-heading{align-items:stretch;flex-direction:column}.check-submit-row .button,.batch-request-bar .button,.result-heading .button{width:100%}.site-result .result-grid,.shortlist-grid{padding:14px;grid-template-columns:1fr}}
+
+.no-shot.dns-blocked{background:#fff1f1;color:#7a1f1f;align-content:center;gap:4px;text-align:center;padding:12px}.no-shot.dns-blocked small{display:block;color:var(--muted)}

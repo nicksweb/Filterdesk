@@ -51,7 +51,10 @@ class WebsiteChecker
 
         $started = hrtime(true);
         $urls = array_column($targets, 'url');
-        $responses = Http::pool(function (Pool $pool) use ($profiles, $urls, $screenshot): array {
+        $blockAddresses = app(ProbeSettings::class)->blockAddresses();
+        $dnsOnly = app(ProbeSettings::class)->dnsOnly();
+        $screenshot = $screenshot && ! $dnsOnly;
+        $responses = Http::pool(function (Pool $pool) use ($profiles, $urls, $screenshot, $blockAddresses, $dnsOnly): array {
             $requests = [];
             foreach ($profiles as $profile) {
                 $requests[$profile->key] = $pool->as($profile->key)
@@ -60,21 +63,40 @@ class WebsiteChecker
                     ->post(rtrim($profile->probe_url, '/').'/check-batch', [
                         'urls' => $urls,
                         'screenshot' => $screenshot,
+                        'block_addresses' => $blockAddresses,
+                        'dns_only' => $dnsOnly,
                     ]);
             }
 
             return $requests;
         });
 
+        // A probe whose setup checklist fails (for example no route to its gateway) would report
+        // every site as "DNS could not resolve"; say the probe is the problem instead. The cached
+        // checklist can be out of date, so it is run again first: straight away when the probe
+        // answered this check, or when it did not but its /health answers.
+        $failing = [];
+        foreach ($profiles as $profile) {
+            $diagnosis = app(ProbeDiagnostics::class)->cached($profile);
+            if ($diagnosis && $diagnosis['state'] === 'fail') {
+                $response = $responses[$profile->key] ?? null;
+                $answered = $response instanceof Response && $response->successful();
+                if ($answered || $this->healthy($profile)) {
+                    $diagnosis = app(ProbeDiagnostics::class)->for($profile, refresh: true);
+                }
+                if ($diagnosis['state'] === 'fail') {
+                    $failing[$profile->key] = $diagnosis;
+                }
+            }
+        }
+
         $checks = [];
         foreach ($targets as $targetIndex => $target) {
             $results = [];
             foreach ($profiles as $profile) {
                 $base = ['profile' => $profile->name, 'audience' => $profile->audience, 'type' => $profile->typeLabel()];
-                // A probe whose setup checklist fails (for example no route to its gateway) would report
-                // every site as "DNS could not resolve"; say the probe is the problem instead.
-                $diagnosis = app(ProbeDiagnostics::class)->cached($profile);
-                $results[$profile->key] = $diagnosis && $diagnosis['state'] === 'fail'
+                $diagnosis = $failing[$profile->key] ?? null;
+                $results[$profile->key] = $diagnosis
                     ? $base + ['status' => 'probe_error', 'message' => "This probe is not working ({$diagnosis['summary']}) so its result is not shown. Fix it under Settings → Network profiles, or switch it off.", 'duration_ms' => 0]
                     : $base + $this->resultFor($responses[$profile->key] ?? null, $targetIndex);
             }
@@ -117,6 +139,16 @@ class WebsiteChecker
         ksort($hosts);
 
         return array_values($hosts);
+    }
+
+    /** The probe's /health answers within two seconds. */
+    private function healthy(NetworkProfile $profile): bool
+    {
+        try {
+            return (bool) Http::connectTimeout(2)->timeout(2)->get(rtrim($profile->probe_url, '/').'/health')->json('ok');
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** @return array<string, mixed> */

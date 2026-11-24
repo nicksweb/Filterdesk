@@ -52,8 +52,69 @@ let warmBrowser = null;
 /** A browser is only reused between runs when explicitly allowed. */
 const reuseBrowser = process.env.PROBE_REUSE_BROWSER === 'true';
 
+/**
+ * Browser DNS
+ * -----------
+ * Chromium would resolve names through the container's resolv.conf (Docker's
+ * DNS, which forwards to the host's resolver, not the VLAN's filtered one),
+ * so it could load a site a real client on the VLAN cannot reach and would
+ * not see DNS-based behaviour such as SafeSearch. When PROBE_DNS_SERVERS is
+ * set, the browser goes through a small local proxy instead that resolves
+ * every hostname with the same resolver as the check and connects to that
+ * answer, so the page is loaded exactly as the VLAN resolves it.
+ */
+let proxyPort = null;
+
+function pinnedLookup(hostname, options, callback) {
+  resolve(hostname).then(({ addresses }) => {
+    const usable = addresses.filter(address => !sinkholed(address));
+    if (!usable.length) throw Object.assign(new Error('The hostname is blocked at DNS.'), { code: 'ENOTFOUND' });
+    const address = usable.find(item => net.isIP(item) === 4) || usable[0];
+    if (options?.all) return callback(null, [{ address, family: net.isIP(address) }]);
+    callback(null, address, net.isIP(address));
+  }).catch(error => callback(Object.assign(error, { code: error.code || 'ENOTFOUND' })));
+}
+
+function splitHostPort(value, fallback) {
+  const match = /^\[?([^\]]+?)\]?(?::(\d+))?$/.exec(value || '');
+  return match ? [match[1], Number(match[2] || fallback)] : [value, fallback];
+}
+
+async function startProxy() {
+  const proxy = http.createServer((request, response) => {
+    let target;
+    try { target = new URL(request.url); } catch { response.statusCode = 400; return response.end(); }
+    if (target.protocol !== 'http:') { response.statusCode = 400; return response.end(); }
+    const upstream = http.request({ host: target.hostname, port: Number(target.port || 80), path: `${target.pathname}${target.search}`, method: request.method,
+      headers: request.headers, lookup: pinnedLookup, timeout }, reply => {
+      response.writeHead(reply.statusCode || 502, reply.headers);
+      reply.pipe(response);
+    });
+    upstream.on('error', () => { if (!response.headersSent) response.statusCode = 502; response.end(); });
+    request.pipe(upstream);
+  });
+  proxy.on('connect', (request, client, head) => {
+    const [host, targetPort] = splitHostPort(request.url, 443);
+    const upstream = net.connect({ host, port: targetPort, lookup: pinnedLookup, timeout });
+    upstream.once('connect', () => {
+      client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      if (head?.length) upstream.write(head);
+      upstream.pipe(client);
+      client.pipe(upstream);
+    });
+    upstream.on('timeout', () => upstream.destroy());
+    upstream.on('error', () => { if (client.writable) client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); });
+    client.on('error', () => upstream.destroy());
+  });
+  proxy.listen(0, '127.0.0.1');
+  await new Promise(done => proxy.once('listening', done));
+  proxyPort = proxy.address().port;
+}
+
+if (resolver) await startProxy();
+
 async function launchBrowser() {
-  return chromium.launch({ headless: true, args: chromiumArgs });
+  return chromium.launch({ headless: true, args: chromiumArgs, ...(proxyPort ? { proxy: { server: `http://127.0.0.1:${proxyPort}`, bypass: '<-loopback>' } } : {}) });
 }
 
 function authorised(value = '') {
@@ -62,8 +123,24 @@ function authorised(value = '') {
   return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
 }
 
-function sinkholed(address) {
-  return address === '0.0.0.0' || address === '::' || blockPageAddresses.has(address.toLowerCase());
+/**
+ * UniFi answers a blocked name with 203.0.113.250 / 2001:db8:1000::fa. More
+ * generally no real website lives in the documentation ranges, so an answer
+ * there is a block answer too. Extra addresses (another gateway's block page)
+ * come from BLOCK_PAGE_ADDRESSES or from the app with each check.
+ */
+const unifiBlockAddresses = ['203.0.113.250', '2001:db8:1000::fa'];
+
+function reservedForDocumentation(address) {
+  const value = address.toLowerCase();
+  if (net.isIP(value) === 6) return value.startsWith('2001:db8:') || value.startsWith('2001:0db8:');
+  return value.startsWith('192.0.2.') || value.startsWith('198.51.100.') || value.startsWith('203.0.113.');
+}
+
+function sinkholed(address, extra = null) {
+  const value = String(address).toLowerCase();
+  return value === '0.0.0.0' || value === '::' || unifiBlockAddresses.includes(value) || reservedForDocumentation(value)
+    || blockPageAddresses.has(value) || Boolean(extra?.has(value));
 }
 
 function privateOrSpecial(address) {
@@ -97,21 +174,43 @@ async function resolve(hostname) {
 }
 
 /** @returns {{url: URL, addresses: string[], resolver: string, dnsBlocked: boolean}} */
-async function validateTarget(rawUrl) {
+async function validateTarget(rawUrl, extra = null) {
   const url = new URL(rawUrl);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Only HTTP(S) URLs without credentials are allowed.');
   if (net.isIP(url.hostname.replace(/^\[|\]$/g, ''))) throw new Error('IP-literal targets are not allowed.');
   const { addresses, resolver: usedResolver } = await resolve(url.hostname);
   if (!addresses.length) throw new Error('The hostname did not resolve.');
-  if (addresses.every(sinkholed)) return { url, addresses, resolver: usedResolver, dnsBlocked: true };
+  if (addresses.every(address => sinkholed(address, extra))) return { url, addresses, resolver: usedResolver, dnsBlocked: true };
   if (addresses.some(privateOrSpecial) && !allowedPrivateHosts.has(url.hostname.toLowerCase())) {
     throw new Error('The hostname resolves to a private or special-use address not present in ALLOWED_PRIVATE_HOSTS.');
   }
   return { url, addresses, resolver: usedResolver, dnsBlocked: false };
 }
 
-async function inspectAttempt(browser, rawUrl, screenshot, ignoreHTTPSErrors = false) {
-  const initial = await validateTarget(rawUrl);
+/**
+ * The screenshot never decides the result: a page that never settles (fonts
+ * still loading on YouTube, say) gets a short try, then a raw capture that
+ * does not wait for fonts, then none, and the check keeps its answer.
+ */
+async function capture(page) {
+  try {
+    const buffer = await page.screenshot({ type: 'jpeg', quality: 55, fullPage: false, timeout: 5000, animations: 'disabled', caret: 'initial' });
+    return { image: buffer.toString('base64'), error: null };
+  } catch (error) {
+    const reason = /fonts/i.test(String(error?.message)) ? 'timed out waiting for fonts' : 'timed out';
+    try {
+      const session = await page.context().newCDPSession(page);
+      const { data } = await session.send('Page.captureScreenshot', { format: 'jpeg', quality: 55 });
+      await session.detach().catch(() => {});
+      return { image: data, error: null };
+    } catch {
+      return { image: null, error: reason };
+    }
+  }
+}
+
+async function inspectAttempt(browser, rawUrl, screenshot, ignoreHTTPSErrors = false, extra = null) {
+  const initial = await validateTarget(rawUrl, extra);
   const started = performance.now();
 
   if (initial.dnsBlocked) {
@@ -145,7 +244,7 @@ async function inspectAttempt(browser, rawUrl, screenshot, ignoreHTTPSErrors = f
     if (!['http:', 'https:'].includes(requestUrl.protocol)) return route.abort('blockedbyclient');
     touch(requestUrl.hostname);
     try {
-      const target = await validateTarget(requestUrl.href);
+      const target = await validateTarget(requestUrl.href, extra);
       if (target.dnsBlocked) {
         touch(requestUrl.hostname, true, 'dns_blocked');
         return route.abort('namenotresolved');
@@ -172,7 +271,7 @@ async function inspectAttempt(browser, rawUrl, screenshot, ignoreHTTPSErrors = f
     const finalUrl = page.url();
     const statusCode = response?.status() ?? null;
     const blocked = blockPattern.test(`${title}\n${excerpt}\n${finalUrl}`);
-    const image = screenshot ? await page.screenshot({ type: 'jpeg', quality: 55, fullPage: false }).then(buffer => buffer.toString('base64')) : null;
+    const shot = screenshot ? await capture(page) : { image: null, error: null };
 
     return {
       status: blocked ? 'blocked' : (statusCode && statusCode >= 500 ? 'unavailable' : 'allowed'),
@@ -184,21 +283,23 @@ async function inspectAttempt(browser, rawUrl, screenshot, ignoreHTTPSErrors = f
       resolver: initial.resolver,
       hosts: [...hosts.values()],
       duration_ms: Math.round(performance.now() - started),
-      screenshot: image,
+      screenshot: shot.image,
+      screenshot_error: shot.error,
+      browser_dns: proxyPort ? 'pinned' : 'system',
     };
   } finally {
     await context.close();
   }
 }
 
-async function inspect(browser, rawUrl, screenshot) {
+async function inspect(browser, rawUrl, screenshot, extra = null) {
   try {
-    return await inspectAttempt(browser, rawUrl, screenshot, false);
+    return await inspectAttempt(browser, rawUrl, screenshot, false, extra);
   } catch (error) {
     const message = String(error?.message || error);
     if (!/net::ERR_CERT_(AUTHORITY_INVALID|COMMON_NAME_INVALID|DATE_INVALID|INVALID)/.test(message)) throw error;
 
-    const result = await inspectAttempt(browser, rawUrl, screenshot, true);
+    const result = await inspectAttempt(browser, rawUrl, screenshot, true, extra);
     const blocked = result.status === 'blocked';
     // Name who signed the certificate, so the app can tell gateway inspection (its own CA) apart.
     const issuer = await certificateIssuer(new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`).hostname).catch(() => 'unknown');
@@ -215,9 +316,43 @@ async function inspect(browser, rawUrl, screenshot) {
   }
 }
 
-async function safeInspect(browser, rawUrl, screenshot) {
+/**
+ * DNS only: answer from the VLAN's DNS alone, without opening the page. No
+ * browser starts and nothing of the site is loaded, so it is fast and fetches
+ * no content; it cannot see block pages, HTTPS inspection or parts of a page
+ * that fail to load.
+ */
+async function dnsCheck(rawUrl, extra = null) {
+  const started = performance.now();
   try {
-    return await inspect(browser, String(rawUrl || ''), screenshot);
+    const target = await validateTarget(String(rawUrl || ''), extra);
+    return {
+      status: target.dnsBlocked ? 'blocked' : 'allowed',
+      block_method: target.dnsBlocked ? 'dns' : null,
+      dns_only: true,
+      message: target.dnsBlocked ? 'DNS returned a sinkhole or block-page address for this hostname.' : 'DNS answered normally. The page was not loaded (DNS-only checks).',
+      http_status: null,
+      final_url: target.url.href,
+      addresses: target.addresses,
+      resolver: target.resolver,
+      hosts: [{ host: target.url.hostname, requests: 0, failed: target.dnsBlocked, reason: target.dnsBlocked ? 'dns_blocked' : null }],
+      duration_ms: Math.round(performance.now() - started),
+      screenshot: null,
+    };
+  } catch (error) {
+    const message = String(error?.message || 'Check failed.');
+    const dnsFailure = /did not resolve|DNS lookup failed/i.test(message);
+    return {
+      status: dnsFailure ? 'dns_failed' : 'probe_error',
+      dns_only: true,
+      message: (dnsFailure ? 'DNS could not resolve this hostname from this network. It may be filtered at DNS or not exist.' : message).slice(0, 300),
+    };
+  }
+}
+
+async function safeInspect(browser, rawUrl, screenshot, extra = null) {
+  try {
+    return await inspect(browser, String(rawUrl || ''), screenshot, extra);
   } catch (error) {
     const message = String(error?.message || 'Check failed.');
     const dnsFailure = /did not resolve|ERR_NAME_NOT_RESOLVED|DNS lookup failed/i.test(message);
@@ -331,6 +466,8 @@ function identity() {
     gateway: route?.gateway || null,
     dns: resolver ? resolver.getServers() : dns.getServers(),
     dns_mode: resolver ? 'direct' : 'system',
+    browser_dns: proxyPort ? 'pinned' : 'system',
+    block_answers: [...unifiBlockAddresses, ...blockPageAddresses],
   };
 }
 
@@ -375,7 +512,7 @@ async function tryEndpoint(url) {
 /** Who issued the certificate a host presents, read without trusting it (only to name it). */
 function certificateIssuer(host) {
   return new Promise(resolve => {
-    const socket = tls.connect({ host, port: 443, servername: host, rejectUnauthorized: false, timeout: 4000 }, () => {
+    const socket = tls.connect({ host, port: 443, servername: host, rejectUnauthorized: false, timeout: 4000, ...(resolver ? { lookup: pinnedLookup } : {}) }, () => {
       const issuer = socket.getPeerCertificate()?.issuer || {};
       socket.end();
       resolve([issuer.CN, issuer.O].filter(Boolean).join(', ').slice(0, 120) || 'unknown');
@@ -420,7 +557,7 @@ const server = http.createServer(async (request, response) => {
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
   if (request.url === '/health') {
-    return response.end(JSON.stringify({ ok: true, dns: resolver ? 'direct' : 'system', fresh_browser_per_run: !reuseBrowser,
+    return response.end(JSON.stringify({ ok: true, dns: resolver ? 'direct' : 'system', browser_dns: proxyPort ? 'pinned' : 'system', fresh_browser_per_run: !reuseBrowser,
       runs: { active: activeRuns, waiting: waitingRuns.length, max: maxConcurrentRuns, queue_timeout_ms: queueTimeoutMs } }));
   }
   if (request.method === 'GET' && request.url === '/diagnose') {
@@ -431,6 +568,18 @@ const server = http.createServer(async (request, response) => {
     if (!authorised(request.headers['x-probe-key'])) { response.statusCode = 401; return response.end(JSON.stringify({ message: 'Unauthorised.' })); }
     return response.end(JSON.stringify(identity()));
   }
+  if (request.method === 'POST' && request.url === '/resolve') {
+    // For the setup checklist: how this VLAN's DNS answers a name the filter should block. No browser.
+    if (!authorised(request.headers['x-probe-key'])) { response.statusCode = 401; return response.end(JSON.stringify({ message: 'Unauthorised.' })); }
+    try {
+      const payload = await readJson(request, 4096);
+      const extra = new Set(list(Array.isArray(payload.block_addresses) ? payload.block_addresses.slice(0, 20).join(',') : ''));
+      const { addresses, resolver: usedResolver } = await resolve(String(payload.host || ''));
+      return response.end(JSON.stringify({ host: payload.host, addresses, resolver: usedResolver, blocked: addresses.length > 0 && addresses.every(address => sinkholed(address, extra)) }));
+    } catch (error) {
+      return response.end(JSON.stringify({ host: null, addresses: [], resolver: dnsServers.join(', ') || 'system', blocked: false, error: String(error.code || error.message).slice(0, 80) }));
+    }
+  }
   if (request.method !== 'POST' || !['/check', '/check-batch'].includes(request.url)) {
     response.statusCode = 404;
     return response.end(JSON.stringify({ message: 'Not found.' }));
@@ -440,16 +589,19 @@ const server = http.createServer(async (request, response) => {
   try {
     const payload = await readJson(request, 16384);
     const screenshot = Boolean(payload.screenshot);
+    // Block-page addresses saved in the app (Settings → Network profiles), on top of BLOCK_PAGE_ADDRESSES.
+    const extra = new Set(list(Array.isArray(payload.block_addresses) ? payload.block_addresses.slice(0, 20).join(',') : ''));
 
     if (request.url === '/check') {
-      const result = await withRunBrowser(browser => safeInspect(browser, payload.url, screenshot));
+      const result = await withRunBrowser(browser => safeInspect(browser, payload.url, screenshot, extra));
       if (result.status === 'probe_error') response.statusCode = 422;
       return response.end(JSON.stringify(result));
     }
 
     const urls = Array.isArray(payload.urls) ? payload.urls.slice(0, maxBatch) : [];
     if (!urls.length) { response.statusCode = 422; return response.end(JSON.stringify({ message: 'No URLs supplied.' })); }
-    const results = await withRunBrowser(browser => Promise.all(urls.map(url => safeInspect(browser, url, screenshot))));
+    if (payload.dns_only) return response.end(JSON.stringify({ results: await Promise.all(urls.map(url => dnsCheck(url, extra))) }));
+    const results = await withRunBrowser(browser => Promise.all(urls.map(url => safeInspect(browser, url, screenshot, extra))));
     return response.end(JSON.stringify({ results }));
   } catch (error) {
     if (error instanceof ProbeBusy) {

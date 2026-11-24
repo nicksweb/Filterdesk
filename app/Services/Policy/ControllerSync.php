@@ -22,7 +22,7 @@ use Throwable;
  */
 class ControllerSync
 {
-    private const CACHE_KEY = 'controller.state.v1';
+    public const CACHE_KEY = 'controller.state.v1';
 
     private const CACHE_SECONDS = 120;
 
@@ -45,6 +45,21 @@ class ControllerSync
     public function available(): bool
     {
         return $this->reader() !== null;
+    }
+
+    /**
+     * Controller filters paused (disabled) in UniFi, from the last read only
+     * (never asks the controller), keyed by filter id.
+     *
+     * @return array<string, string> id => name
+     */
+    public static function pausedFilters(): array
+    {
+        $cached = Cache::get(self::CACHE_KEY);
+
+        return collect(is_array($cached) ? ($cached['filters'] ?? []) : [])
+            ->filter(fn ($filter) => is_array($filter) && ! ($filter['enabled'] ?? true))
+            ->mapWithKeys(fn (array $filter) => [(string) $filter['id'] => (string) $filter['name']])->all();
     }
 
     /**
@@ -151,6 +166,9 @@ class ControllerSync
      */
     public function link(array $filter, FilterPolicy $policy, ?User $actor, bool $remapNetworks = false): array
     {
+        // Linking again to the filter it already has (Guided setup saved again, say) keeps the
+        // baseline, so what was removed in UniFi since the last check still reads as removed.
+        $relinking = $policy->provider_reference === $filter['id'] && isset($policy->sync_baseline['allow']);
         FilterPolicy::query()->whereKeyNot($policy->id)->where('provider_reference', $filter['id'])->update(['provider_reference' => null, 'provider_name' => null]);
         $policy->update(['provider_reference' => $filter['id'], 'provider_name' => $filter['name']]);
 
@@ -164,8 +182,10 @@ class ControllerSync
 
         $pulled = $this->pull($policy, $actor, refresh: false);
         $checker = app(SyncChecker::class);
-        $checker->setBaseline($policy->refresh(), $filter['allow'], $filter['block'], $filter['categories'] ?? []);
-        $checker->checkOne($policy, refresh: false);
+        if (! $relinking) {
+            $checker->setBaseline($policy->refresh(), $filter['allow'], $filter['block'], $filter['categories'] ?? []);
+        }
+        $checker->checkOne($policy->refresh(), refresh: false);
 
         return $pulled;
     }

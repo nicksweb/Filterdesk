@@ -191,7 +191,7 @@ class SyncChecker
 
         $summary = [];
         if ($pulled && collect($pulled)->flatten()->isNotEmpty()) {
-            $summary[] = 'Pulled from the controller: '.$this->count($pulled, ['allow_imported' => 'allowed +', 'block_imported' => 'blocked +', 'allow_excluded' => 'allow removed ', 'block_excluded' => 'block removed ', 'restored' => 're-added ', 'categories_changed' => 'categories changed ']).'.';
+            $summary[] = 'Pulled from the controller: '.$this->count($pulled, ['allow_imported' => 'allowed +', 'block_imported' => 'blocked +', 'allow_excluded' => 'allow removed ', 'block_excluded' => 'block removed ', 'allow_deleted' => 'allow removed ', 'block_deleted' => 'block removed ', 'restored' => 're-added ', 'categories_changed' => 'categories changed ']).'.';
         }
         if ($edited) {
             $summary[] = 'Changed in the controller: '.$this->count($changedInController, ['allow_added' => 'allow +', 'allow_removed' => 'allow −', 'block_added' => 'block +', 'block_removed' => 'block −', 'categories_added' => 'categories +', 'categories_removed' => 'categories −']).'.';
@@ -206,6 +206,11 @@ class SyncChecker
         if ($stackedNetworks > 0) {
             $summary[] = "Shares {$stackedNetworks} network(s) with ".$stacked->unique()->take(4)->join(', ').($stacked->unique()->count() > 4 ? ' and others' : '').' (see Networks & filters).';
         }
+        $paused = collect($report['allow_paused'] ?? []);
+        if ($paused->isNotEmpty()) {
+            $summary[] = $paused->take(4)->map(fn (array $filters, string $domain) => "{$domain} is only allowed by ".implode(', ', $filters).', which '.(count($filters) === 1 ? 'is' : 'are').' paused in UniFi')->join('; ')
+                .($paused->count() > 4 ? ' and '.($paused->count() - 4).' more' : '').", so it is left in {$filter['name']}.";
+        }
         if ($due) {
             $summary[] = 'Waiting to push: '.$this->count($pending, ['allow_add' => 'allow +', 'allow_remove' => 'allow −', 'block_add' => 'block +', 'block_remove' => 'block −']).'.';
         }
@@ -219,6 +224,7 @@ class SyncChecker
             'networks' => $networkIssues,
             'hours_only' => $hoursOnly->all(),
             'unmanaged' => ['allow' => $report['allow_review'], 'block' => $report['block_review']],
+            'paused_only' => $report['allow_paused'] ?? [],
             'pulled' => $pulled && collect($pulled)->flatten()->isNotEmpty() ? $pulled + ['at' => now()->toIso8601String()] : ($policy->sync_details['pulled'] ?? null),
             'authoritative' => $pulled !== null,
         ]);
@@ -248,7 +254,7 @@ class SyncChecker
         $desired = $this->engine->desired($policy);
         $report = $this->engine->reconcile($policy);
         $rules = $this->engine->rules();
-        $result = ['allow_imported' => [], 'block_imported' => [], 'allow_excluded' => [], 'block_excluded' => [], 'restored' => [], 'categories_changed' => []];
+        $result = ['allow_imported' => [], 'block_imported' => [], 'allow_excluded' => [], 'block_excluded' => [], 'allow_deleted' => [], 'block_deleted' => [], 'restored' => [], 'categories_changed' => []];
 
         $exclusions = $policy->exclusions();
         $sets = [];
@@ -259,6 +265,10 @@ class SyncChecker
                 'desired' => array_flip($desired[$kind]),
                 'review' => array_flip($report["{$kind}_review"]),
             ];
+        }
+        // Kept here because only a paused filter supplies them: flagged, not imported.
+        foreach (array_keys($report['allow_paused'] ?? []) as $domain) {
+            unset($sets['allow']['review'][$domain]);
         }
 
         foreach (['allow', 'block'] as $kind) {
@@ -281,6 +291,9 @@ class SyncChecker
                 if ($wanted || isset($excluded[$domain]) || isset($writtenByApp[$domain])) {
                     continue;
                 }
+                if ($kind === 'allow' && isset($report['allow_paused'][$domain])) {
+                    continue;
+                }
                 if (! isset($sets[$kind]['baseline'][$domain]) || isset($sets[$kind]['review'][$domain])) {
                     $result["{$kind}_imported"][] = $domain;
                 }
@@ -288,6 +301,13 @@ class SyncChecker
 
             foreach (array_diff($baseline[$kind] ?? [], $live[$kind]) as $domain) {
                 if (isset($sets[$kind]['desired'][$domain]) && ! isset($excluded[$domain])) {
+                    // Brought in from UniFi and now removed there: gone from the lists too, so neither
+                    // this filter nor its layers put it back. Anything added on purpose is only kept out.
+                    if ($this->deleteImported($policy, $kind, $domain, $filter['name'])) {
+                        $result["{$kind}_deleted"][] = $domain;
+
+                        continue;
+                    }
                     $exclusions[$kind][] = $domain;
                     $result["{$kind}_excluded"][] = $domain;
                 }
@@ -338,6 +358,36 @@ class SyncChecker
         }
 
         return $result;
+    }
+
+    /**
+     * Delete a hostname removed in the controller from the lists that give
+     * it to this policy, when every entry for it there was imported from the
+     * controller. An entry in a shared list stays while another linked
+     * filter (not this policy's own layers) still has it.
+     */
+    private function deleteImported(FilterPolicy $policy, string $kind, string $domain, string $filterName): bool
+    {
+        $owner = $policy->isLayer() && $policy->layerOf ? $policy->layerOf : $policy;
+        $entries = PolicyEntry::query()->with('policyList')->where('domain', $domain)
+            ->whereHas('policyList', fn ($query) => $query->where('kind', $kind === 'allow' ? ListKind::Allow : ListKind::Block)->appliesTo($policy))->get();
+        if ($entries->isEmpty() || $entries->contains(fn (PolicyEntry $entry) => $entry->source !== EntrySource::Import)) {
+            return false;
+        }
+        $column = $kind === 'allow' ? 'current_allowlist' : 'current_blocklist';
+        $elsewhere = fn (): bool => FilterPolicy::query()->whereNotNull('provider_reference')->whereKeyNot($policy->id)->whereKeyNot($owner->id)
+            ->where(fn ($query) => $query->whereNull('layer_of_id')->orWhere('layer_of_id', '!=', $owner->id))->get()
+            ->contains(fn (FilterPolicy $other) => in_array($domain, $other->{$column} ?? [], true));
+        if ($entries->contains(fn (PolicyEntry $entry) => $entry->policyList->filter_policy_id === null) && $elsewhere()) {
+            return false;
+        }
+
+        foreach ($entries as $entry) {
+            app(AuditLogger::class)->log('policy.entry_removed_in_controller', $entry->policyList, ['domain' => $domain, 'filter' => $filterName]);
+            $entry->delete();
+        }
+
+        return true;
     }
 
     /**

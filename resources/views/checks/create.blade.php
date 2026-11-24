@@ -57,15 +57,20 @@
                                     <span><strong>{{ $result['profile'] }}</strong><small>{{ ($here['profile'] ?? null)?->key === $key ? 'Your network' : ucfirst($key).' network probe' }}</small></span>
                                     <span class="probe-state {{ $result['status'] ?? 'unknown' }}">{{ str($result['status'] ?? 'unknown')->replace('_', ' ')->title() }}</span>
                                 </div>
-                                @if(!empty($result['screenshot']))
+                                @if(($result['block_method'] ?? null) === 'dns')
+                                    <div class="no-shot dns-blocked"><strong>Blocked by DNS</strong> on {{ $result['profile'] }}@if(!empty($result['addresses']) && auth()->user()->isIt()): {{ implode(', ', $result['addresses']) }}@endif<small>Nothing loaded, so there is no screenshot.</small></div>
+                                @elseif(!empty($result['dns_only']) && ($result['status'] ?? null) === 'allowed')
+                                    <div class="no-shot"><strong>Resolves normally</strong> on {{ $result['profile'] }}@if(!empty($result['addresses']) && auth()->user()->isIt()): {{ implode(', ', $result['addresses']) }}@endif<small>DNS-only check: the page was not loaded.</small></div>
+                                @elseif(!empty($result['screenshot']))
                                     <figure class="probe-screenshot">
                                         <img src="data:image/jpeg;base64,{{ $result['screenshot'] }}" alt="Screenshot of {{ $check['hostname'] }} from the {{ $result['profile'] }} network">
                                         <figcaption>Screenshot from {{ $result['profile'] }}</figcaption>
                                     </figure>
-                                @else
+                                @elseif($previews ?? false)
                                     <div class="no-shot">
                                         Screenshot unavailable
-                                        @if(!empty($result['message'])) — {{ $result['message'] }} @endif
+                                        @if(!empty($result['screenshot_error'])) — {{ $result['screenshot_error'] }}; the result above still stands.
+                                        @elseif(!empty($result['message'])) — {{ $result['message'] }} @endif
                                     </div>
                                 @endif
                                 <div class="result-meta">

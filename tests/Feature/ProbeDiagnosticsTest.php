@@ -38,7 +38,7 @@ class ProbeDiagnosticsTest extends TestCase
         return $overrides + [
             'hostname' => 'x', 'gateway' => $gateway, 'dns' => [$gateway], 'dns_mode' => 'direct',
             'interfaces' => [['name' => 'eth1', 'mac' => '02:aa:bb:cc:dd:ee', 'ipv4' => [$address], 'default_route' => true]],
-            'gateway_arp' => true, 'gateway_tcp' => true, 'dns_ok' => true, 'internet_ok' => true,
+            'gateway_arp' => true, 'gateway_tcp' => true, 'dns_ok' => true, 'internet_ok' => true, 'browser_dns' => 'pinned',
         ];
     }
 

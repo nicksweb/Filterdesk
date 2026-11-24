@@ -328,9 +328,11 @@ class ProbePlanner
         // probe's VLAN as a way out (!override drops probe_egress from compose.yml), so it can
         // never leave through the server's network, whatever the Docker Engine version.
         $networks = "    networks: !override\n      probe_control: {}\n      {$vlanKey}:\n        gw_priority: 1{$address}";
+        // dns: points the whole container (not only the probe's own lookups) at the VLAN's resolver.
+        $containerDns = '    dns: ['.implode(', ', array_filter(array_map('trim', explode(',', (string) $plan['dns'])))).']';
         $plan['compose'] = $builtIn
-            ? "  {$service}:\n    environment:\n      PROBE_DNS_SERVERS: {$plan['dns']}\n{$networks}"
-            : "  {$service}:\n    extends: { file: compose.yml, service: probe-student }\n    environment:\n      PROBE_DNS_SERVERS: {$plan['dns']}\n      ALLOWED_PRIVATE_HOSTS: \"\"\n{$networks}";
+            ? "  {$service}:\n    environment:\n      PROBE_DNS_SERVERS: {$plan['dns']}\n{$containerDns}\n{$networks}"
+            : "  {$service}:\n    extends: { file: compose.yml, service: probe-student }\n    environment:\n      PROBE_DNS_SERVERS: {$plan['dns']}\n      ALLOWED_PRIVATE_HOSTS: \"\"\n{$containerDns}\n{$networks}";
         $plan['compose_network'] = "  {$vlanKey}:\n    external: true\n    name: {$dockerNetwork}";
 
         return $plan;

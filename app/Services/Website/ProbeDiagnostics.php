@@ -54,10 +54,7 @@ class ProbeDiagnostics
         $profiles = collect($profiles);
         $results = [];
         $missing = $profiles->filter(function (NetworkProfile $profile) use ($refresh, &$results): bool {
-            if ($refresh) {
-                Cache::forget("probe.diagnose.{$profile->id}");
-            }
-            $cached = Cache::get("probe.diagnose.{$profile->id}");
+            $cached = $refresh ? null : Cache::get("probe.diagnose.{$profile->id}");
             if ($cached) {
                 $results[$profile->id] = $cached;
             }
@@ -69,8 +66,16 @@ class ProbeDiagnostics
             $responses = Http::pool(fn (Pool $pool) => $missing->map(fn (NetworkProfile $profile) => $pool->as((string) $profile->id)
                 ->connectTimeout(2)->timeout(12)->withHeaders(['X-Probe-Key' => (string) config('services.probe.key')])
                 ->get(rtrim($profile->probe_url, '/').'/diagnose'))->all());
+            $reports = $missing->mapWithKeys(fn (NetworkProfile $profile) => [$profile->id => $this->interpret($profile, $responses[(string) $profile->id] ?? null)]);
+            // No probe name resolves from here: this container is not on the probe network (a setup
+            // problem with it, not with the probes), so keep what was known instead of failing them all.
+            if ($reports->count() > 1 && $reports->every(fn (array $report) => $report['unresolved'] ?? false)) {
+                $this->unreachable = gethostname() ?: 'this container';
+
+                return collect($profiles)->mapWithKeys(fn (NetworkProfile $profile) => [$profile->id => $this->cached($profile)])->filter()->all();
+            }
             foreach ($missing as $profile) {
-                $result = $this->run($profile, $this->interpret($profile, $responses[(string) $profile->id] ?? null));
+                $result = $this->run($profile, $reports[$profile->id]);
                 Cache::put("probe.diagnose.{$profile->id}", $result, self::TTL);
                 $results[$profile->id] = $result;
             }
@@ -78,6 +83,9 @@ class ProbeDiagnostics
 
         return collect($results)->map(fn (array $result, int $id) => $this->withReviews($profiles->firstWhere('id', $id), $result))->all();
     }
+
+    /** Set by forAll() when no probe's name resolved from this container. */
+    public ?string $unreachable = null;
 
     /** The cached checklist, without asking the probe. */
     public function cached(NetworkProfile $profile): ?array
@@ -195,6 +203,22 @@ class ProbeDiagnostics
                 "Otherwise {$network?->name} probably blocks internet access (common for IoT and camera networks). In UniFi, allow {$address} out on ports 80 and 443, or test from a network that reflects real users.",
             ]);
 
+        // 6b. The browser resolves through the VLAN's DNS, not Docker's.
+        $checks[] = match ($report['browser_dns'] ?? null) {
+            'pinned' => $this->check('browser_dns', "Browser uses the VLAN's DNS", 'ok', 'Pages load through '.implode(', ', $dnsServers).', the same answers the check sees.'),
+            'system' => $this->check('browser_dns', "Browser uses the VLAN's DNS", 'warn', "The probe's browser resolves names through the container's own DNS, not ".($expectedGateway ?? "the network's gateway").', so it can load sites a device on '.($network?->name ?? 'this network').' cannot, and does not see SafeSearch.', [
+                'Regenerate compose.vlan.yml in Guided setup, step 3 (it sets PROBE_DNS_SERVERS and dns: for every probe), then docker compose up -d.',
+            ]),
+            default => $this->check('browser_dns', "Browser uses the VLAN's DNS", 'warn', "This probe image is from before 2026.12.18, so its browser resolves names through Docker's DNS instead of the VLAN's. It can load sites a device on ".($network?->name ?? 'this network').' cannot and report them as allowed.', [
+                'Update the probe image on the Docker host: docker compose pull, then docker compose up -d.',
+            ]),
+        };
+
+        // 6c. A site on the filter's block list is reported as blocked.
+        if ($network?->filterPolicy && ($report['dns_ok'] ?? false)) {
+            $checks[] = $this->blockedSiteCheck($profile, $network);
+        }
+
         // 7. Filtered by a content filter.
         if ($network) {
             $policy = $network->filterPolicy;
@@ -242,14 +266,68 @@ class ProbeDiagnostics
         return $this->summarise($checks, $report);
     }
 
+    /**
+     * Ask the probe how its DNS answers a few names on the network's filter
+     * block list. UniFi answers a blocked name with a block address; if the
+     * probe does not recognise the answer, checks report blocked sites as
+     * allowed, so offer to save that answer.
+     *
+     * @return array<string, mixed>
+     */
+    private function blockedSiteCheck(NetworkProfile $profile, NetworkAssignment $network): array
+    {
+        $policy = $network->filterPolicy;
+        $filter = $policy->provider_reference ? $policy->name : null;
+        $domains = collect($policy->current_blocklist ?? [])
+            ->filter(fn ($domain) => is_string($domain) && str_contains($domain, '.') && ! str_contains($domain, '*') && ! str_contains($domain, '/'))
+            ->take(3)->values();
+        $label = 'Blocked sites are detected';
+        if ($filter === null || $domains->isEmpty()) {
+            return $this->check('blocked', $label, 'skip', "{$policy->name} has no blocked hostnames in UniFi to test with.");
+        }
+
+        $blockAddresses = app(ProbeSettings::class)->blockAddresses();
+        $responses = Http::pool(fn (Pool $pool) => $domains->map(fn (string $domain) => $pool->as($domain)
+            ->connectTimeout(2)->timeout(5)->withHeaders(['X-Probe-Key' => (string) config('services.probe.key')])
+            ->post(rtrim($profile->probe_url, '/').'/resolve', ['host' => $domain, 'block_addresses' => $blockAddresses]))->all());
+        $answers = $domains->mapWithKeys(fn (string $domain) => [$domain => $responses[$domain] ?? null]);
+
+        if ($answers->every(fn ($response) => $response instanceof Response && $response->status() === 404)) {
+            return $this->check('blocked', $label, 'warn', 'This probe image is from before 2026.12.18 and cannot run this step.', [
+                'Update the probe image on the Docker host: docker compose pull, then docker compose up -d.',
+            ]);
+        }
+        $results = $answers->map(fn ($response) => $response instanceof Response && $response->successful() ? (array) $response->json() : null)->filter();
+        if ($results->isEmpty()) {
+            return $this->check('blocked', $label, 'warn', 'The probe did not answer the test lookups.');
+        }
+
+        $blocked = $results->first(fn (array $result) => ($result['blocked'] ?? false) || ($result['error'] ?? null) === 'ENOTFOUND');
+        if ($blocked) {
+            $domain = $results->search($blocked);
+            $answer = ($blocked['addresses'] ?? []) ? 'answers '.implode(', ', $blocked['addresses']) : 'has no answer';
+
+            return $this->check('blocked', $label, 'ok', "{$domain} is on {$filter}'s block list, and this network's DNS {$answer}, which the probe reports as blocked.");
+        }
+
+        $domain = (string) $results->keys()->first();
+        $addresses = array_values(array_filter((array) ($results[$domain]['addresses'] ?? []), 'is_string'));
+
+        return ['addresses' => $addresses] + $this->check('blocked', $label, 'warn',
+            "{$domain} is on {$filter}'s block list, but this network's DNS answers ".(implode(', ', $addresses) ?: 'nothing').', which the probe does not treat as blocked. Checks may report blocked sites as allowed.', array_values(array_filter([
+                $addresses ? 'If '.implode(', ', $addresses).' is the answer your gateway gives for blocked sites, save it as a block answer.' : null,
+                "Otherwise check in UniFi that {$filter} is on {$network->name}, is not paused, and blocks {$domain} at this time of day.",
+            ])), $addresses ? 'block_answer' : null);
+    }
+
     /** @return array<string, mixed> */
     private function fetch(NetworkProfile $profile): array
     {
         try {
             $response = Http::connectTimeout(2)->timeout(12)->withHeaders(['X-Probe-Key' => (string) config('services.probe.key')])
                 ->get(rtrim($profile->probe_url, '/').'/diagnose');
-        } catch (Throwable) {
-            $response = null;
+        } catch (Throwable $exception) {
+            $response = $exception;
         }
 
         return $this->interpret($profile, $response);
@@ -259,7 +337,11 @@ class ProbeDiagnostics
     private function interpret(NetworkProfile $profile, mixed $response): array
     {
         if (! $response instanceof Response) {
-            return ['ok' => false, 'message' => "The app cannot reach {$profile->probe_url}."];
+            $unresolved = $response instanceof Throwable && preg_match('/Could not resolve host|cURL error 6\b|getaddrinfo|Name or service not known/i', $response->getMessage()) === 1;
+
+            return ['ok' => false, 'unresolved' => $unresolved, 'message' => $unresolved
+                ? 'The name '.parse_url((string) $profile->probe_url, PHP_URL_HOST).' does not resolve from '.(gethostname() ?: 'the app').'. Check the probe container exists, and that this container is on the probe_control network (compose.yml).'
+                : "The app cannot reach {$profile->probe_url}."];
         }
         if ($response->status() === 404) {
             return ['ok' => false, 'message' => 'This probe image is too old to run setup checks. Rebuild it (docker compose … build probe-student) and restart.'];

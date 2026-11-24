@@ -82,15 +82,19 @@ services:
       probe-student: { condition: service_started }
       probe-staff: { condition: service_started }
 
+  # The queue and the scheduler talk to the probes too (probes:check every 10 minutes,
+  # scans), so they join probe_control like the app.
   queue:
     <<: *app
     command: ["php", "artisan", "queue:work", "--sleep=2", "--tries=3", "--timeout=300", "--max-time=3600"]
+    networks: [app, outbound, probe_control]
     depends_on:
       migrate: { condition: service_completed_successfully }
 
   scheduler:
     <<: *app
     command: ["php", "artisan", "schedule:work"]
+    networks: [app, outbound, probe_control]
     depends_on:
       migrate: { condition: service_completed_successfully }
 

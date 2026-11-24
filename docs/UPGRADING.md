@@ -16,6 +16,9 @@ git pull --ff-only          # for the latest compose.yml, docs and bin/ scripts
 docker compose pull       # COMPOSE_FILE in .env lists your compose files
 docker compose up -d
 
+# Or all of the above in one go, also in a folder that isn't a git checkout:
+bin/update
+
 # Building from source instead: FILTERDESK_VERSION=local, add -f compose.build.yml,
 # build app, web and probe-student one at a time, then up -d.
 
@@ -41,6 +44,21 @@ docker compose run --rm migrate
 ## Version numbers
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
+
+## 2026.12.17 → 2026.12.18
+
+- **This release changes `compose.yml`** (the queue and scheduler join `probe_control`). In a git checkout, `git pull --ff-only` as usual. In a plain folder (copied, not cloned), get the new `bin/update` once and run it. It backs up, pulls, copies the new `compose.yml`, example overrides and `bin/` scripts out of the image (keeping the old ones in `backups/`), and restarts:
+
+  ```bash
+  docker run --rm --entrypoint cat ghcr.io/nicksweb/filterdesk-app:2026.12.18 /var/www/html/bin/update > bin/update && chmod +x bin/update
+  bin/update
+  ```
+
+  If you added a local override that puts `queue` and `scheduler` on `probe_control`, you can remove it.
+- **Regenerate `compose.vlan.yml`** (Guided setup, step 3, or `docker compose exec -T app php artisan probes:compose > compose.vlan.yml`), then `docker compose up -d`. It now sets `dns:` for each probe. The new probe image already makes its browser use the VLAN's DNS without it.
+- `BLOCK_PAGE_ADDRESSES=203.0.113.250,2001:db8:1000::fa` is no longer needed for UniFi (it is the default). Leaving it set does no harm.
+- Run each probe's checklist (Settings → Network profiles → Re-run checks). The new steps *Browser uses the VLAN's DNS* and *Blocked sites are detected* should pass.
+- **Page previews are now IT only.** Students and staff see the results without screenshots or page titles. Change it under Settings → Network profiles → Website checks, where you can also switch checks to DNS only.
 
 ## 2026.12.16 → 2026.12.17
 

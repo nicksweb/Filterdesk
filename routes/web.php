@@ -46,6 +46,7 @@ Route::middleware('installation.only')->group(function (): void {
     Route::post('/install/{step}', [InstallController::class, 'store'])->whereNumber('step')->middleware('throttle:30,1')->name('install.store');
     Route::post('/install/oidc-test', [OidcTestController::class, 'install'])->middleware('throttle:10,1')->name('install.oidc-test');
     Route::post('/install/unifi-test', [InstallController::class, 'testUnifi'])->middleware('throttle:10,1')->name('install.unifi-test');
+    Route::post('/install/categories-test', [InstallController::class, 'testCategories'])->middleware('throttle:10,1')->name('install.categories-test');
 });
 
 Route::middleware('installed')->group(function (): void {
@@ -183,6 +184,7 @@ Route::middleware('installed')->group(function (): void {
             Route::post('/probes/{profile}/confirm-relay', [ProbeSetupController::class, 'confirmRelay'])->name('probes.confirm-relay');
             Route::post('/probes/{profile}/outside-pool', [ProbeSetupController::class, 'useOutsidePool'])->name('probes.outside-pool');
             Route::post('/probes/{profile}/review', [ProbeSetupController::class, 'review'])->name('probes.review');
+            Route::post('/probes/{profile}/block-answer', [ProbeSetupController::class, 'blockAnswer'])->name('probes.block-answer');
             Route::get('/audit', AuditLogController::class)->name('audit');
             Route::get('/diagnostics', DiagnosticsController::class)->name('diagnostics');
             Route::redirect('/integrations', '/admin/settings/network')->name('integrations.index');

@@ -439,19 +439,47 @@ class PolicyEngine
             ->merge(WebsiteRequest::query()->whereIn('status', [RequestStatus::Expired, RequestStatus::Revoked])->latest()->limit(2000)->get()->flatMap->effectiveDomains())
             ->unique()->all();
 
+        // An allow this filter has that only a paused filter's lists hold is not provided by that
+        // filter while it is paused: keep it here and say so, rather than remove it.
+        $allowPaused = $this->onlyInPausedFilters(array_values(array_diff(array_intersect($allowExtra, $known), $written['allow'])), $policy);
+
         return $desired + [
             'has_snapshot' => $hasSnapshot,
             'current_allow' => $currentAllow,
             'current_block' => $currentBlock,
             'allow_add' => $hasSnapshot ? $allowAdd : $desired['allow'],
-            'allow_remove' => array_values(array_intersect($allowExtra, $known)),
-            'allow_review' => array_values(array_diff($allowExtra, $known)),
+            'allow_remove' => array_values(array_diff(array_intersect($allowExtra, $known), array_keys($allowPaused))),
+            'allow_review' => array_values(array_merge(array_diff($allowExtra, $known), array_keys($allowPaused))),
+            'allow_paused' => $allowPaused,
             'block_add' => $hasSnapshot ? $blockAdd : $desired['block'],
             'block_remove' => $blockRemove,
             'block_review' => array_values(array_diff($blockExtra, $blockRemove)),
             'controller_blocks_allowed' => array_values(array_intersect($currentBlock, $desired['allow'])),
             'in_sync' => $hasSnapshot && $allowAdd === [] && $allowExtra === [] && $blockAdd === [] && $blockExtra === [],
         ];
+    }
+
+    /**
+     * Hostnames whose only entries are in other policies' lists, where each
+     * of those policies is linked to a filter that is paused in UniFi.
+     *
+     * @param  list<string>  $domains
+     * @return array<string, list<string>> domain => the paused filters' names
+     */
+    private function onlyInPausedFilters(array $domains, FilterPolicy $policy): array
+    {
+        $paused = $domains === [] ? [] : ControllerSync::pausedFilters();
+        if ($paused === []) {
+            return [];
+        }
+
+        return PolicyEntry::query()->with('policyList.filterPolicy')->whereIn('domain', array_slice($domains, 0, 5000))->get()
+            ->groupBy('domain')
+            ->map(fn (Collection $entries) => $entries->every(fn (PolicyEntry $entry) => ($owner = $entry->policyList?->filterPolicy) !== null
+                && ! $owner->is($policy) && isset($paused[(string) $owner->provider_reference]))
+                ? $entries->map(fn (PolicyEntry $entry) => $paused[(string) $entry->policyList->filterPolicy->provider_reference])->unique()->values()->all()
+                : null)
+            ->filter()->all();
     }
 
     /**

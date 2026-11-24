@@ -86,6 +86,11 @@
         @if($report['controller_blocks_allowed'])
             <div class="alert error"><strong>The controller blocks hostnames that are allowed here:</strong> {{ implode(', ', $report['controller_blocks_allowed']) }}. Remove them from the controller's block list, or remove the allow entry if the block is intended.</div>
         @endif
+        @if(!empty($report['allow_paused']))
+            <div class="alert warning"><strong>Kept because the filter that provides them is paused:</strong>
+                {{ collect($report['allow_paused'])->map(fn ($filters, $domain) => $domain.' (only in '.implode(', ', $filters).')')->join('; ') }}.
+                Publishing leaves them in this filter. Import them below to keep them here for good, or turn that filter back on in UniFi.</div>
+        @endif
         <div class="change-grid">
             @foreach([
                 ['Add to allow list', 'allow_add', 'positive', 'Desired but missing from the controller.', null],

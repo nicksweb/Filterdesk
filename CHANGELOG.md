@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.18
+
+### Fixed
+- **Blocked sites are no longer reported as allowed.** The probe now recognises UniFi's DNS block answer (`203.0.113.250`, `2001:db8:1000::fa`), and any answer in the documentation ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`), as blocked. `BLOCK_PAGE_ADDRESSES` is no longer needed for UniFi.
+- **The probe's browser uses the VLAN's DNS.** Chromium used to resolve names through Docker's DNS, so it loaded sites a device on the VLAN can't reach, and didn't see SafeSearch. Every page now loads through a small proxy inside the probe that resolves with the same VLAN resolver as the check. The generated `compose.vlan.yml` also sets `dns:` for each probe.
+- **A slow screenshot no longer fails the whole check.** The screenshot gets 5 seconds, then a capture that doesn't wait for fonts (YouTube), then none. The result stands either way, and the page says why there is no screenshot.
+- **The scheduler and queue can reach the probes** (`probe_control` in `compose.yml`). Before, the 10-minute `probes:check` marked every probe "not working" and website checks showed no results until the checklist was run again by hand. When no probe name resolves from the container it runs in, `probes:check` now says so and keeps the last results, instead of failing every probe.
+- **An old "not working" checklist no longer hides answers.** When a probe answers a check (or its `/health` does), its checklist is run again first, and its result is shown if it passes.
+- **Entries removed in UniFi aren't put back.**
+  - Guided setup linking a filter again no longer resets what Filterdesk compares UniFi with, so a removal made just before still reads as a removal.
+  - An entry that came from UniFi and was removed there is deleted from Filterdesk's lists, including shared lists unless another filter still has it. It is no longer just kept out of one policy, which a school-hours layer then put back. Entries added on purpose are still only kept out, as before.
+- **An allow that only a paused filter provides is kept.** Publishing used to plan to remove such an allow from a filter (for example `copilot.com` from *Student - School Time*, because *Allow (Sitewide)* had it but is paused). It now stays, and the sync summary and policy page say why.
+
+### Added
+- **Probe checklist steps:**
+  - **Browser uses the VLAN's DNS**, which also names probe images that are too old.
+  - **Blocked sites are detected**: it looks up a few hostnames on the network's filter block list. If the answer isn't recognised as a block, **Save … as a block answer** adds it for every probe. The list is under Settings → Network profiles, and it is sent with every check.
+- **Page previews are for IT only by default** (Settings → Network profiles → Website checks). Previews are the screenshot and the page title. Students and staff still see allowed or blocked on each network, but not the page, so a student who checks an inappropriate site doesn't see it. Previews can be opened to staff, or to everyone.
+- **DNS-only checks** (same place, optional): the probes answer from the VLAN's DNS without loading the page. Checks are faster, and the probe never fetches the site. They can't see block pages, HTTPS inspection, or parts of a page that fail to load.
+- **Website categories in the installer** (step 7, optional): Cloudflare token, source and account ID, with **Test lookup**.
+- **`bin/update`**: back up, pull, bring `compose.yml`, the example overrides and the `bin/` scripts up to date, and restart. In a folder that isn't a git checkout, the files come from the new app image, and anything replaced is kept in `backups/`. Your own overrides and `.env` are never touched.
+- DNS-blocked results show a *Blocked by DNS* card instead of an empty screenshot.
+
 ## 2026.12.17
 
 ### Fixed

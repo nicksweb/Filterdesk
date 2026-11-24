@@ -272,6 +272,9 @@
                                                             <button class="button small primary" form="probe-reserve-{{ $profile->id }}" data-confirm="Reserve {{ $check['ip'] }} for {{ $check['mac'] }} ({{ $profile->name }}) in UniFi?">Reserve {{ $check['ip'] }} in UniFi</button>
                                                             @if($check['outside'])<button class="button small secondary" form="probe-outside-{{ $profile->id }}" data-confirm="Move {{ $profile->name }} to {{ $check['outside'] }}, outside the DHCP pool? You then regenerate compose.vlan.yml and recreate its Docker network.">Use {{ $check['outside'] }} instead</button>@endif
                                                         @endif
+                                                        @if(($check['action'] ?? null) === 'block_answer' && $check['status'] === 'warn')
+                                                            <button class="button small primary" form="probe-block-answer-{{ $profile->id }}" data-confirm="Treat {{ implode(', ', $check['addresses'] ?? []) }} as your gateway's answer for blocked sites, on every probe?">Save {{ implode(', ', $check['addresses'] ?? []) }} as a block answer</button>
+                                                        @endif
                                                         @if($check['reviewable'] ?? false)
                                                             <button class="button small secondary" form="probe-review-{{ $profile->id }}-{{ $check['key'] }}">{{ $check['status'] === 'reviewed' ? 'Undo reviewed' : 'Reviewed, no action needed' }}</button>
                                                         @endif
@@ -286,6 +289,21 @@
                     @endforeach
                 </tbody>
             </table></div>
+            <h3>Website checks</h3>
+            <label>Check method
+                <select name="check_method">@foreach(\App\Services\Website\ProbeSettings::METHODS as $value => $label)<option value="{{ $value }}" @selected($checkMethod === $value)>{{ $label }}</option>@endforeach</select>
+                <small class="hint">UniFi's content filter blocks at DNS, so DNS only answers most checks: blocked or not, on each network, in about a second, without the probe ever fetching the site. It cannot see a block page, HTTPS inspection, or parts of a page that fail to load, and it shows no previews.</small>
+            </label>
+            <div class="fields two">
+                <label>Page previews (screenshot and page title)
+                    <select name="check_previews">@foreach(\App\Services\Website\ProbeSettings::PREVIEWS as $value => $label)<option value="{{ $value }}" @selected($checkPreviews === $value)>{{ $label }}</option>@endforeach</select>
+                    <small class="hint">Everyone sees whether a site is allowed or blocked on each network. Previews show the page itself, so a student who checks an inappropriate site would see it; keep them to IT unless you need them wider.</small>
+                </label>
+                <label>Block answers <span class="optional">extra DNS answers that mean blocked</span>
+                    <input name="block_addresses" value="{{ implode(', ', $blockAddresses) }}" placeholder="e.g. 10.0.0.250">
+                    <small class="hint">UniFi's answer (203.0.113.250, 2001:db8:1000::fa), 0.0.0.0 and the documentation ranges are always treated as blocked. Add another gateway's block-page address here; the checklist offers it when it sees one.</small>
+                </label>
+            </div>
             <h3>Add a profile</h3>
             <div class="fields three">
                 <label>Name<input name="new[name]" placeholder="Guest Wi-Fi"></label>
@@ -301,6 +319,7 @@
                 <form id="probe-reserve-{{ $profile->id }}" method="post" action="{{ route('admin.probes.reserve', $profile) }}" hidden>@csrf</form>
                 <form id="probe-outside-{{ $profile->id }}" method="post" action="{{ route('admin.probes.outside-pool', $profile) }}" hidden>@csrf</form>
                 <form id="probe-confirm-relay-{{ $profile->id }}" method="post" action="{{ route('admin.probes.confirm-relay', $profile) }}" hidden>@csrf</form>
+                <form id="probe-block-answer-{{ $profile->id }}" method="post" action="{{ route('admin.probes.block-answer', $profile) }}" hidden>@csrf</form>
                 @foreach($diagnosis['checks'] as $check)
                     @if($check['reviewable'] ?? false)
                         <form id="probe-review-{{ $profile->id }}-{{ $check['key'] }}" method="post" action="{{ route('admin.probes.review', $profile) }}" hidden>@csrf<input type="hidden" name="check" value="{{ $check['key'] }}"><input type="hidden" name="reviewed" value="{{ $check['status'] === 'reviewed' ? 0 : 1 }}"></form>

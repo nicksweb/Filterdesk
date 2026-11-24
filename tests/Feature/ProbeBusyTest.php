@@ -29,7 +29,7 @@ class ProbeBusyTest extends TestCase
             'probe-staff:3000/*' => Http::response(['results' => [['status' => 'allowed', 'http_status' => 200, 'page_title' => 'Example', 'final_url' => 'https://example.org/', 'hosts' => []]]]),
         ]);
 
-        $this->actingAs(User::factory()->teacher()->create())->post(route('checks.store'), ['websites' => 'example.org'])
+        $this->actingAs(User::factory()->admin()->create())->post(route('checks.store'), ['websites' => 'example.org'])
             ->assertOk()->assertSee('This probe is busy with 6 other check(s)')->assertSee('Example');
     }
 }

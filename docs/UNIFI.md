@@ -157,7 +157,7 @@ the gateway of its own VLAN, with nothing cached between runs:
 - Set `STUDENT_PROBE_DNS_SERVERS` / `STAFF_PROBE_DNS_SERVERS` to the gateway (or UniFi DNS) address for each network. The probe then queries those servers directly with an uncached resolver.
 - Leave `PROBE_REUSE_BROWSER=false` (default). Every check run starts a fresh Chromium process, so its host cache is empty and a re-run after a filter change shows the new result.
 - Chromium's Secure DNS (DNS-over-HTTPS) is disabled in the probe. DoH would bypass the content filter.
-- If the filter answers blocked names with a block-page address, list it in `BLOCK_PAGE_ADDRESSES`. `0.0.0.0` and `::` are always treated as blocked. Results then show *Blocked at the DNS level*.
+- UniFi answers a blocked name with `203.0.113.250` / `2001:db8:1000::fa`. The probe treats those, `0.0.0.0`, `::` and any documentation-range address as blocked, and results show *Blocked by DNS*. If a gateway answers with another address, the probe checklist's *Blocked sites are detected* step shows it and offers to save it (or list it in `BLOCK_PAGE_ADDRESSES`).
 - Diagnostics shows each probe's DNS mode and whether browsers are fresh per run.
 
 Without a VLAN override the probes use the Docker host's resolver. A

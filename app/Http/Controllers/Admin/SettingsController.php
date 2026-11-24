@@ -33,6 +33,7 @@ use App\Services\Requests\RequestFormSettings;
 use App\Services\SchoolCalendar;
 use App\Services\SettingsRepository;
 use App\Services\Website\ProbeDiagnostics;
+use App\Services\Website\ProbeSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -102,6 +103,9 @@ class SettingsController extends Controller
             'calendarPeriods' => $section === 'calendar' ? CalendarPeriod::query()->orderBy('start_date')->get() : collect(),
             'bellPeriods' => $section === 'calendar' ? BellPeriod::query()->orderBy('sort_order')->orderBy('starts_at')->get() : collect(),
             'profiles' => $profiles = NetworkProfile::query()->orderBy('sort_order')->orderBy('id')->get(),
+            'checkPreviews' => app(ProbeSettings::class)->previews(),
+            'checkMethod' => app(ProbeSettings::class)->dnsOnly() ? 'dns' : 'browser',
+            'blockAddresses' => app(ProbeSettings::class)->blockAddresses(),
             'diagnostics' => $diagnostics = $section === 'profiles' ? collect(app(ProbeDiagnostics::class)->forAll($profiles, $request->boolean('refresh'))) : collect(),
             'identities' => $diagnostics->map(fn (array $result) => $result['identity'] ? ['ok' => true, 'gateway' => $result['identity']['gateway'] ?? null] : ['ok' => false]),
             'expectedGateways' => $section === 'profiles' ? NetworkAssignment::query()->whereIn('provider_network_id', $profiles->pluck('unifi_network_id')->filter())->get()
@@ -429,7 +433,26 @@ class SettingsController extends Controller
             'new.key' => ['nullable', 'required_with:new.name', 'alpha_dash', 'max:40', 'unique:network_profiles,key'],
             'new.audience' => ['nullable', 'required_with:new.name', Rule::exists('network_types', 'key')],
             'new.probe_url' => ['nullable', 'required_with:new.name', 'url', 'max:255'],
+            'check_previews' => ['nullable', Rule::in(array_keys(ProbeSettings::PREVIEWS))],
+            'check_method' => ['nullable', Rule::in(array_keys(ProbeSettings::METHODS))],
+            'block_addresses' => ['nullable', 'string', 'max:1000'],
         ]);
+
+        $probeSettings = app(ProbeSettings::class);
+        if (isset($validated['check_method'])) {
+            app(SettingsRepository::class)->set(ProbeSettings::METHOD_KEY, $validated['check_method']);
+        }
+        if (isset($validated['check_previews'])) {
+            app(SettingsRepository::class)->set(ProbeSettings::PREVIEWS_KEY, $validated['check_previews']);
+        }
+        if ($request->has('block_addresses')) {
+            $addresses = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', (string) ($validated['block_addresses'] ?? '')) ?: [])));
+            $invalid = array_filter($addresses, fn (string $address) => filter_var($address, FILTER_VALIDATE_IP) === false);
+            if ($invalid !== []) {
+                throw ValidationException::withMessages(['block_addresses' => implode(', ', $invalid).' is not an IP address.']);
+            }
+            $probeSettings->saveBlockAddresses($addresses);
+        }
 
         $remaining = NetworkProfile::query()->count();
         foreach ($validated['profiles'] ?? [] as $id => $values) {

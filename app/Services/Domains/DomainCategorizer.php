@@ -37,9 +37,20 @@ class DomainCategorizer
         'Swimsuits & Underwear' => 'LINGERIE_AND_BIKINI', 'Lingerie & Bikini' => 'LINGERIE_AND_BIKINI', 'Child Abuse' => 'CHILD_ABUSE',
     ];
 
+    private ?IntegrationConfig $override = null;
+
+    /** A copy that uses these settings instead of the saved ones (the installer's Test lookup). */
+    public function using(IntegrationConfig $config): static
+    {
+        $copy = clone $this;
+        $copy->override = $config;
+
+        return $copy;
+    }
+
     public function integration(): ?IntegrationConfig
     {
-        return IntegrationConfig::query()->where('provider', self::PROVIDER)->first();
+        return $this->override ?? IntegrationConfig::query()->where('provider', self::PROVIDER)->first();
     }
 
     public function enabled(): bool

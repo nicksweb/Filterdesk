@@ -8,6 +8,7 @@ use App\Models\NetworkType;
 use App\Models\User;
 use App\Services\Approval\TwoPersonRule;
 use App\Services\Auth\UserProvisioningService;
+use App\Services\Domains\DomainCategorizer;
 use App\Services\Network\UniFiNetworkProvider;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Oidc\OidcProviderHints;
@@ -100,7 +101,7 @@ class InstallController extends Controller
                 'sensitive_categories' => ['nullable', 'string', 'max:4000'],
                 'review_months' => ['nullable', 'integer', 'min:1', 'max:36'],
                 'grace_days' => ['nullable', 'integer', 'min:1', 'max:90'],
-            ]),
+            ] + self::CATEGORY_RULES, ['categories_account_id.regex' => 'The account ID is the 32-character hex id in the Cloudflare dashboard URL.']),
             8 => [],
             default => abort(404),
         };
@@ -108,6 +109,15 @@ class InstallController extends Controller
         // A blank key keeps the one entered before (for example before Test connection).
         if ($step === 4 && blank($validated['unifi_api_key'] ?? null)) {
             unset($validated['unifi_api_key']);
+        }
+        if ($step === 7) {
+            $validated['categories_enabled'] = $request->boolean('categories_enabled');
+            if (blank($validated['categories_token'] ?? null)) {
+                unset($validated['categories_token']);
+            }
+            if ($validated['categories_enabled'] && blank($validated['categories_token'] ?? $request->session()->get('installation.categories_token'))) {
+                return back()->withInput()->withErrors(['categories_token' => 'Enter a Cloudflare API token to turn website categories on, or untick it.']);
+            }
         }
 
         if ($step === 3 && filled($validated['role_rules'] ?? null)) {
@@ -162,6 +172,41 @@ class InstallController extends Controller
      * can see, to pick the one to manage, then its sites, networks and
      * content filters, so you can tell it is the right one.
      */
+    /** Website category lookups (optional), as in Settings → Website categories. */
+    private const CATEGORY_RULES = [
+        'categories_enabled' => ['nullable', 'boolean'],
+        'categories_source' => ['nullable', 'in:auto,radar,intel'],
+        'categories_token' => ['nullable', 'string', 'max:200'],
+        'categories_account_id' => ['nullable', 'required_if:categories_source,intel', 'string', 'max:32', 'regex:/^[a-f0-9]{32}$/i'],
+    ];
+
+    /** Step 7: try the Cloudflare token on one well-known domain before it is saved. */
+    public function testCategories(Request $request): RedirectResponse
+    {
+        $data = $request->session()->get('installation', []);
+        $validated = $request->validate(self::CATEGORY_RULES, ['categories_account_id.regex' => 'The account ID is the 32-character hex id in the Cloudflare dashboard URL.']);
+        $token = filled($validated['categories_token'] ?? null) ? $validated['categories_token'] : ($data['categories_token'] ?? null);
+        if (blank($token)) {
+            return back()->withInput()->withErrors(['categories_token' => 'Enter the Cloudflare API token to test it.']);
+        }
+        $data = array_merge($data, array_filter($validated, fn ($value) => $value !== null), ['categories_enabled' => true, 'categories_token' => $token]);
+
+        $categorizer = app(DomainCategorizer::class)->using(new IntegrationConfig([
+            'provider' => DomainCategorizer::PROVIDER, 'mode' => 'read_only', 'enabled' => true,
+            'configuration' => ['source' => $data['categories_source'] ?? 'auto', 'account_id' => $data['categories_account_id'] ?? null],
+            'credentials' => ['token' => $token],
+        ]));
+        $result = rescue(fn () => $categorizer->lookup('wikipedia.org', refresh: true), ['ok' => false, 'categories' => [], 'message' => 'The lookup failed.'], false);
+        $data['categories_test'] = [
+            'ok' => $result['ok'] && $result['categories'] !== [],
+            'message' => $result['ok'] && $result['categories'] !== [] ? 'wikipedia.org: '.implode(', ', $result['categories']) : ($result['message'] ?? 'No categories came back.'),
+        ];
+        $request->session()->put('installation', $data);
+
+        // Keep what was typed in the rest of the step.
+        return redirect()->route('install.show', 7)->withInput($request->except('categories_token', '_token'));
+    }
+
     public function testUnifi(Request $request): RedirectResponse
     {
         $data = $request->session()->get('installation', []);
@@ -354,6 +399,14 @@ class InstallController extends Controller
                         'from' => $data['mail_from_address'] ?? $data['it_notification_address'],
                     ],
                     'credentials' => ['username' => $data['mail_username'] ?? null, 'password' => $data['mail_password'] ?? null],
+                ]);
+            }
+
+            if (($data['categories_enabled'] ?? false) && filled($data['categories_token'] ?? null)) {
+                IntegrationConfig::query()->create([
+                    'provider' => DomainCategorizer::PROVIDER, 'name' => 'Website categories', 'mode' => 'read_only', 'enabled' => true,
+                    'configuration' => ['source' => $data['categories_source'] ?? 'auto', 'account_id' => $data['categories_account_id'] ?? null],
+                    'credentials' => ['token' => $data['categories_token']],
                 ]);
             }
 
