@@ -8,6 +8,7 @@ use App\Models\NetworkType;
 use App\Models\User;
 use App\Services\Approval\TwoPersonRule;
 use App\Services\Auth\UserProvisioningService;
+use App\Services\Network\UniFiNetworkProvider;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Oidc\OidcProviderHints;
 use App\Services\Policy\PolicyBackfill;
@@ -67,7 +68,7 @@ class InstallController extends Controller
                 'unifi_connection' => ['nullable', 'in:local,cloud'],
                 'unifi_controller_url' => ['nullable', Rule::requiredIf(fn () => $request->boolean('unifi_enabled') && $request->input('unifi_connection', 'local') === 'local'), 'url', 'starts_with:https://'],
                 'unifi_console_id' => ['nullable', 'string', 'max:200', 'regex:/^[A-Za-z0-9:_-]+$/'],
-                'unifi_api_key' => ['nullable', 'required_if:unifi_enabled,1', 'string'],
+                'unifi_api_key' => ['nullable', Rule::requiredIf(fn () => $request->boolean('unifi_enabled') && blank($data['unifi_api_key'] ?? null)), 'string'],
                 'unifi_site_id' => ['nullable', 'string', 'max:120', 'different:unifi_console_id'],
                 'unifi_verify_tls' => ['nullable', 'boolean'],
                 'unifi_mode' => ['required', 'in:read_only,active'],
@@ -103,6 +104,11 @@ class InstallController extends Controller
             8 => [],
             default => abort(404),
         };
+
+        // A blank key keeps the one entered before (for example before Test connection).
+        if ($step === 4 && blank($validated['unifi_api_key'] ?? null)) {
+            unset($validated['unifi_api_key']);
+        }
 
         if ($step === 3 && filled($validated['role_rules'] ?? null)) {
             UserProvisioningService::parseRules($validated['role_rules']);
@@ -148,6 +154,56 @@ class InstallController extends Controller
         }
 
         return redirect()->route('install.show', $step + 1)->with('info', $notice);
+    }
+
+    /**
+     * Test the UniFi connection from the wizard, with what has been typed so
+     * far (nothing is saved but the form): the consoles a Site Manager key
+     * can see, to pick the one to manage, then its sites, networks and
+     * content filters, so you can tell it is the right one.
+     */
+    public function testUnifi(Request $request): RedirectResponse
+    {
+        $data = $request->session()->get('installation', []);
+        $validated = $request->validate([
+            'unifi_connection' => ['required', 'in:local,cloud'],
+            'unifi_controller_url' => ['nullable', 'required_if:unifi_connection,local', 'url', 'starts_with:https://'],
+            'unifi_console_id' => ['nullable', 'string', 'max:200', 'regex:/^[A-Za-z0-9:_-]+$/'],
+            'unifi_api_key' => ['nullable', 'string', 'max:500'],
+            'unifi_site_id' => ['nullable', 'string', 'max:120'],
+            'unifi_verify_tls' => ['nullable', 'boolean'],
+            'unifi_mode' => ['nullable', 'in:read_only,active'],
+            'entry_matching' => ['nullable', 'in:exact,includes_subdomains'],
+        ]);
+        $key = filled($validated['unifi_api_key'] ?? null) ? $validated['unifi_api_key'] : ($data['unifi_api_key'] ?? null);
+        if (blank($key)) {
+            return back()->withErrors(['unifi_api_key' => 'Enter the API key to test the connection.']);
+        }
+        $data = array_merge($data, array_filter($validated, fn ($value) => $value !== null), ['unifi_enabled' => true, 'unifi_api_key' => $key, 'unifi_verify_tls' => $request->boolean('unifi_verify_tls', true)]);
+        $request->session()->put('installation', $data);
+
+        $provider = new UniFiNetworkProvider(new IntegrationConfig([
+            'provider' => 'unifi', 'mode' => 'read_only', 'enabled' => true,
+            'configuration' => ['connection' => $data['unifi_connection'], 'console_id' => $data['unifi_console_id'] ?? null, 'controller_url' => $data['unifi_controller_url'] ?? null,
+                'site_id' => $data['unifi_site_id'] ?? null, 'verify_tls' => (bool) $data['unifi_verify_tls'], 'api_prefix' => '/proxy/network/integration/v1'],
+            'credentials' => ['api_key' => $key],
+        ]));
+        try {
+            $test = $provider->test();
+            $discovery = $provider->discover($data['unifi_site_id'] ?? null);
+            $filters = $test['ok'] ? rescue(fn () => count($provider->contentFilters()), null, false) : null;
+        } catch (Throwable $exception) {
+            $test = ['ok' => false, 'message' => 'The connection test failed: '.str($exception->getMessage())->limit(200)];
+            $discovery = ['consoles' => [], 'sites' => [], 'networks' => []];
+            $filters = null;
+        }
+        $result = ['ok' => $test['ok'], 'message' => $test['message'], 'consoles' => $discovery['consoles'] ?? [], 'sites' => $discovery['sites'] ?? [],
+            'networks' => collect($discovery['networks'] ?? [])->map(fn (array $network) => $network['name'].(isset($network['vlan']) && $network['vlan'] ? ' ('.$network['vlan'].')' : ''))->values()->all(),
+            'filters' => $filters, 'at' => now()->toIso8601String()];
+        $data['unifi_test'] = $result;
+        $request->session()->put('installation', $data);
+
+        return redirect()->route('install.show', 4);
     }
 
     /** @return array<string, array{ok: bool, message: string}> */

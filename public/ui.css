@@ -370,3 +370,5 @@ details.oidc-advanced{margin:8px 0}details.oidc-advanced summary{cursor:pointer;
 @media(prefers-color-scheme:dark){.alert.warning{background:#3a2a0a;border-color:#7a5a12;color:#fde7b0}}
 .hours-choice{border:0;padding:0;margin:8px 0}.hours-choice legend{font-weight:600}
 @media(max-width:640px){.test-sign-in{flex-direction:column;align-items:stretch}}
+.notice.baseline-added{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center}.notice.baseline-added small{grid-column:1/-1;color:var(--muted)}@media(max-width:640px){.notice.baseline-added{grid-template-columns:1fr}}
+.console-choice{border:0;padding:0;margin:8px 0;display:grid;gap:6px}.console-choice legend{font-weight:600;margin-bottom:4px}

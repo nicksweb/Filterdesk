@@ -45,6 +45,7 @@ Route::middleware('installation.only')->group(function (): void {
     Route::get('/install/{step?}', [InstallController::class, 'show'])->whereNumber('step')->name('install.show');
     Route::post('/install/{step}', [InstallController::class, 'store'])->whereNumber('step')->middleware('throttle:30,1')->name('install.store');
     Route::post('/install/oidc-test', [OidcTestController::class, 'install'])->middleware('throttle:10,1')->name('install.oidc-test');
+    Route::post('/install/unifi-test', [InstallController::class, 'testUnifi'])->middleware('throttle:10,1')->name('install.unifi-test');
 });
 
 Route::middleware('installed')->group(function (): void {
@@ -133,6 +134,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::get('/setup/compose-vlan', [ControllerSetupController::class, 'compose'])->name('setup.compose');
                     Route::post('/networks/link', [NetworkMapController::class, 'link'])->name('networks.link');
                     Route::post('/networks/baseline', [NetworkMapController::class, 'baseline'])->middleware('throttle:10,1')->name('networks.baseline');
+                    Route::post('/networks/baseline/{event}/undo', [NetworkMapController::class, 'undoBaseline'])->middleware('throttle:10,1')->name('networks.baseline-undo');
                     Route::put('/networks/baseline-policy', [NetworkMapController::class, 'baselinePolicy'])->name('networks.baseline-policy');
                     Route::put('/networks/{network}/unfiltered', [NetworkMapController::class, 'allowUnfiltered'])->name('networks.unfiltered');
                     Route::post('/networks/protect', [NetworkMapController::class, 'protect'])->middleware('throttle:10,1')->name('networks.protect');

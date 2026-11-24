@@ -42,6 +42,11 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.15 → 2026.12.16
+
+- Pull and restart as usual.
+- **If baseline filtering added a filter to networks it shouldn't have** (for example infrastructure or ISP networks), open Networks & filters: each automatic addition is listed at the top with **Take it off again**. Those networks are then listed under *No filter* to decide one by one (add Students filtering, or allow them unfiltered with a reason). From this version, new device networks are never filtered automatically, a scheduled filter is never used on its own, and the guard starts again (asking, not filtering) when you change console or site.
+
 ## 2026.12.14 → 2026.12.15
 
 - Pull and restart as usual. A migration adds school-hours layers and the *When* choice on approvals.

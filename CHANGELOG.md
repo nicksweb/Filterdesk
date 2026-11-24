@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.16
+
+### Fixed
+- **Baseline filtering no longer fills infrastructure networks with a filter by surprise.**
+  - It starts only once a Students policy is linked (after Guided setup), not on the first check after install.
+  - It starts again, asking rather than filtering, when the console or site changes, so switching from the simulation to a real console doesn't make every network look new.
+  - New *device* networks (infrastructure, ISP and WAN hand-offs, cameras…) are listed for a decision and IT is emailed; only new *user* networks are filtered automatically.
+  - A scheduled Students filter (school hours only) is never used automatically unless an admin chose it as the baseline.
+  - Networks whose filters are all paused stay untouched, as before.
+- ISP, WAN, uplink and similar network names are learned as device networks.
+
+### Added
+- **Take it off again**: each automatic baseline addition is listed on Networks & filters, with one button to remove that filter from those networks. They are then listed for a decision, and the guard won't add it back. This also works for additions made by earlier versions.
+- **Test connection in the installer's UniFi step**, without saving anything. With a Site Manager key it lists the consoles the key can see to pick the one to manage, then shows that console's sites, networks and content filters. The review step says whether the connection was tested.
+
 ## 2026.12.15
 
 ### Added

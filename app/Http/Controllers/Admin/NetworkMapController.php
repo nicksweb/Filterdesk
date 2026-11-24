@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\RunManualPush;
+use App\Models\AuditEvent;
 use App\Models\FilterPolicy;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkType;
@@ -54,6 +55,7 @@ class NetworkMapController extends Controller
             'rows' => $this->rows($networks, $learned, $unfiltered, $baseline->policy()),
             'filterRoles' => $learned['filters'],
             'baselinePolicy' => $baseline->policy(),
+            'automatic' => $state['error'] ? collect() : $baseline->automaticAdditions($state),
         ]);
     }
 
@@ -75,7 +77,11 @@ class NetworkMapController extends Controller
             $status = match (true) {
                 ($baselineItem['state'] ?? null) === 'allowed' => ['level' => 'muted', 'text' => 'Allowed unfiltered: '.$baselineItem['network']->unfiltered_reason, 'actions' => ['stop_allowing']],
                 ($baselineItem['state'] ?? null) === 'paused' => ['level' => 'bad', 'text' => 'Unfiltered: '.implode(', ', $baselineItem['paused']).(count($baselineItem['paused']) === 1 ? ' is' : ' are').' paused in UniFi.', 'actions' => ['protect', 'allow']],
-                ($baselineItem['state'] ?? null) === 'decide' => ['level' => 'warn', 'text' => "No filter. Add {$baselineName}, or allow it unfiltered and say why.", 'actions' => ['protect', 'allow']],
+                ($baselineItem['state'] ?? null) === 'decide' => ['level' => 'warn', 'text' => match ($baselineItem['network']->unfiltered_reason) {
+                    BaselineGuard::NEW_DEVICE_NETWORK => "New device network with no filter. Filterdesk didn't add one by itself: add {$baselineName}, or allow it unfiltered and say why.",
+                    BaselineGuard::UNDONE => "No filter (taken off again after automatic baseline filtering). Add {$baselineName}, or allow it unfiltered and say why.",
+                    default => "No filter. Add {$baselineName}, or allow it unfiltered and say why.",
+                }, 'actions' => ['protect', 'allow']],
                 ($baselineItem['state'] ?? null) === 'enforce' => ['level' => 'bad', 'text' => "No filter: gets {$baselineName} at the next check.", 'actions' => ['protect', 'allow']],
                 ($advice['action'] ?? null) === 'remap' => ['level' => 'warn', 'text' => $advice['text'], 'actions' => ['remap'], 'policy' => $advice['policy']],
                 $advice !== null => ['level' => $advice['level'] === 'warn' ? 'warn' : 'info', 'text' => $advice['text'], 'actions' => $advice['action'] ? [$advice['action']] : [],
@@ -106,6 +112,15 @@ class NetworkMapController extends Controller
         }
 
         return collect($rows)->sortBy(fn (array $row) => [$row['attention'] ? 0 : 1, $row['vlan'] ?? 0])->values()->all();
+    }
+
+    /** Take what baseline filtering added on its own off those networks again. */
+    public function undoBaseline(Request $request, AuditEvent $event, BaselineGuard $baseline): RedirectResponse
+    {
+        abort_unless($event->action === 'policy.baseline_filtered', 404);
+        $result = $baseline->undo($event, $request->user());
+
+        return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
     }
 
     /** Give unfiltered networks the baseline filter now: all that are due, or the ones picked. */

@@ -32,6 +32,18 @@
 
     <div id="networks-live">
         <div data-flash-slot></div>
+        @if($isAdmin && $automatic->isNotEmpty())
+            @foreach($automatic as $item)
+                <div class="notice baseline-added">
+                    <div><strong>Baseline filtering added {{ $item['filter_name'] }} to {{ $item['networks']->count() }} {{ $item['networks']->count() === 1 ? 'network' : 'networks' }}</strong> on {{ $item['event']->created_at->local()->format('j M Y g:i a') }}, because they had no filter.
+                        <x-chips :items="$item['networks']->pluck('name')->all()" :max="6" /></div>
+                    @if($writable)
+                        <form method="post" action="{{ route('admin.policy.networks.baseline-undo', $item['event']) }}" data-async="#networks-live" data-confirm-inline="Take {{ $item['filter_name'] }} off {{ $item['networks']->count() }} network(s)?">@csrf<button class="button small secondary">Take it off again</button></form>
+                    @endif
+                    <small>Taking it off lists them under <em>No filter</em> to decide one by one; Filterdesk won't add it back by itself.</small>
+                </div>
+            @endforeach
+        @endif
 
         @if($rows !== [])
             @php

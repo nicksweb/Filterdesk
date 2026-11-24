@@ -25,7 +25,8 @@ class ControllerLearner
 
     private const DEVICE_WORDS = ['mgmt', 'management', 'manage', 'infra', 'infrastructure', 'infrastrucure', 'ap', 'aps', 'server', 'servers', 'ilo', 'drac', 'idrac', 'cctv', 'camera', 'cameras',
         'printer', 'printers', 'print', 'phone', 'phones', 'voip', 'crestron', 'av', 'routing', 'router', 'switch', 'switches', 'iot', 'debug', 'test', 'packetfence', 'kitchen',
-        'retired', 'appletv', 'directnet', 'default', 'firewall', 'hvac', 'bms', 'security', 'door', 'access-control', 'nvr', 'ups', 'pdu', 'storage', 'nas', 'backup'];
+        'retired', 'appletv', 'directnet', 'default', 'firewall', 'hvac', 'bms', 'security', 'door', 'access-control', 'nvr', 'ups', 'pdu', 'storage', 'nas', 'backup',
+        'isp', 'wan', 'uplink', 'transit', 'peering', 'dmz', 'mpls', 'handoff', 'carrier', 'internet', 'nbn', 'fibre', 'fiber'];
 
     private const USER_WORDS = ['user', 'users', 'staff', 'student', 'students', 'wifi', 'wireless', 'byo', 'byod', 'guest', 'guests', 'visitor', 'visitors', 'boarding', 'contractor', 'contractors',
         'lab', 'labs', 'class', 'classroom', 'eduroam', 'teacher', 'teachers', 'learner', 'pupil', 'vpn', 'wg', 'library'];
