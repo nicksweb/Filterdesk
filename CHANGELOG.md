@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.26
+
+### Fixed
+- **A site is marked unreachable** when at least one of its addresses gets no reply and none answers. Before, an IPv6 address with no route (common on IPv4-only networks) stopped it, and the result fell back to a raw timeout.
+
 ## 2026.12.25
 
 ### Added

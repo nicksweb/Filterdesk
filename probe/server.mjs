@@ -393,7 +393,8 @@ async function connectionTest(rawUrl) {
   await Promise.all(addresses.slice(0, 4).map(async address => { connect[address] = await tcpCheck(address, port); }));
   const states = Object.values(connect);
   if (states.includes('open')) return null;
-  const dropped = states.every(state => state === 'timeout');
+  // An address with no route (often IPv6) says nothing; any timeout with nothing open means dropped.
+  const dropped = states.includes('timeout') && !states.includes('refused');
   return {
     status: 'unreachable',
     message: dropped

@@ -68,7 +68,9 @@ class SiteFirewallCheck
             $resolved->isEmpty() && collect($networks)->every(fn (array $network) => $network['blocked']) => 'dns_blocked',
             $resolved->isEmpty() => 'dns_missing',
             $blockedAddresses !== [] => 'firewall',
-            $resolved->every(fn (array $network) => collect($network['addresses'])->every(fn (array $row) => $row['connect'] === 'timeout')) => 'unreachable',
+            // No address answered and at least one dropped the connection (an address with no route, often IPv6, doesn't count).
+            $resolved->every(fn (array $network) => collect($network['addresses'])->doesntContain('connect', 'open')
+                && collect($network['addresses'])->contains('connect', 'timeout')) => 'unreachable',
             default => 'allowed',
         };
         $first = collect($networks)->flatMap(fn (array $network) => $network['addresses'])->first(fn (array $row) => ($row['evaluation']['decision'] ?? null) === 'block');
