@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.29
+
+### Security
+- **symfony/mailer 8.1.10 → 8.1.12.** Fixes CVE-2026-133751 and CVE-2026-133755: a man in the middle could bypass *require TLS*, or inject replies right after STARTTLS, on the connection to your SMTP server.
+
 ## 2026.12.28
 
 ### Added
