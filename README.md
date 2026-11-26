@@ -48,7 +48,7 @@ The application is school-neutral: branding, identity, network profiles, policy 
 - Live UniFi content filters: read, push with read-back verification and rollback, sync checks, and the controller kept as the source of truth (edits made in UniFi are imported)
 - Guided setup that brings every UniFi filter, list, network and category in with one click, ready to use
 - Content categories, timed allow and block windows, and block requests as well as access requests
-- Third-party DNS blocklists (such as hagezi) and IP blocklists pushed to UniFi firewall groups, with *layers* that keep big feeds in a second filter
+- Third-party DNS blocklists (such as hagezi) and IP blocklists (such as AbuseIPDB's most reported addresses) pushed to UniFi firewall groups, processed to fit UniFi's limits, with *layers* that keep big feeds in a second filter
 - **Firewall allow lists:** addresses and domains let through UniFi's firewall with Allow rules kept above the block rules, per zone or for every zone, and a check that names the firewall rule blocking a site before IT adds a domain allow that can't work
 - Per-policy reconciliation and copy-ready desired lists when pushing is off
 - DNS-aware approval recommendations: registrable domain plus the subdomains and CDN hosts a page loads

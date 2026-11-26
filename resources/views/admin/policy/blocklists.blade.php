@@ -70,13 +70,18 @@
                     <tr @class(['muted-row' => !$source->enabled])>
                         <td><strong>{{ $source->name }}</strong>@php($publisher = $source->preset ? config('blocklists.publishers.'.config("blocklists.presets.{$source->preset}.publisher")) : null)<small>@if($publisher)From <a href="{{ $publisher['url'] }}" rel="noopener" target="_blank">{{ $publisher['name'] }}</a> ({{ $publisher['licence'] }}) · @endif<a href="{{ $source->url }}" rel="noopener" target="_blank">{{ str($source->url)->after('://')->limit(60) }}</a></small></td>
                         <td>@if($source->policyList)<a href="{{ route('admin.policy.lists.show', $source->policyList) }}">{{ $source->policyList->name }}</a><small>{{ $source->policyList->kind->label() }} · {{ $source->policyList->scopeLabel() }}</small>@elseif($source->firewallList){{ $source->firewallList->name }}<small>Firewall IP list</small>@endif</td>
-                        <td>{{ number_format($source->entry_count) }}<small>max {{ number_format($source->max_entries) }}</small></td>
+                        <td>{{ number_format($source->entry_count) }}<small>max {{ number_format($source->max_entries) }}</small>@if($source->stats)<small>{{ \App\Services\Policy\IpFeedProcessor::describe($source->stats) }}</small>@endif</td>
                         <td>@if($source->last_fetched_at)<span class="status status-{{ $source->last_status === 'failed' ? 'failed' : ($source->last_status === 'truncated' ? 'action_required' : 'ok') }}">{{ ucfirst($source->last_status) }}</span><small>{{ $source->last_fetched_at->diffForHumans() }} · {{ $source->last_message }}</small>@else<span class="hint">Never</span>@endif</td>
                         <td>
                             <form method="post" action="{{ route('admin.policy.blocklists.feeds.update', $source) }}" class="feed-settings">@csrf @method('PUT')
                                 <label class="toggle"><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" @checked($source->enabled)> On</label>
                                 <input type="number" name="refresh_hours" min="1" max="168" value="{{ $source->refresh_hours }}" aria-label="Refresh hours" title="Refresh every N hours">
                                 <input type="number" name="max_entries" min="10" max="{{ config('blocklists.max_entries_limit') }}" value="{{ $source->max_entries }}" aria-label="Maximum entries" title="Maximum entries">
+                                @if($source->type === 'ips')
+                                    <select name="collapse" aria-label="Busy /24 subnets" title="Take a /24 whole when it has this many listed addresses">
+                                        @foreach([0 => 'Keep single addresses', 2 => 'Whole /24 at 2+', 3 => 'Whole /24 at 3+', 5 => 'Whole /24 at 5+', 10 => 'Whole /24 at 10+'] as $value => $label)<option value="{{ $value }}" @selected((int) ($source->options['collapse'] ?? 0) === $value)>{{ $label }}</option>@endforeach
+                                    </select>
+                                @endif
                                 <button class="button small secondary">Save</button>
                             </form>
                         </td>

@@ -50,6 +50,8 @@ class FeedFetcher
         $family = $source->firewallList?->family ?? 'ipv4';
         $values = [];
         $truncated = false;
+        // IP feeds are read whole (up to max_ip_lines) and processed to fit; domain feeds stop at their limit.
+        $readLimit = $source->type === 'ips' ? max((int) $source->max_entries, (int) config('blocklists.max_ip_lines', 250000)) : (int) $source->max_entries;
         $body = $response->toPsrResponse()->getBody();
         $buffer = '';
         while (! $body->eof()) {
@@ -60,7 +62,7 @@ class FeedFetcher
                 $value = $source->type === 'ips' ? $this->parser->ip($line, $family) : $this->parser->domain($line);
                 if ($value !== null) {
                     $values[$value] = true;
-                    if (count($values) >= $source->max_entries) {
+                    if (count($values) >= $readLimit) {
                         $truncated = true;
                         break 2;
                     }
@@ -80,15 +82,24 @@ class FeedFetcher
         }
 
         $values = array_keys($values);
+        $stats = null;
+        if ($source->type === 'ips') {
+            ['entries' => $values, 'stats' => $stats] = app(IpFeedProcessor::class)->process($values, $family, (int) $source->max_entries, (array) ($source->options ?? []));
+            $truncated = $truncated || $stats['cut'] > 0;
+            if ($values === []) {
+                return $this->record($source, 'failed', 'Nothing was left after processing ('.IpFeedProcessor::describe($stats).') Existing entries were kept.');
+            }
+        }
         [$added, $removed] = $source->type === 'ips' ? $this->syncIps($source, $values) : $this->syncDomains($source, $values);
 
         $source->forceFill([
             'etag' => $response->header('ETag') ?: null,
             'last_modified' => $response->header('Last-Modified') ?: null,
             'entry_count' => count($values),
+            'stats' => $stats,
         ])->save();
         $message = number_format(count($values)).' entries (+'.number_format($added).' / −'.number_format($removed).').'
-            .($truncated ? ' Stopped at the limit of '.number_format($source->max_entries).'; the rest of the list was ignored.' : '');
+            .($stats ? ' '.IpFeedProcessor::describe($stats) : ($truncated ? ' Stopped at the limit of '.number_format($source->max_entries).'; the rest of the list was ignored.' : ''));
         $this->audit->log('policy.feed_refreshed', $source, ['count' => count($values), 'added' => $added, 'removed' => $removed, 'truncated' => $truncated]);
 
         return $this->record($source, $truncated ? 'truncated' : 'ok', $message);

@@ -45,6 +45,11 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.27 → 2026.12.28
+
+- Update as usual. A migration adds processing options and statistics to feeds.
+- Existing IP feeds are processed from their next refresh: private and reserved addresses, and addresses on a firewall allow list, are dropped, and neighbouring addresses are merged. Feeds now read the whole list before applying their limit, so a capped list keeps the widest ranges rather than the first lines.
+
 ## 2026.12.26 → 2026.12.27
 
 - Update as usual. A migration adds the allow rule options (source networks, placement) and the last check time.

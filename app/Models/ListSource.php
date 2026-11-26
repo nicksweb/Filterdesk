@@ -13,12 +13,12 @@ class ListSource extends Model
 {
     protected $fillable = [
         'name', 'preset', 'url', 'type', 'policy_list_id', 'firewall_list_id', 'enabled', 'refresh_hours', 'max_entries',
-        'ip_entries', 'last_fetched_at', 'last_status', 'last_message', 'entry_count', 'etag', 'last_modified',
+        'ip_entries', 'last_fetched_at', 'last_status', 'last_message', 'entry_count', 'etag', 'last_modified', 'options', 'stats',
     ];
 
     protected function casts(): array
     {
-        return ['enabled' => 'boolean', 'ip_entries' => 'array', 'last_fetched_at' => 'datetime'];
+        return ['enabled' => 'boolean', 'ip_entries' => 'array', 'last_fetched_at' => 'datetime', 'options' => 'array', 'stats' => 'array'];
     }
 
     public function policyList(): BelongsTo

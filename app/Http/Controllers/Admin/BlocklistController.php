@@ -112,13 +112,18 @@ class BlocklistController extends Controller
             $attributes = [
                 'name' => $name, 'preset' => $validated['preset'] ?? null, 'url' => $url, 'type' => $type,
                 'refresh_hours' => (int) ($validated['refresh_hours'] ?? 24),
-                'max_entries' => (int) ($validated['max_entries'] ?? ($type === 'ips' ? 4000 : 20000)),
+                'max_entries' => (int) ($validated['max_entries'] ?? $preset['max_entries'] ?? ($type === 'ips' ? 4000 : 20000)),
+                'options' => $preset['options'] ?? null,
             ];
 
             if ($type === 'ips') {
                 $firewall = isset($validated['firewall_list_id'])
                     ? FirewallList::query()->findOrFail($validated['firewall_list_id'])
-                    : FirewallList::query()->create(['name' => $name, 'family' => 'ipv4']);
+                    : FirewallList::query()->create(['name' => $name, 'family' => 'ipv4', 'max_entries' => max(4000, $attributes['max_entries'])]);
+                // A big feed needs room in its firewall list too.
+                if ($firewall->max_entries < $attributes['max_entries']) {
+                    $firewall->forceFill(['max_entries' => $attributes['max_entries']])->save();
+                }
 
                 return ListSource::query()->create($attributes + ['firewall_list_id' => $firewall->id]);
             }
@@ -148,8 +153,13 @@ class BlocklistController extends Controller
             'enabled' => ['nullable', 'boolean'],
             'refresh_hours' => ['required', 'integer', 'min:1', 'max:168'],
             'max_entries' => ['required', 'integer', 'min:10', 'max:'.config('blocklists.max_entries_limit')],
+            'collapse' => ['nullable', 'integer', 'in:0,2,3,5,10'],
         ]);
-        $source->update(['enabled' => $request->boolean('enabled'), 'refresh_hours' => $validated['refresh_hours'], 'max_entries' => $validated['max_entries']]);
+        $source->update(['enabled' => $request->boolean('enabled'), 'refresh_hours' => $validated['refresh_hours'], 'max_entries' => $validated['max_entries']]
+            + ($source->type === 'ips' && $request->has('collapse') ? ['options' => ['collapse' => (int) $validated['collapse']] + (array) ($source->options ?? []), 'etag' => null, 'last_modified' => null] : []));
+        if ($source->type === 'ips' && $source->firewallList && $source->firewallList->max_entries < $source->max_entries) {
+            $source->firewallList->forceFill(['max_entries' => $source->max_entries])->save();
+        }
         if (! $source->enabled && $source->policy_list_id) {
             PolicyEntry::query()->where('list_source_id', $source->id)->delete();
             $source->forceFill(['entry_count' => 0, 'etag' => null, 'last_modified' => null])->save();

@@ -106,11 +106,11 @@ class BlocklistTest extends TestCase
 
     public function test_an_ip_feed_keeps_a_controller_ip_group_in_step_and_respects_the_limit(): void
     {
-        Http::fake(['raw.githubusercontent.com/*' => Http::response("# DoH IPs\n1.1.1.1\n8.8.8.8\n2606:4700::1111\n9.9.9.0/24\nnot-an-ip\n10.0.0.1\n")]);
+        Http::fake(['raw.githubusercontent.com/*' => Http::response("# DoH IPs\n1.1.1.1\n8.8.8.8\n2606:4700::1111\n9.9.9.0/24\nnot-an-ip\n10.0.0.1\n4.4.4.4\n")]);
 
         $this->actingAs($this->admin)->post(route('admin.policy.blocklists.feeds.store'), ['preset' => 'hagezi-doh-ips'])->assertSessionHas('success');
         $list = FirewallList::query()->firstOrFail();
-        $this->assertEqualsCanonicalizing(['1.1.1.1', '8.8.8.8', '9.9.9.0/24', '10.0.0.1'], $list->desiredEntries()['entries']);
+        $this->assertEqualsCanonicalizing(['1.1.1.1', '4.4.4.4', '8.8.8.8', '9.9.9.0/24'], $list->desiredEntries()['entries'], 'A private address from a feed is dropped: it never crosses the External zone');
 
         $this->actingAs($this->admin)->put(route('admin.policy.blocklists.firewall.update', $list), [
             'name' => 'DoH servers', 'manual_entries' => "203.0.113.9\n198.51.100.0/24", 'provider_reference' => 'sim-group-1', 'max_entries' => 5, 'enabled' => '1',

@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.28
+
+### Added
+- **AbuseIPDB preset** (Protection → Add a list → *AbuseIPDB: most reported IPs, 30 days*), from [borestad/blocklist-abuseipdb](https://github.com/borestad/blocklist-abuseipdb). The addresses most reported to AbuseIPDB over the last 30 days, the publisher's recommended period, refreshed daily into a firewall IP list.
+- **IP feeds are processed to fit UniFi.** The 30-day list has about 160,000 addresses, and a UniFi IP list holds 20,000. IP feeds are now read in full, then:
+  - private, reserved and documentation addresses are dropped, and so are addresses a firewall allow list lets through;
+  - optionally, a /24 with several listed addresses is taken whole (*Whole /24 at 3+* is the default for AbuseIPDB; *Keep single addresses* turns it off);
+  - neighbouring addresses are merged into the fewest subnets, without changing what's covered;
+  - the result is capped (40,000 entries by default for AbuseIPDB, two UniFi IP lists), keeping the widest ranges first and then single addresses spread evenly.
+
+  Each feed's row says what processing did. On today's 30-day list, with 3+: 5,931 busy /24s taken whole, about 81,000 entries before the 40,000 cap.
+
+### Fixed
+- **Probe image builds retry Ubuntu's mirrors.** The 2026.12.27 probe image failed while Ubuntu's security mirror was mid-sync.
+
 ## 2026.12.27
 
 ### Fixed

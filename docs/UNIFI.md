@@ -35,6 +35,8 @@ When a hostname is in both an allow list and a block list that apply to a filter
 - **Domain lists** fill their own list (site-wide, a network type or one policy, allow or block), refreshed on a schedule, and reach content filters through the normal push. Content filters are not built for very large lists: start with the bypass list (about 17,000 domains) or smaller, and check the push reports no shortfall. Lists of 100,000+ domains belong on a DNS resolver.
 - **IP lists** (and your own addresses) keep a UniFi IP group (traffic matching list) up to date through the official API. Create the group from the app or link an existing one, then let the app create the blocking rules (below) or add your own in UniFi, for example *Block · Internal → External · destination: the group*. The app shows which firewall rules use each group.
 
+- **Large IP feeds** such as the AbuseIPDB 30-day preset ([borestad/blocklist-abuseipdb](https://github.com/borestad/blocklist-abuseipdb), about 160,000 addresses) are processed to fit. Private, reserved and allow-listed addresses are dropped, and neighbouring addresses are merged into subnets. Optionally a /24 with several listed addresses is taken whole. Then the list is capped, widest ranges first. The feed's row shows what happened, and *Keep at most* and the /24 setting are on the same row. 40,000 entries is two UniFi IP lists, so two rules per ticked zone. The publisher recommends blocking on the incoming side: tick *Also block incoming connections* on its firewall list.
+
 `blocklists:refresh` runs hourly and downloads feeds that are due; with automatic pushing on, firewall IP groups are updated straight after.
 
 ### Firewall IP lists in UniFi
