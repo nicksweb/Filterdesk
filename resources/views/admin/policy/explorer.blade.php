@@ -29,6 +29,9 @@
                     @endforeach
                 </ol>
             @endforeach
+            @foreach($result['unifi_firewall'] ?? [] as $row)
+                <p @class(['network-status', 'warn' => $row['evaluation']['decision'] === 'block', 'ok' => $row['evaluation']['decision'] !== 'block'])><strong>UniFi firewall</strong> (zone {{ $row['zone'] }} → External): {{ \App\Services\Policy\FirewallEvaluator::describe($row['evaluation'], $row['address']) }}@if($row['evaluation']['allow_lists']) On the firewall allow list {{ implode(', ', $row['evaluation']['allow_lists']) }}.@endif @if($row['evaluation']['skipped'])<small class="hint">Rules that match by something other than an address were skipped: {{ implode(', ', $row['evaluation']['skipped']) }}.</small>@endif</p>
+            @endforeach
             @if($result['firewall'])<p class="network-status warn">Its address is in the firewall IP list {{ implode(', ', $result['firewall']) }}, which blocks it regardless of the content filter.</p>@endif
             @if(! $result['evidence'])<p class="hint">No recent probe check from this network. <a href="{{ route('checks.create', ['websites' => $result['domain']]) }}">Check it now</a> to confirm what the network really does.</p>@endif
         </section>

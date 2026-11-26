@@ -81,6 +81,7 @@
                 <a href="{{ route('admin.policy.explorer') }}" @class(['active' => request()->routeIs('admin.policy.explorer')])>Access explorer</a>
                 @foreach(\App\Models\NetworkType::query()->ordered()->get() as $navType)<a href="{{ route('admin.policy.types.show', $navType) }}" @class(['active' => request()->routeIs('admin.policy.types.show') && request()->route('type')?->is($navType)])>{{ $navType->name }}</a>@endforeach
                 <a href="{{ route('admin.policy.scan.show') }}" @class(['active' => request()->routeIs('admin.policy.scan.*')])>Domain scanner</a>
+                @if(auth()->user()->isAdmin())<a href="{{ route('admin.policy.firewall-allow.index') }}" @class(['active' => request()->routeIs('admin.policy.firewall-allow.*')])>Firewall allow lists</a>@endif
                 @if(auth()->user()->isAdmin())<a href="{{ route('admin.policy.setup.show') }}" @class(['active' => request()->routeIs('admin.policy.setup.*')])>Guided setup</a>@endif
             </nav>
         @endif

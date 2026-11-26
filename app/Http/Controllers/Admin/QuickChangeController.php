@@ -2,14 +2,20 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\ListKind;
 use App\Http\Controllers\Controller;
 use App\Jobs\RunManualPush;
+use App\Models\FirewallList;
 use App\Models\NetworkType;
 use App\Services\Policy\ControllerPusher;
+use App\Services\Policy\FirewallAllowList;
+use App\Services\Policy\FirewallListPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProtectedSites;
 use App\Services\Policy\QuickChange;
+use App\Services\Policy\SiteFirewallCheck;
 use App\Services\SettingsRepository;
+use Carbon\CarbonInterface;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -36,6 +42,9 @@ class QuickChangeController extends Controller
             throw ValidationException::withMessages(['domains' => $plan['protected'] ? ProtectedSites::message($plan['protected']) : 'Enter at least one hostname.']);
         }
 
+        // What else could block it: DNS, the connection, and UniFi's firewall rules for the address.
+        $plan['firewall'] = rescue(fn () => app(SiteFirewallCheck::class)->check($plan['domains'], $plan['scope'], connect: $plan['kind'] === ListKind::Allow), [], false);
+
         return $this->page($input, $plan);
     }
 
@@ -44,6 +53,10 @@ class QuickChangeController extends Controller
         $input = $this->validated($request);
         $extra = $request->validate([
             'remove' => ['nullable', 'array', 'max:500'], 'remove.*' => ['integer'],
+            'firewall_hosts' => ['nullable', 'array', 'max:20'], 'firewall_hosts.*' => ['string', 'max:253'],
+            'firewall_list_id' => ['nullable', 'integer'],
+            'firewall_reason' => ['nullable', 'string', 'max:300'],
+            'firewall_unallow' => ['nullable', 'array', 'max:20'], 'firewall_unallow.*' => ['string', 'max:300'],
             'note' => ['nullable', 'string', 'max:500'],
             'expires_at' => ['nullable', 'date'],
         ]);
@@ -69,6 +82,8 @@ class QuickChangeController extends Controller
             $messages[] = $counts['removed'].' conflicting entr'.($counts['removed'] === 1 ? 'y' : 'ies').' removed'.($counts['proposed_removals'] ? ", {$counts['proposed_removals']} proposed for removal" : '').'.';
         }
 
+        $messages = [...$messages, ...$this->firewallChanges($extra, $plan, $request, $expiresAt)];
+
         $published = false;
         if ($counts['added'] + $counts['removed'] > 0 && $pusher->automatic()) {
             RunManualPush::start('release', null, $request->user());
@@ -78,6 +93,49 @@ class QuickChangeController extends Controller
 
         return redirect()->route('admin.policy.quick.show')->with('success', implode(' ', $messages) ?: 'Nothing changed.')
             ->with('quick_publish', ! $published && $counts['added'] + $counts['removed'] > 0 && $pusher->enabled());
+    }
+
+    /**
+     * The firewall side of a quick change: add the ticked hostnames to an
+     * allow list (with the same expiry), or take them off one.
+     *
+     * @param  array<string, mixed>  $extra
+     * @param  array<string, mixed>  $plan
+     * @return list<string>
+     */
+    private function firewallChanges(array $extra, array $plan, Request $request, ?CarbonInterface $expiresAt): array
+    {
+        $allow = app(FirewallAllowList::class);
+        $messages = [];
+        $hosts = array_values(array_intersect($extra['firewall_hosts'] ?? [], $plan['domains']));
+        $list = $hosts ? FirewallList::query()->where('kind', 'allow')->find($extra['firewall_list_id'] ?? null) : null;
+        if ($hosts && $list && $plan['kind'] === ListKind::Allow) {
+            $result = $allow->add($list, $hosts, $request->user(), $extra['note'] ?? 'Quick allow by '.$request->user()->name, null, $expiresAt?->toIso8601String(), $extra['firewall_reason'] ?? null);
+            if ($result['added']) {
+                $messages[] = 'Added to the firewall allow list '.$list->name.': '.implode(', ', $result['added']).'.';
+                $this->pushFirewall($list, $request);
+            }
+            if ($result['refused']) {
+                $messages[] = 'Not added to the firewall allow list: '.implode(' ', $result['refused']);
+            }
+        }
+        foreach ($extra['firewall_unallow'] ?? [] as $pair) {
+            [$id, $host] = explode(':', $pair, 2) + [1 => ''];
+            $unallowList = FirewallList::query()->where('kind', 'allow')->find((int) $id);
+            if ($unallowList && in_array($host, $plan['domains'], true) && $allow->removeValues($unallowList, [$host], $request->user())) {
+                $messages[] = "Removed {$host} from the firewall allow list {$unallowList->name}.";
+                $this->pushFirewall($unallowList, $request);
+            }
+        }
+
+        return $messages;
+    }
+
+    private function pushFirewall(FirewallList $list, Request $request): void
+    {
+        if ($list->provider_reference && app(FirewallListPusher::class)->canWrite()) {
+            RunManualPush::start('firewall', $list->id, $request->user());
+        }
     }
 
     /** @return array{domains: string, kind: string, types: list<string>, when: string, include_www: bool} */
@@ -102,6 +160,7 @@ class QuickChangeController extends Controller
         $types = NetworkType::query()->ordered()->get();
 
         return view('admin.policy.quick', [
+            'allowLists' => FirewallList::query()->where('kind', 'allow')->where('enabled', true)->orderBy('id')->get(),
             'input' => $input,
             'plan' => $plan,
             'types' => $types,

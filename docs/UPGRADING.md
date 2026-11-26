@@ -45,6 +45,12 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.24 → 2026.12.25
+
+- Update as usual, **including the probe image** (`bin/update` pulls it). A migration adds firewall allow lists to the firewall lists table.
+- The UniFi API key already used for firewall IP lists is enough: allow lists use the same IP list and firewall rule endpoints.
+- Nothing changes in UniFi until an admin creates an allow list and pushes it. Existing block lists keep their rules. When an allow list is pushed, its Allow rules go to the top of each zone's order, above the block lists' rules.
+
 ## 2026.12.23 → 2026.12.24
 
 - Update as usual. No database changes.

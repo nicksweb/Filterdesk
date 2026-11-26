@@ -10,7 +10,9 @@ namespace App\Services\Network;
 interface ManagesIpGroups
 {
     /**
-     * @return list<array{id: string, name: string, family: string, count: int}>
+     * Every IP group with its addresses and subnets ("items").
+     *
+     * @return list<array{id: string, name: string, family: string, count: int, items?: list<string>}>
      *
      * @throws ProviderRequestFailed
      */
@@ -48,27 +50,32 @@ interface ManagesIpGroups
      * Firewall zones, for choosing where blocking rules apply, with the
      * names of the networks in each.
      *
-     * @return list<array{id: string, name: string, networks: list<string>}>
+     * @return list<array{id: string, name: string, networks: list<string>, network_ids?: list<string>}>
      *
      * @throws ProviderRequestFailed
      */
     public function firewallZones(): array;
 
     /**
-     * Create an enabled rule that blocks traffic from one zone to another
-     * where the destination (or, for incoming rules, the source) is in the group.
+     * Create an enabled rule that blocks (or, with action ALLOW, allows)
+     * traffic from one zone to another where the destination (or, for
+     * incoming rules, the source) is in the group.
      *
      * @throws ProviderRequestFailed
      */
-    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string;
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK'): string;
 
     /** @throws ProviderRequestFailed */
     public function deleteFirewallRule(string $id): void;
 
     /**
-     * Every firewall rule, in evaluation order per zone pair (lower index first).
+     * Every firewall rule, in evaluation order per zone pair (lower index
+     * first). "match" describes the destination it applies to: any address,
+     * an IP group, listed addresses, or something else ("unknown": a
+     * domain, region or app that cannot be checked against an address),
+     * with the ports when it names any.
      *
-     * @return list<array{id: string, name: string, action: string, enabled: bool, index: int, source: string, destination: string, user: bool}>
+     * @return list<array{id: string, name: string, action: string, enabled: bool, index: int, source: string, destination: string, user: bool, match?: array{kind: string, group?: string, addresses?: list<string>, opposite?: bool, ports?: list<array{0: int, 1: int}>|null, label?: string}}>
      *
      * @throws ProviderRequestFailed
      */

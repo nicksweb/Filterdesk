@@ -5,10 +5,12 @@ namespace App\Services\Policy;
 use App\Enums\ListKind;
 use App\Models\FilterPolicy;
 use App\Models\FirewallList;
+use App\Models\NetworkProfile;
 use App\Models\NetworkType;
 use App\Models\PolicyEntry;
 use App\Models\WebsiteCheck;
 use App\Services\Domains\DomainCategorizer;
+use App\Services\Website\SiteAddresses;
 use App\Support\Schedule;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -48,9 +50,13 @@ class AccessExplorer
         $evidence = $this->evidence($domain, $type);
         $firewall = $this->firewall($domain, $evidence['addresses'] ?? []);
 
+        $unifi = $this->unifiFirewall($domain, $type, $evidence['addresses'] ?? []);
+        $firewallBlock = collect($unifi)->firstWhere('evaluation.decision', 'block');
+
         $blocked = collect($policies)->firstWhere('verdict', 'blocked');
         [$verdict, $reason] = match (true) {
-            $policies === [] => ['unknown', "No content filter policy is set up for {$type->name}, so this app does not filter it."],
+            $policies === [] && ! $firewallBlock => ['unknown', "No content filter policy is set up for {$type->name}, so this app does not filter it."],
+            $firewallBlock !== null => ['blocked', 'Blocked by the UniFi firewall, not the content filter: '.FirewallEvaluator::describe($firewallBlock['evaluation'], $firewallBlock['address']).' Allowing the domain won\'t help; add the address to a firewall allow list.'],
             $firewall !== [] => ['blocked', 'Its address is in the firewall IP list '.implode(', ', $firewall).'.'],
             $blocked !== null => ['blocked', $blocked['reason']],
             default => ['allowed', collect($policies)->first()['reason']],
@@ -58,7 +64,7 @@ class AccessExplorer
 
         return [
             'domain' => $domain, 'type' => $type, 'at' => $at, 'verdict' => $verdict, 'reason' => $reason, 'policies' => $policies,
-            'categories' => $categories, 'firewall' => $firewall, 'evidence' => $evidence,
+            'categories' => $categories, 'firewall' => $firewall, 'evidence' => $evidence, 'unifi_firewall' => $unifi,
             'pending' => collect($policies)->contains('pending', true),
         ];
     }
@@ -200,6 +206,30 @@ class AccessExplorer
             ->filter(fn (FirewallList $list) => ! empty($list->rules) || ! empty($list->referenced_by))
             ->filter(fn (FirewallList $list) => collect($list->desiredEntries()['entries'])->contains(fn (string $entry) => collect($addresses)->contains(fn (string $address) => IpUtils::checkIp($address, $entry))))
             ->pluck('name')->values()->all();
+    }
+
+    /**
+     * What UniFi's firewall rules do with the site's addresses from this
+     * network type's zone: the addresses a probe saw, or else a quick DNS
+     * lookup through the type's probe.
+     *
+     * @param  list<string>  $addresses
+     * @return list<array{address: string, zone: string, evaluation: array<string, mixed>}>
+     */
+    private function unifiFirewall(string $domain, NetworkType $type, array $addresses): array
+    {
+        $evaluator = app(FirewallEvaluator::class);
+        $profile = NetworkProfile::query()->where('audience', $type->key)->where('enabled', true)->orderBy('sort_order')->first();
+        $zone = $profile ? $evaluator->zoneForProfile($profile) : null;
+        if (! $zone) {
+            return [];
+        }
+        if ($addresses === [] && filled($profile->probe_url)) {
+            $answer = rescue(fn () => app(SiteAddresses::class)->resolve($domain, collect([$profile]))[0] ?? null, null, false);
+            $addresses = $answer && ! $answer['blocked'] ? $answer['addresses'] : [];
+        }
+
+        return collect(array_slice($addresses, 0, 4))->map(fn (string $address) => ['address' => $address, 'zone' => $zone['name'], 'evaluation' => $evaluator->evaluate($address, $zone['id'])])->values()->all();
     }
 
     /** @return Collection<int, NetworkType> */

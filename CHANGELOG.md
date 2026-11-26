@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.25
+
+### Added
+- **Firewall allow lists** (Policies → Firewall allow lists, admins). Addresses, subnets and domains are let through UniFi's firewall, for sites whose address a firewall rule blocks. A content filter allow can't open those.
+  - Each list keeps a UniFi IP list and one **Allow rule per zone** (*Allow · zone → External · destination in the list*). Filterdesk keeps these at the top of each zone's order, above every block rule, its own block lists' "put first" rules included.
+  - **Zones:** *Every zone* (the default) covers all zones except External and Gateway, and follows UniFi. A zone created later gets its rule at the next push. *Only these zones* limits it, for example to staff networks, and the page lists zones that have block rules but no Allow rule from the list.
+  - **Entries** have a note, the request they came from, an optional end date and who added them. Domains are resolved through the probes, so on the school's own DNS, and again every hour. An address a domain stops using is dropped after 7 days.
+  - **Safety checks:** shared addresses (Cloudflare and Fastly ranges) and subnets wider than /24 need a reason, and anything wider than /16 is refused. Each entry shows the UniFi block rules it exempts the address from.
+  - **Take over a UniFi list** that already exists, bringing its addresses in, instead of making a second one.
+  - An optional **plain-text URL** (secret, one address or subnet per line) for firewalls that load IP lists from a URL. UniFi's format for URL lists couldn't be confirmed, so check it loads.
+- **Firewall checks before allowing or blocking.**
+  - **Quick allow** says when a site's address is blocked by a firewall rule, and names the rule, the list and the matching range. It also says when the name doesn't resolve, or when nothing replies. It then offers *Also add it to the firewall allow list*.
+  - **Quick block** says when the firewall already blocks the address, or when the address is on a firewall allow list, where a domain block can be bypassed by going to the address. It offers to take it off.
+  - **Request approval** shows the same check and offers *Also allow its address at the firewall*, with the request number and the access end date.
+- **The UniFi firewall in Access explorer and website checks.** Filterdesk now evaluates UniFi's own firewall rules and IP lists for the network's zone, in UniFi's order, against the site's addresses. Before, it only looked at its own lists.
+  - Access explorer reports *Blocked by the UniFi firewall, not the content filter*, with the rule.
+  - Rules that match by region, domain or app are noted as not checked.
+  - The firewall allow list page also lists **UniFi IP lists that no rule uses**.
+- **The probe tells "no connection" apart from a probe failure.**
+  - When a page times out, the probe tries a plain connection to each address. If nothing replies, it reports **unreachable** ("No reply from 198.51.100.7 on port 443…") instead of a raw timeout.
+  - IT sees the firewall rule that blocks the address. Students and staff see *Blocked by the school firewall*, or *Can't connect from the school network*.
+  - The probe's name lookup can also test a connection, which the checks above use.
+
 ## 2026.12.24
 
 ### Fixed

@@ -46,7 +46,7 @@
             </div>
 
             @foreach($checks as $check)
-                @php($isBlocked = collect($check['results'])->contains(fn ($result) => in_array($result['status'] ?? '', ['blocked', 'dns_failed'], true)))
+                @php($isBlocked = collect($check['results'])->contains(fn ($result) => in_array($result['status'] ?? '', ['blocked', 'dns_failed', 'unreachable'], true)))
                 <section class="site-result">
                     <div class="site-result-heading">
                         <span class="site-domain"><strong>{{ $check['hostname'] }}</strong><small>{{ $check['url'] }}</small></span>
@@ -60,7 +60,7 @@
                             @foreach($check['results'] as $key => $result)
                                 @php($status = $result['status'] ?? 'unknown')
                                 @php($certificate = $status === 'tls_error' && app(\App\Services\Network\InspectionCertificate::class)->matches($result['tls_issuer'] ?? null))
-                                @php([$label, $tone] = match (true) { in_array($status, ['blocked', 'dns_failed'], true) => ['Blocked', 'blocked'], $status === 'allowed' => ['Allowed', 'allowed'], $certificate => ['Works, but needs the school certificate', 'tls_error'], default => ["Couldn't check right now", 'unknown'] })
+                                @php([$label, $tone] = match (true) { $status === 'unreachable' && ($firewallFindings[$check['hostname']][$key]['blocked'] ?? false) => ['Blocked by the school firewall', 'blocked'], $status === 'unreachable' => ["Can't connect from the school network", 'blocked'], in_array($status, ['blocked', 'dns_failed'], true) => ['Blocked', 'blocked'], $status === 'allowed' => ['Allowed', 'allowed'], $certificate => ['Works, but needs the school certificate', 'tls_error'], default => ["Couldn't check right now", 'unknown'] })
                                 @php($when = $schoolHoursOnly[$check['hostname']][$key] ?? null)
                                 <li><span><strong>{{ $result['profile'] }}</strong>@if(($here['profile'] ?? null)?->key === $key)<small>Your network</small>@endif</span>
                                     <span><span class="probe-state {{ $tone }}">{{ $label }}</span>@if($when && $tone === 'blocked') <small>in school hours ({{ $when }}), open outside them</small>@endif
@@ -101,6 +101,7 @@
                                 @php($failedHosts = collect($result['hosts'] ?? [])->where('failed', true)->pluck('host')->reject(fn ($host) => $host === $check['hostname']))
                                 @if($failedHosts->isNotEmpty())<p class="probe-message">Also failed to load: {{ $failedHosts->take(8)->implode(', ') }}{{ $failedHosts->count() > 8 ? ' …' : '' }}</p>@endif
                                 @if(!empty($result['message']))<p class="probe-message">{{ $result['message'] }}</p>@endif
+                                @if($finding = $firewallFindings[$check['hostname']][$key] ?? null)<p @class(['probe-message', 'firewall-finding', 'blocked' => $finding['blocked']])>{{ $finding['text'] }} @if($finding['blocked'])<a href="{{ route('admin.policy.quick.show', ['domains' => $check['hostname'], 'kind' => 'allow']) }}">Quick allow…</a>@endif</p>@endif
                                 @if(!empty($result['tls_error']) && !empty($result['tls_issuer']))
                                     @if(app(\App\Services\Network\InspectionCertificate::class)->matches($result['tls_issuer']))
                                         <p class="probe-message">This network inspects HTTPS with the school's certificate ({{ $result['tls_issuer'] }}). Devices need it installed: <a href="{{ route('certificate.show') }}">install the school certificate</a>.</p>
@@ -121,7 +122,7 @@
                 <div class="panel-heading"><div><h2>Ask IT to allow or block</h2><p>Select the domains to include. Domains detected as blocked are selected automatically for an access request; for a block request, select the ones that should be blocked.</p></div></div>
                 <div class="shortlist-grid">
                     @foreach($checks as $check)
-                        @php($isBlocked = collect($check['results'])->contains(fn ($result) => in_array($result['status'] ?? '', ['blocked', 'dns_failed'], true)))
+                        @php($isBlocked = collect($check['results'])->contains(fn ($result) => in_array($result['status'] ?? '', ['blocked', 'dns_failed', 'unreachable'], true)))
                         <label class="choice shortlist-option">
                             <input type="checkbox" name="domains[]" value="{{ $check['hostname'] }}" @checked($isBlocked)>
                             <span><strong>{{ $check['hostname'] }}</strong><small>{{ $isBlocked ? 'Blocked on at least one network — automatically selected' : 'Not identified as blocked — select to include' }}</small></span>

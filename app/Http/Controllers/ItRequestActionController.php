@@ -3,9 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Enums\RequestStatus;
+use App\Jobs\RunManualPush;
+use App\Models\FirewallList;
 use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
+use App\Services\Policy\FirewallAllowList;
+use App\Services\Policy\FirewallListPusher;
 use App\Services\Policy\PolicyListParser;
 use App\Services\Requests\InvalidRequestTransition;
 use App\Services\Requests\RequestFormSettings;
@@ -39,6 +43,9 @@ class ItRequestActionController extends Controller
             'hours' => ['nullable', 'in:all,outside,school'],
             'override' => ['nullable', 'boolean'],
             'override_reason' => ['nullable', 'required_if_accepted:override', 'string', 'max:1000'],
+            'firewall_hosts' => ['nullable', 'array', 'max:20'], 'firewall_hosts.*' => ['string', 'max:253'],
+            'firewall_list_id' => ['nullable', 'integer'],
+            'firewall_reason' => ['nullable', 'string', 'max:300'],
         ], [
             'override_reason.required_if_accepted' => 'Say why no other IT officer is available.',
             'assignee_id.exists' => 'Choose an enabled IT staff member.',
@@ -87,13 +94,39 @@ class ItRequestActionController extends Controller
             return back()->with('success', 'First approval recorded. A second IT officer must confirm it ('.implode('; ', $websiteRequest->first_approval['reasons'] ?? []).'); the other IT officers have been emailed.');
         }
 
+        $firewall = $validated['action'] === 'approve' ? $this->allowAtFirewall($websiteRequest->refresh(), $validated, $request) : '';
+
         return back()->with('success', match ($validated['action']) {
-            'approve' => 'Request approved and added to the policy lists.',
+            'approve' => 'Request approved and added to the policy lists.'.$firewall,
             'assign', 'assign_me' => 'Request assigned.',
             'note' => 'Internal note added.',
             'window' => 'Access window updated.',
             default => 'Request updated.',
         });
+    }
+
+    /**
+     * "Also allow its address at the firewall": the ticked hostnames go to
+     * the chosen firewall allow list with the request number and the same
+     * end as the access.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function allowAtFirewall(WebsiteRequest $websiteRequest, array $validated, Request $request): string
+    {
+        $hosts = array_values(array_intersect($validated['firewall_hosts'] ?? [], $websiteRequest->effectiveDomains()));
+        $list = $hosts ? FirewallList::query()->where('kind', 'allow')->find($validated['firewall_list_id'] ?? null) : null;
+        if (! $list) {
+            return '';
+        }
+        $result = app(FirewallAllowList::class)->add($list, $hosts, $request->user(), "{$websiteRequest->reference}: {$websiteRequest->category}", $websiteRequest->reference,
+            $websiteRequest->accessUntil()?->toIso8601String(), $validated['firewall_reason'] ?? null);
+        if ($result['added'] && $list->provider_reference && app(FirewallListPusher::class)->canWrite()) {
+            RunManualPush::start('firewall', $list->id, $request->user());
+        }
+
+        return ($result['added'] ? ' Added to the firewall allow list '.$list->name.': '.implode(', ', $result['added']).'.' : '')
+            .($result['refused'] ? ' Not added to the firewall allow list: '.implode(' ', $result['refused']) : '');
     }
 
     /**

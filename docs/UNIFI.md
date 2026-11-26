@@ -52,6 +52,17 @@ How the rules are built, and why there are several:
 - **Drift:** a rule deleted in UniFi is recreated on the next push or hourly refresh. A rule you only disable stays disabled, and the page shows it as disabled. The app deletes its rules when you untick the zones or delete the list. Rules you made yourself are listed but never changed.
 - **Content filters are separate.** They apply per network and keep working as before; firewall IP lists add address-level blocking on top.
 
+### Firewall allow lists
+
+**Policies → Firewall allow lists** (admins) lets addresses through the firewall instead, for a site whose address one of your block rules (or a feed's) blocks. A content filter allow can't open those.
+
+- Each list keeps a UniFi IP list and one rule per zone: *Allow · &lt;zone&gt; → External · destination in the list*. The app moves these to the **top of each zone pair**, ahead of every block rule. Its own block lists with *Put these rules first* come straight after.
+- **Zones:** *Every zone* covers all zones except External and Gateway (Internal, Hotspot, Vpn and any you created). It follows UniFi: after you create a zone and move networks into it, the next push or hourly refresh adds its Allow rule. *Only these zones* covers the ticked ones; the page warns about zones that have block rules but no Allow rule from the list.
+- **Entries:** addresses, subnets (/16 or narrower; wider than /24 needs a reason) and domains, each with a note, request and end date. Domains are resolved through the probes, so on each network's own DNS, every hour; an address a domain stops using is dropped after 7 days. Cloudflare and Fastly addresses need a reason, because allowing one lets every site behind it through.
+- **Take over a UniFi list:** link an existing IP list and bring its addresses in as entries. From then on the app replaces its contents on each push.
+- **Plain-text URL:** optional, with a secret token, one address or subnet per line, for a firewall that loads IP lists from a URL. We couldn't confirm the format UniFi's own URL lists expect, so check it loads.
+- **Checks:** Quick allow, Quick block, request approval, website checks and Access explorer evaluate your firewall rules (enabled ones, in order, for the network's zone to External) against the site's addresses. They name the rule that decides. Rules that match by region, domain or application can't be checked against an address and are listed as skipped; threat management (IPS) and region blocking are outside these rules.
+
 Feeds refresh on their schedule (hourly check); with *Push automatically* on, each linked list is pushed after a refresh, but a list whose addresses, groups and rules are unchanged is skipped, so UniFi only receives real changes.
 
 ## Guided setup

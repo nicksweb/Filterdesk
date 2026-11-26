@@ -61,6 +61,9 @@
                     <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}" class="approve-form">
                         @csrf
                         <input type="hidden" name="action" value="approve">
+                        @if(!empty($firewallCheck['hosts']) && collect($firewallCheck['hosts'])->contains(fn ($result) => $result['verdict'] !== 'allowed'))
+                            <div class="firewall-plan"><x-firewall-check :check="$firewallCheck" kind="allow" :lists="$allowLists" /></div>
+                        @endif
                         @if(!empty($accessPlan))
                             <div class="access-plan">
                                 <label class="choice compact"><input type="hidden" name="smart" value="0"><input type="checkbox" name="smart" value="1" checked><span><strong>Only add allow entries where needed</strong><small>Uses each site's category and the lists that block it. Untick to add an allow entry for every hostname, as before. Changing the networks or the access window below can change this plan; it is worked out again when you approve.</small></span></label>

@@ -110,6 +110,7 @@ Every page and action checks the signed-in account's role on the server, on ever
 - UniFi is written to only in **Active** mode, and only by those code paths. Students and staff never reach code that writes to UniFi.
 - Approvals and site-wide changes follow two-person approval; quick changes to site-wide lists wait for a second officer too.
 - Requests are visible only to their requester and IT; internal notes only to IT.
+- Firewall allow lists are managed by admins. IT officers can add a site's address to one only from a quick allow or a request approval, where the firewall check is shown first. Every entry records who added it and why, and shared or wide addresses need a reason. An allow list's plain-text URL needs no sign-in; its secret token is the only key, so treat the URL like a password, and turn it off (or make a new one) if it leaks.
 
 ## Security review (2026.12.21)
 

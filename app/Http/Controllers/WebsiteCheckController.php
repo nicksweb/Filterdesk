@@ -10,6 +10,7 @@ use App\Models\WebsiteCheck;
 use App\Services\Domains\DomainCategorizer;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Policy\CategoryCoverage;
+use App\Services\Policy\FirewallEvaluator;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Website\NetworkLocator;
 use App\Services\Website\ProbeSettings;
@@ -25,6 +26,41 @@ class WebsiteCheckController extends Controller
     public function create(Request $request, NetworkLocator $locator): View
     {
         return view('checks.create', ['here' => $locator->locate($request->ip())]);
+    }
+
+    /**
+     * For results where no connection was made: what UniFi's firewall rules
+     * do with the addresses from that network's zone.
+     *
+     * @param  list<array<string, mixed>>  $checks
+     * @return array<string, array<string, array{blocked: bool, text: string}>> hostname => profile key => finding
+     */
+    private function firewallFindings(array $checks): array
+    {
+        $evaluator = app(FirewallEvaluator::class);
+        $profiles = NetworkProfile::query()->get()->keyBy('key');
+        $result = [];
+        foreach ($checks as $check) {
+            foreach ($check['results'] as $key => $outcome) {
+                if (! in_array($outcome['status'] ?? null, ['unreachable', 'probe_error'], true) || empty($outcome['addresses']) || ! ($profile = $profiles->get($key))) {
+                    continue;
+                }
+                $zone = $evaluator->zoneForProfile($profile);
+                if (! $zone) {
+                    continue;
+                }
+                $evaluations = collect(array_slice((array) $outcome['addresses'], 0, 4))->mapWithKeys(fn (string $address) => [$address => $evaluator->evaluate($address, $zone['id'])]);
+                $blocked = $evaluations->filter(fn (array $evaluation) => $evaluation['decision'] === 'block');
+                $result[$check['hostname']][$key] = [
+                    'blocked' => $blocked->isNotEmpty(),
+                    'text' => $blocked->isNotEmpty()
+                        ? 'Blocked by the UniFi firewall, not the content filter: '.FirewallEvaluator::describe($blocked->first(), (string) $blocked->keys()->first()).' Allowing the domain won\'t help; add the address to a firewall allow list.'
+                        : 'No UniFi firewall rule for the '.$zone['name'].' zone blocks '.$evaluations->keys()->join(', ').'. Check threat management (IPS), region blocking, or whether the site is down.',
+                ];
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -119,6 +155,7 @@ class WebsiteCheckController extends Controller
             'here' => $here, 'previews' => $previews,
             'checks' => $result['checks'],
             'schoolHoursOnly' => rescue(fn () => $this->schoolHoursOnly($result['checks']), [], false), 'duration' => $result['duration_ms'],
+            'firewallFindings' => rescue(fn () => $this->firewallFindings($result['checks']), [], false),
             'categories' => rescue(fn () => app(DomainCategorizer::class)->many(collect($result['checks'])->pluck('hostname')->all()), [], false),
         ]);
     }

@@ -156,6 +156,17 @@ function privateOrSpecial(address) {
 }
 
 /** Resolve without any cache in this process. */
+/** One TCP connection attempt: open, refused (something answered no), timeout (no reply) or error. */
+function tcpCheck(address, port, timeout = 3000) {
+  return new Promise(done => {
+    const socket = net.connect({ host: address, port, timeout });
+    const finish = state => { socket.destroy(); done(state); };
+    socket.once('connect', () => finish('open'));
+    socket.once('timeout', () => finish('timeout'));
+    socket.once('error', error => finish(error.code === 'ECONNREFUSED' ? 'refused' : (error.code === 'ETIMEDOUT' ? 'timeout' : 'error')));
+  });
+}
+
 async function resolve(hostname) {
   if (!resolver) {
     const records = await dns.lookup(hostname, { all: true, verbatim: true });
@@ -356,11 +367,42 @@ async function safeInspect(browser, rawUrl, screenshot, extra = null) {
   } catch (error) {
     const message = String(error?.message || 'Check failed.');
     const dnsFailure = /did not resolve|ERR_NAME_NOT_RESOLVED|DNS lookup failed/i.test(message);
+    if (!dnsFailure && /Timeout|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|ERR_CONNECTION_REFUSED|ERR_ADDRESS_UNREACHABLE|ERR_CONNECTION_RESET/i.test(message)) {
+      const unreachable = await connectionTest(String(rawUrl || '')).catch(() => null);
+      if (unreachable) return unreachable;
+    }
     return {
       status: dnsFailure ? 'dns_failed' : 'probe_error',
       message: (dnsFailure ? 'DNS could not resolve this hostname from this network. It may be filtered at DNS or not exist.' : message).slice(0, 300),
     };
   }
+}
+
+/**
+ * After a page timed out: which addresses the name resolves to, and whether
+ * a plain TCP connection to each gets any reply. No reply on every address
+ * means the connection is dropped (usually a firewall rule), which is a
+ * result, not a probe failure. Returns null when a connection did open.
+ */
+async function connectionTest(rawUrl) {
+  const url = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
+  const port = Number(url.port) || (url.protocol === 'http:' ? 80 : 443);
+  const { addresses, resolver: usedResolver } = await resolve(url.hostname);
+  if (addresses.length === 0) return null;
+  const connect = {};
+  await Promise.all(addresses.slice(0, 4).map(async address => { connect[address] = await tcpCheck(address, port); }));
+  const states = Object.values(connect);
+  if (states.includes('open')) return null;
+  const dropped = states.every(state => state === 'timeout');
+  return {
+    status: 'unreachable',
+    message: dropped
+      ? `No reply from ${Object.keys(connect).join(', ')} on port ${port}. The connection is being dropped, usually by a firewall rule.`
+      : `The connection to ${Object.keys(connect).join(', ')} on port ${port} was refused or failed.`,
+    connect, port, addresses, resolver: usedResolver,
+    final_url: url.href,
+    hosts: [{ host: url.hostname, requests: 0, failed: true, reason: dropped ? 'no_reply' : 'refused' }],
+  };
 }
 
 /*
@@ -576,7 +618,13 @@ const server = http.createServer(async (request, response) => {
       const payload = await readJson(request, 4096);
       const extra = new Set(list(Array.isArray(payload.block_addresses) ? payload.block_addresses.slice(0, 20).join(',') : ''));
       const { addresses, resolver: usedResolver } = await resolve(String(payload.host || ''));
-      return response.end(JSON.stringify({ host: payload.host, addresses, resolver: usedResolver, blocked: addresses.length > 0 && addresses.every(address => sinkholed(address, extra)) }));
+      const blocked = addresses.length > 0 && addresses.every(address => sinkholed(address, extra));
+      // Optional: can a plain TCP connection be made to each address? "timeout" (no reply) usually means a firewall drops it.
+      const connect = {};
+      if (payload.connect === true && !blocked) {
+        await Promise.all(addresses.slice(0, 4).map(async address => { connect[address] = await tcpCheck(address, Number(payload.port) || 443); }));
+      }
+      return response.end(JSON.stringify({ host: payload.host, addresses, resolver: usedResolver, blocked, connect }));
     } catch (error) {
       return response.end(JSON.stringify({ host: null, addresses: [], resolver: dnsServers.join(', ') || 'system', blocked: false, error: String(error.code || error.message).slice(0, 80) }));
     }

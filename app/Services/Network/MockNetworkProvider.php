@@ -123,7 +123,7 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function ipGroups(): array
     {
-        return array_values(array_map(fn (array $group) => ['id' => $group['id'], 'name' => $group['name'], 'family' => $group['family'], 'count' => count($group['items'])], $this->rawIpGroups()));
+        return array_values(array_map(fn (array $group) => ['id' => $group['id'], 'name' => $group['name'], 'family' => $group['family'], 'count' => count($group['items']), 'items' => $group['items']], $this->rawIpGroups()));
     }
 
     public function writeIpGroup(string $id, string $name, string $family, array $entries): void
@@ -148,8 +148,8 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function firewallRulesUsing(string $id): array
     {
-        $rules = collect(Cache::get('mock.firewall_rules', []))->filter(fn (array $rule) => $rule['group'] === $id)
-            ->map(fn (array $rule) => ['name' => $rule['name'], 'action' => 'BLOCK', 'enabled' => true])->values()->all();
+        $rules = collect(Cache::get('mock.firewall_rules', []))->filter(fn (array $rule) => ($rule['group'] ?? null) === $id)
+            ->map(fn (array $rule) => ['name' => $rule['name'], 'action' => $rule['action'] ?? 'BLOCK', 'enabled' => $rule['enabled'] ?? true])->values()->all();
 
         return $id === 'sim-group-1' ? [['name' => 'Block listed IPs', 'action' => 'BLOCK', 'enabled' => true], ...$rules] : $rules;
     }
@@ -164,16 +164,16 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
     public function firewallZones(): array
     {
         return [
-            ['id' => 'zone-internal', 'name' => 'Internal', 'networks' => ['Staff Access', 'Student Access']], ['id' => 'zone-external', 'name' => 'External', 'networks' => []],
-            ['id' => 'zone-gateway', 'name' => 'Gateway', 'networks' => []], ['id' => 'zone-hotspot', 'name' => 'Hotspot', 'networks' => ['Guest Wi-Fi']], ['id' => 'zone-vpn', 'name' => 'Vpn', 'networks' => []],
+            ['id' => 'zone-internal', 'name' => 'Internal', 'networks' => ['Staff Access', 'Student Access'], 'network_ids' => ['sim-staff', 'sim-student']], ['id' => 'zone-external', 'name' => 'External', 'networks' => [], 'network_ids' => []],
+            ['id' => 'zone-gateway', 'name' => 'Gateway', 'networks' => [], 'network_ids' => []], ['id' => 'zone-hotspot', 'name' => 'Hotspot', 'networks' => ['Guest Wi-Fi'], 'network_ids' => ['sim-guest']], ['id' => 'zone-vpn', 'name' => 'Vpn', 'networks' => [], 'network_ids' => []],
         ];
     }
 
-    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false): string
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK'): string
     {
         $rules = Cache::get('mock.firewall_rules', []);
-        $id = 'sim-rule-'.(count($rules) + 1);
-        $rules[$id] = ['id' => $id, 'name' => $name, 'group' => $groupId, 'source' => $sourceZoneId, 'destination' => $destinationZoneId, 'incoming' => $groupIsSource];
+        $id = 'sim-rule-'.(count($rules) + 1).'-'.substr(md5($name.$groupId.$sourceZoneId), 0, 6);
+        $rules[$id] = ['id' => $id, 'name' => $name, 'group' => $groupId, 'source' => $sourceZoneId, 'destination' => $destinationZoneId, 'incoming' => $groupIsSource, 'action' => $action];
         Cache::forever('mock.firewall_rules', $rules);
 
         return $id;
@@ -193,7 +193,8 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
         return collect(Cache::get('mock.firewall_rules', []))->values()->map(fn (array $rule, int $index) => [
             'id' => $rule['id'], 'name' => $rule['name'], 'action' => $rule['action'] ?? 'BLOCK', 'enabled' => $rule['enabled'] ?? true,
             'index' => in_array($rule['id'], $order, true) ? array_search($rule['id'], $order, true) : 10000 + $index,
-            'source' => $rule['source'], 'destination' => $rule['destination'], 'user' => true,
+            'source' => $rule['source'], 'destination' => $rule['destination'], 'user' => $rule['user'] ?? true,
+            'match' => $rule['match'] ?? (isset($rule['group']) ? ['kind' => 'group', 'group' => $rule['group'], 'opposite' => false, 'ports' => null] : ['kind' => 'any', 'ports' => null]),
         ])->all();
     }
 

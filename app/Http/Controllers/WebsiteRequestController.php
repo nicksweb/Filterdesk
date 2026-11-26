@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\RequestStatus;
 use App\Models\FilterPolicy;
+use App\Models\FirewallList;
 use App\Models\NetworkType;
 use App\Models\User;
 use App\Models\WebsiteRequest;
@@ -16,6 +17,7 @@ use App\Services\Policy\AccessPlanner;
 use App\Services\Policy\ControllerPusher;
 use App\Services\Policy\DomainRecommender;
 use App\Services\Policy\PolicyEngine;
+use App\Services\Policy\SiteFirewallCheck;
 use App\Services\Requests\AccessGuide;
 use App\Services\Requests\InvalidRequestTransition;
 use App\Services\Requests\RequestFormSettings;
@@ -27,6 +29,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -227,6 +230,12 @@ class WebsiteRequestController extends Controller
                 // Whether approving needs a second IT officer, so the form can offer the override.
                 'twoPerson' => $websiteRequest->status->isOpen() ? app(TwoPersonRule::class)->reasonsForRequest($websiteRequest, $websiteRequest->access_scope, $websiteRequest->domains) : [],
                 'explained' => $websiteRequest->status->isOpen() ? rescue(fn () => $this->explainNow($websiteRequest), [], false) : [],
+                // DNS and firewall for an open access request: an allow can't open a site whose address the firewall blocks.
+                'firewallCheck' => ! $websiteRequest->isBlock() && $websiteRequest->status->isOpen()
+                    ? Cache::remember('request-firewall:'.$websiteRequest->id.':'.md5(implode(',', $websiteRequest->domains)), 600,
+                        fn () => rescue(fn () => app(SiteFirewallCheck::class)->check($websiteRequest->domains, $websiteRequest->access_scope), [], false))
+                    : [],
+                'allowLists' => FirewallList::query()->where('kind', 'allow')->where('enabled', true)->orderBy('id')->get(),
             ];
         }
 

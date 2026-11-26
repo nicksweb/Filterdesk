@@ -3,6 +3,8 @@
 return [
 
     'probe' => [
+        // When no probe answers a name lookup, ask this server's own DNS instead (off in tests).
+        'local_dns_fallback' => (bool) env('PROBE_LOCAL_DNS_FALLBACK', true),
         'key' => env('PROBE_SHARED_KEY'),
     ],
 

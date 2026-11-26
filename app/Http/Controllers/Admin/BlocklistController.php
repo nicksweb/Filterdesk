@@ -57,12 +57,12 @@ class BlocklistController extends Controller
 
         return view('admin.policy.blocklists', [
             'sources' => ListSource::query()->with('policyList', 'firewallList')->orderBy('type')->orderBy('name')->get(),
-            'firewallLists' => FirewallList::query()->withCount('sources')->orderBy('name')->get(),
+            'firewallLists' => FirewallList::query()->where('kind', 'block')->withCount('sources')->orderBy('name')->get(),
             'presets' => collect(config('blocklists.presets')),
             'policies' => FilterPolicy::query()->ordered()->get(),
             'groups' => $groups,
             'zones' => $zones,
-            'rulePlans' => FirewallList::query()->get()->mapWithKeys(fn (FirewallList $list) => [$list->id => [
+            'rulePlans' => FirewallList::query()->where('kind', 'block')->get()->mapWithKeys(fn (FirewallList $list) => [$list->id => [
                 'rules' => rescue(fn () => $firewall->wantedRules($list, $list->groups ?: [['id' => '', 'name' => $list->name]], $zones,
                     $list->rule_zones ?? collect($zones)->where(fn (array $zone) => strtolower($zone['name']) === 'internal')->pluck('id')->all()), [], false),
                 'ahead' => $firewall->rulesAhead($list, $liveRules),

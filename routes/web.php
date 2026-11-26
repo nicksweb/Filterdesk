@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\DiagnosticsController;
 use App\Http\Controllers\Admin\DomainScanController;
 use App\Http\Controllers\Admin\FilteringMapController;
 use App\Http\Controllers\Admin\FilterPolicyController;
+use App\Http\Controllers\Admin\FirewallAllowController;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\InsightsController;
 use App\Http\Controllers\Admin\IntegrationController;
@@ -44,6 +45,8 @@ Route::get('/certificate/download.{format}', [CertificateController::class, 'dow
 
 Route::get('/brand/icon', BrandIconController::class)->name('brand.icon');
 Route::get('/brand/logo', BrandIconController::class)->defaults('kind', 'logo')->name('brand.logo');
+// A firewall allow list as plain text, for firewalls that load IP lists from a URL. The secret is the only key.
+Route::get('/feeds/ip/{token}/allow.txt', [FirewallAllowController::class, 'plain'])->where('token', '[A-Za-z0-9]{40}')->middleware('throttle:30,1')->name('firewall.allow.plain');
 
 Route::middleware('installation.only')->group(function (): void {
     Route::get('/install/{step?}', [InstallController::class, 'show'])->whereNumber('step')->name('install.show');
@@ -143,6 +146,15 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/blocklists/firewall/{list}/rules', [BlocklistController::class, 'rules'])->middleware('throttle:6,1')->name('blocklists.firewall.rules');
                     Route::post('/blocklists/firewall/{list}/push', [BlocklistController::class, 'pushFirewallList'])->middleware('throttle:10,1')->name('blocklists.firewall.push');
                     Route::delete('/blocklists/firewall/{list}', [BlocklistController::class, 'destroyFirewallList'])->name('blocklists.firewall.destroy');
+                    Route::get('/firewall-allow', [FirewallAllowController::class, 'index'])->name('firewall-allow.index');
+                    Route::post('/firewall-allow', [FirewallAllowController::class, 'store'])->name('firewall-allow.store');
+                    Route::post('/firewall-allow/{list}/entries', [FirewallAllowController::class, 'add'])->middleware('throttle:30,1')->name('firewall-allow.add');
+                    Route::delete('/firewall-allow/{list}/entries', [FirewallAllowController::class, 'remove'])->name('firewall-allow.remove');
+                    Route::post('/firewall-allow/{list}/zones', [FirewallAllowController::class, 'zones'])->middleware('throttle:10,1')->name('firewall-allow.zones');
+                    Route::post('/firewall-allow/{list}/adopt', [FirewallAllowController::class, 'adopt'])->middleware('throttle:10,1')->name('firewall-allow.adopt');
+                    Route::post('/firewall-allow/{list}/push', [FirewallAllowController::class, 'push'])->middleware('throttle:10,1')->name('firewall-allow.push');
+                    Route::post('/firewall-allow/{list}/feed', [FirewallAllowController::class, 'feed'])->name('firewall-allow.feed');
+                    Route::delete('/firewall-allow/{list}', [FirewallAllowController::class, 'destroy'])->name('firewall-allow.destroy');
                     Route::get('/setup', [ControllerSetupController::class, 'show'])->name('setup.show');
                     Route::post('/setup', [ControllerSetupController::class, 'store'])->middleware('throttle:10,1')->name('setup.store');
                     Route::post('/setup/probes', [ControllerSetupController::class, 'saveProbes'])->name('setup.probes');

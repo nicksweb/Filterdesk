@@ -84,15 +84,18 @@ class FirewallListPusher
      *
      * @return array{hash: string, count: int, chunks: list<list<string>>, names: list<string>, entries: list<string>, total: int}
      */
-    private function desiredHash(FirewallList $list): array
+    private function desiredHash(FirewallList $list, ?array $zoneIds = null): array
     {
         ['entries' => $entries, 'total' => $total] = $list->desiredEntries();
         $chunks = array_chunk($entries, $this->groupLimit());
         $count = count($chunks);
         $names = array_map(fn (int $index) => $count === 1 ? $list->name : "{$list->name} (".($index + 1)." of {$count})", array_keys($chunks));
-        $parts = [$chunks, $names, array_values($list->rule_zones ?? []), (bool) $list->block_incoming];
+        $parts = [$chunks, $names, array_values($zoneIds ?? $list->rule_zones ?? []), (bool) $list->block_incoming];
         if ($list->rules_first) {
             $parts[] = 'first';
+        }
+        if ($list->isAllow()) {
+            $parts[] = ['allow', (bool) $list->all_zones];
         }
 
         return ['hash' => hash('sha256', json_encode($parts)), 'count' => $count, 'chunks' => $chunks, 'names' => $names, 'entries' => $entries, 'total' => $total];
@@ -108,11 +111,13 @@ class FirewallListPusher
 
         try {
             return Cache::lock('firewall-push:'.$list->id, 300)->block(30, function () use ($list, $manager, $actor, $force): array {
-                ['hash' => $hash, 'count' => $count, 'chunks' => $chunks, 'names' => $names, 'entries' => $entries, 'total' => $total] = $this->desiredHash($list);
+                // "Every zone" follows UniFi: a zone created since the last push gets its rule now.
+                $zoneIds = $list->all_zones ? rescue(fn () => array_column($this->ruleZones($list, $manager->firewallZones()), 'id'), null, false) : null;
+                ['hash' => $hash, 'count' => $count, 'chunks' => $chunks, 'names' => $names, 'entries' => $entries, 'total' => $total] = $this->desiredHash($list, $zoneIds);
                 if ($entries === []) {
-                    return $this->record($list, 'failed', 'There are no addresses to push yet. Refresh its feeds or add manual entries first.', $actor);
+                    return $this->record($list, 'failed', 'There are no addresses to push yet. '.($list->isAllow() ? 'Add addresses or domains first.' : 'Refresh its feeds or add manual entries first.'), $actor);
                 }
-                $wantRules = $list->rule_zones !== null && $list->rule_zones !== [];
+                $wantRules = $list->all_zones || ($list->rule_zones !== null && $list->rule_zones !== []);
                 $groups = array_values($list->groups ?? []);
                 $rules = array_values($list->rules ?? []);
 
@@ -165,7 +170,7 @@ class FirewallListPusher
                             continue;
                         }
                         $rules[] = ['group' => $rule['group'], 'zone' => $rule['zone'], 'incoming' => $rule['incoming'], 'name' => $rule['name'],
-                            'id' => $manager->createBlockRule($rule['name'], $rule['group'], $list->family, $rule['source'], $rule['destination'], groupIsSource: $rule['incoming'])];
+                            'id' => $manager->createBlockRule($rule['name'], $rule['group'], $list->family, $rule['source'], $rule['destination'], groupIsSource: $rule['incoming'], action: $list->isAllow() ? 'ALLOW' : 'BLOCK')];
                     }
                     // Rules for zones no longer chosen.
                     foreach ($rules as $index => $rule) {
@@ -176,11 +181,12 @@ class FirewallListPusher
                     }
                     $rules = array_values($rules);
 
-                    // Above the rules people made for the same zones, so their Allow rules cannot let these addresses through.
-                    if ($list->rules_first) {
+                    // Order at the top of each zone pair: every allow list's rules first (so allowed addresses
+                    // get through), then block lists that asked to be first (above the Allow rules people made).
+                    if ($list->rules_first || $list->isAllow()) {
+                        $list->forceFill(['rules' => $rules])->save();
                         foreach (collect($wanted)->groupBy(fn (array $want) => $want['source'].'>'.$want['destination']) as $pair) {
-                            $ids = $pair->map(fn (array $want) => collect($rules)->first(fn (array $rule) => $same($rule, $want))['id'] ?? null)->filter()->values()->all();
-                            $manager->placeRulesFirst($pair->first()['source'], $pair->first()['destination'], $ids);
+                            $manager->placeRulesFirst($pair->first()['source'], $pair->first()['destination'], $this->topOrder($pair->first()['source'], $pair->first()['destination']));
                         }
                     }
 
@@ -203,7 +209,8 @@ class FirewallListPusher
                 $message = number_format(count($entries)).' address(es) in '.($count === 1 ? $groups[0]['name'] : "{$count} groups of up to ".number_format($this->groupLimit())).'.'
                     .($total > count($entries) ? ' '.number_format($total - count($entries)).' more were left out by the limit of '.number_format($list->max_entries).'.' : '')
                     .($kept ? ' Kept '.implode(', ', $kept).' because a rule you made still uses it.' : '')
-                    .($usedBy === [] ? ' No firewall rule uses these groups yet, so nothing is blocked until you create the blocking rules.' : ' '.count($rules).' blocking rule(s) managed here.')
+                    .($usedBy === [] ? ($list->isAllow() ? ' No firewall rule uses these groups yet, so nothing is let through until you choose the zones.' : ' No firewall rule uses these groups yet, so nothing is blocked until you create the blocking rules.')
+                        : ' '.count($rules).($list->isAllow() ? ' allow rule(s), above the block rules for their zones.' : ' blocking rule(s) managed here.'))
                     .($missing ? ' Recreated '.count($missing).' rule(s) that had been deleted in UniFi.' : '');
 
                 return $this->record($list, $total > count($entries) ? 'truncated' : 'ok', $message, $actor);
@@ -229,8 +236,10 @@ class FirewallListPusher
      */
     public function wantedRules(FirewallList $list, array $groups, array $zones, ?array $chosen = null, ?bool $incoming = null): array
     {
-        $chosen ??= $list->rule_zones ?? [];
+        $chosen ??= $list->all_zones ? array_column($this->ruleZones($list, $zones), 'id') : ($list->rule_zones ?? []);
         $incoming ??= (bool) $list->block_incoming;
+        $incoming = $incoming && ! $list->isAllow();
+        $verb = $list->isAllow() ? 'Allow' : 'Block';
         $byId = collect($zones)->keyBy('id');
         $named = fn (string $name) => collect($zones)->first(fn (array $zone) => strtolower($zone['name']) === $name);
         $external = $named('external');
@@ -239,7 +248,7 @@ class FirewallListPusher
             return [];
         }
         if (! $external) {
-            throw new ProviderRequestFailed('UniFi has no External zone, so the blocking rules cannot be created. Check that zone-based firewall is on (Settings → Security → Firewall).');
+            throw new ProviderRequestFailed('UniFi has no External zone, so the firewall rules cannot be created. Check that zone-based firewall is on (Settings → Security → Firewall).');
         }
 
         $wanted = [];
@@ -247,7 +256,7 @@ class FirewallListPusher
             $label = $group['name'] ?? $list->name;
             foreach ($chosen as $zoneId) {
                 $zone = $byId[$zoneId]['name'] ?? 'zone';
-                $wanted[] = ['group' => $group['id'], 'zone' => $zoneId, 'incoming' => false, 'name' => "Block {$label} ({$zone})",
+                $wanted[] = ['group' => $group['id'], 'zone' => $zoneId, 'incoming' => false, 'name' => "{$verb} {$label} ({$zone})",
                     'source' => $zoneId, 'destination' => $external['id'], 'from' => $zone, 'to' => $external['name']];
             }
             if ($incoming) {
@@ -273,10 +282,12 @@ class FirewallListPusher
     public function rulesAhead(FirewallList $list, array $live): array
     {
         $ours = collect($list->rules ?? [])->pluck('id')->all();
+        // A block list is undone by an Allow rule checked first; an allow list by a Block rule checked first.
+        $against = $list->isAllow() ? ['BLOCK', 'REJECT', 'DROP'] : ['ALLOW'];
         $ahead = [];
         foreach (collect($live)->whereIn('id', $ours) as $rule) {
             foreach ($live as $other) {
-                if ($other['user'] && $other['enabled'] && $other['action'] === 'ALLOW' && ! in_array($other['id'], $ours, true)
+                if ($other['user'] && $other['enabled'] && in_array($other['action'], $against, true) && ! in_array($other['id'], $ours, true)
                     && $other['source'] === $rule['source'] && $other['destination'] === $rule['destination'] && $other['index'] < $rule['index']) {
                     $ahead[$other['id']] = ['name' => $other['name'], 'before' => $rule['name']];
                 }
@@ -284,6 +295,37 @@ class FirewallListPusher
         }
 
         return array_values($ahead);
+    }
+
+    /**
+     * The zones "every zone" covers: all of them except External and Gateway
+     * (traffic to the internet starts in the others, VPN and Hotspot included).
+     *
+     * @param  list<array{id: string, name: string}>  $zones
+     * @return list<array{id: string, name: string}>
+     */
+    public function ruleZones(FirewallList $list, array $zones): array
+    {
+        return array_values(array_filter($zones, fn (array $zone) => ! in_array(strtolower($zone['name']), ['external', 'gateway'], true)));
+    }
+
+    /**
+     * The rules this app keeps at the top of one zone pair, in order: allow
+     * lists' rules, then block lists' rules that are to go first.
+     *
+     * @return list<string>
+     */
+    private function topOrder(string $source, string $destination): array
+    {
+        $lists = FirewallList::query()->where('enabled', true)->get()->filter(fn (FirewallList $list) => $list->isAllow() || $list->rules_first)
+            ->sortBy(fn (FirewallList $list) => [$list->isAllow() ? 0 : 1, $list->id]);
+        $live = rescue(fn () => collect($this->manager()?->firewallRules() ?? [])->keyBy('id'), collect(), false);
+        $inPair = fn (array $rule) => isset($live[$rule['id']])
+            ? $live[$rule['id']]['source'] === $source && $live[$rule['id']]['destination'] === $destination
+            // Not read back yet: an outgoing rule starts in its zone, an incoming one ends there.
+            : ($rule['zone'] ?? null) === (($rule['incoming'] ?? false) ? $destination : $source);
+
+        return $lists->flatMap(fn (FirewallList $list) => collect($list->rules ?? [])->filter($inPair)->pluck('id'))->values()->all();
     }
 
     /**
@@ -296,7 +338,7 @@ class FirewallListPusher
         foreach ($list->rules ?? [] as $rule) {
             rescue(fn () => $manager?->deleteFirewallRule($rule['id']), null, false);
         }
-        $list->forceFill(['rules' => [], 'rule_zones' => null, 'rules_first' => false, 'pushed_hash' => null])->save();
+        $list->forceFill(['rules' => [], 'rule_zones' => null, 'rules_first' => false, 'all_zones' => false, 'pushed_hash' => null])->save();
     }
 
     /** @return array{ok: bool, message: string} */

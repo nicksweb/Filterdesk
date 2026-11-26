@@ -71,6 +71,8 @@
                     @endforeach
                 @endif
 
+                <x-firewall-check :check="$plan['firewall'] ?? []" :kind="$plan['kind']->value" :lists="$allowLists" />
+
                 @if($plan['conflicts'])
                     <h3>Entries that say the opposite</h3>
                     <p class="hint">An entry added on purpose to a more specific list beats this change. Tick the ones to remove.</p>
