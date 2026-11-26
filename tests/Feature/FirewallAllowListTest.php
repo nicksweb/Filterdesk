@@ -54,8 +54,8 @@ class FirewallAllowListTest extends TestCase
             'rule-geo' => ['id' => 'rule-geo', 'name' => 'Block by region', 'source' => 'zone-internal', 'destination' => 'zone-external', 'action' => 'BLOCK', 'match' => ['kind' => 'unknown', 'label' => 'region']],
         ]);
         Http::fake(fn (HttpRequest $request) => str_ends_with($request->url(), '/resolve')
-            ? Http::response(['host' => $request['host'], 'addresses' => match ($request['host']) {
-                'aurora.example.edu' => ['45.76.120.225'], 'cdn-site.example' => ['104.16.1.1'], default => [],
+            ? Http::response(['host' => $request['host'], 'addresses' => Cache::get('test.dns.'.$request['host']) ?? match ($request['host']) {
+                'aurora.example.edu', 'www.aurora.example.edu' => ['45.76.120.225'], 'cdn-site.example' => ['104.16.1.1'], default => [],
             }, 'resolver' => '10.0.20.1', 'blocked' => false, 'connect' => $request['connect'] ? ['45.76.120.225' => 'timeout'] : []])
             : Http::response([], 404));
     }
@@ -76,7 +76,7 @@ class FirewallAllowListTest extends TestCase
         $this->assertSame(['Block by region (region)'], $result['skipped'], 'A rule that matches by region cannot be checked against an address');
         $this->assertSame('default', $evaluator->evaluate('93.184.216.34', 'zone-internal')['decision']);
         $this->assertSame('default', $evaluator->evaluate('45.76.120.225', 'zone-hotspot')['decision'], 'Only the zone\'s own rules count');
-        $this->assertSame(['zone-internal', 'Internal'], array_values($evaluator->zoneForProfile(NetworkProfile::query()->where('key', 'student')->sole())));
+        $this->assertSame(['zone-internal', 'Internal', 'int-student'], array_values($evaluator->zoneForProfile(NetworkProfile::query()->where('key', 'student')->sole())));
         $this->assertSame(['Whitelist VPS IPs'], collect($evaluator->unusedGroups())->pluck('name')->all(), 'An IP list no rule uses is pointed out');
     }
 
@@ -192,5 +192,86 @@ class FirewallAllowListTest extends TestCase
     {
         $this->actingAs($this->admin)->get(route('admin.policy.explorer', ['site' => 'aurora.example.edu', 'type' => NetworkType::byKey('student')?->key ?? 'student']))->assertOk()
             ->assertSee('Blocked by the UniFi firewall, not the content filter');
+    }
+
+    public function test_rules_for_some_sources_other_protocols_or_invalid_traffic_do_not_decide(): void
+    {
+        $rules = Cache::get('mock.firewall_rules');
+        Cache::forever('mock.firewall_rules', [
+            'rule-servers' => ['id' => 'rule-servers', 'name' => 'Block 172.16.190.0/25 Internet Access', 'source' => 'zone-internal', 'destination' => 'zone-external', 'action' => 'BLOCK',
+                'match' => ['kind' => 'any', 'ports' => null], 'source_match' => ['kind' => 'addresses', 'addresses' => ['172.16.190.0/25'], 'label' => '172.16.190.0/25']],
+            'rule-invalid' => ['id' => 'rule-invalid', 'name' => 'Block Invalid Traffic', 'source' => 'zone-internal', 'destination' => 'zone-external', 'action' => 'BLOCK', 'match' => ['kind' => 'any', 'ports' => null], 'states' => ['INVALID']],
+            'rule-quic' => ['id' => 'rule-quic', 'name' => 'Block QUIC', 'source' => 'zone-internal', 'destination' => 'zone-external', 'action' => 'BLOCK', 'match' => ['kind' => 'any', 'ports' => [[443, 443]]], 'protocol' => 'udp'],
+            'rule-staff' => ['id' => 'rule-staff', 'name' => 'Allow staff anywhere', 'source' => 'zone-internal', 'destination' => 'zone-external', 'action' => 'ALLOW',
+                'match' => ['kind' => 'any', 'ports' => null], 'source_match' => ['kind' => 'networks', 'networks' => ['int-staff'], 'opposite' => false]],
+        ] + $rules);
+
+        $evaluator = app(FirewallEvaluator::class);
+        $student = $evaluator->evaluate('45.76.120.225', 'zone-internal', networkId: 'int-student');
+        $this->assertSame('Block VPS Provider ASNs', $student['rule']['name'], 'Only rules for every device on the network decide');
+        $this->assertSame(['Block 172.16.190.0/25 Internet Access', 'Allow staff anywhere'], collect($student['source_scoped'])->pluck('name')->all());
+        $this->assertNotContains('Block QUIC', collect($student['blocks'])->pluck('name')->all());
+        $this->assertNotContains('Block Invalid Traffic', collect($student['blocks'])->pluck('name')->all());
+        $this->assertSame('allow', $evaluator->evaluate('45.76.120.225', 'zone-internal', networkId: 'int-staff')['decision'], 'A rule for the staff network applies to it');
+
+        // A zone-wide Allow rule would open the address for the servers network too, and the page says so.
+        $list = $this->allowList();
+        app(FirewallAllowList::class)->add($list, ['45.76.120.225'], $this->admin);
+        $this->actingAs($this->admin)->get(route('admin.policy.firewall-allow.index'))->assertOk()->assertSee('Also opens it for')->assertSee('which Block 172.16.190.0/25 Internet Access otherwise blocks');
+    }
+
+    public function test_allow_rules_can_sit_just_above_the_matching_block_and_be_limited_to_some_networks(): void
+    {
+        $list = $this->allowList();
+        app(FirewallAllowList::class)->add($list, ['45.76.120.225'], $this->admin);
+        $this->actingAs($this->admin)->post(route('admin.policy.firewall-allow.zones', $list), ['scope' => 'all', 'source' => 'networks', 'networks' => ['int-student'], 'placement' => 'above_blocks']);
+        $this->assertSame(['int-student'], $list->refresh()->source_networks);
+        app(FirewallListPusher::class)->push($list, $this->admin, force: true);
+
+        $allow = collect(Cache::get('mock.firewall_rules'))->where('action', 'ALLOW')->values();
+        $this->assertCount(1, $allow, 'Only the Internal zone has a ticked network');
+        $this->assertSame(['int-student'], $allow[0]['source_match']['networks']);
+        $order = Cache::get('mock.firewall_first');
+        $this->assertSame(array_search('rule-vps', $order, true) - 1, array_search($allow[0]['id'], $order, true), 'Directly above the block rule that matches');
+
+        $this->actingAs($this->admin)->get(route('admin.policy.firewall-allow.index'))->assertOk()
+            ->assertSee('Rule in UniFi')->assertSee('Student Access')->assertSee('before Block VPS Provider ASNs');
+    }
+
+    public function test_www_and_entries_for_the_same_address_are_one_row_and_the_nightly_check_flags_changes(): void
+    {
+        $list = $this->allowList();
+        $allow = app(FirewallAllowList::class);
+        $result = $allow->add($list, ['aurora.example.edu', 'www.aurora.example.edu'], $this->admin);
+        $this->assertSame(['aurora.example.edu (and www.) (45.76.120.225)'], $result['added']);
+        $this->assertSame(['www.aurora.example.edu'], $list->refresh()->allow_entries[0]['aliases']);
+        $this->assertStringContainsString('already on the list', $allow->add($list, ['45.76.120.225'], $this->admin)['warnings'][0]);
+        $this->assertSame(['45.76.120.225'], $list->refresh()->desiredEntries()['entries']);
+        $allow->add($list, ['203.0.113.5'], $this->admin);
+
+        // The site moves, and an address no rule blocks is flagged as maybe not needed.
+        Cache::forever('test.dns.aurora.example.edu', ['45.76.120.230']);
+        Cache::forever('test.dns.www.aurora.example.edu', ['45.76.120.230']);
+        $flags = $allow->verify($list->refresh());
+        $this->assertTrue(collect($flags)->contains(fn ($flag) => str_contains($flag, 'now resolves to 45.76.120.230')));
+        $this->assertTrue(collect($flags)->contains(fn ($flag) => str_contains($flag, 'No firewall rule blocks 203.0.113.5')));
+        $this->assertSame([], $allow->verify($list->refresh()), 'Only new flags are reported again');
+
+        Cache::forever('test.dns.aurora.example.edu', []);
+        Cache::forever('test.dns.www.aurora.example.edu', []);
+        $this->assertTrue(collect($allow->verify($list->refresh()))->contains(fn ($flag) => str_contains($flag, 'no longer resolves')));
+        $this->actingAs($this->admin)->get(route('admin.policy.firewall-allow.index'))->assertOk()->assertSee('To check')->assertSee('no longer resolves');
+        $this->artisan('firewall:verify-allow')->assertSuccessful();
+    }
+
+    public function test_a_network_whose_zone_cannot_be_found_is_named_instead_of_reported_as_no_rule(): void
+    {
+        NetworkProfile::query()->where('key', 'student')->update(['unifi_network_id' => 'sim-nowhere']);
+        $profile = NetworkProfile::query()->where('key', 'student')->sole();
+        $this->assertStringContainsString("Couldn't work out which firewall zone", app(FirewallEvaluator::class)->zoneProblem($profile));
+
+        $check = app(SiteFirewallCheck::class)->check(['aurora.example.edu'], Reach::types('student'));
+        $this->assertStringContainsString("UniFi's firewall rules weren't checked for Student Access", $check['hosts']['aurora.example.edu']['summary']);
+        $this->assertStringNotContainsString('matches it', $check['hosts']['aurora.example.edu']['summary']);
     }
 }

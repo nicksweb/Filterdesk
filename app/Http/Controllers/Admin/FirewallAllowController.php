@@ -90,14 +90,23 @@ class FirewallAllowController extends Controller
     public function zones(Request $request, FirewallList $list, FirewallListPusher $pusher, AuditLogger $audit): RedirectResponse
     {
         abort_unless($list->isAllow(), 404);
-        $validated = $request->validate(['scope' => ['required', 'in:all,chosen,none'], 'zones' => ['nullable', 'array', 'max:20'], 'zones.*' => ['string', 'max:64']]);
-        $known = collect(rescue(fn () => $pusher->manager()?->firewallZones() ?? [], [], false))->pluck('id')->all();
-        $zones = array_values(array_intersect($validated['zones'] ?? [], $known));
+        $validated = $request->validate([
+            'scope' => ['required', 'in:all,chosen,none'], 'zones' => ['nullable', 'array', 'max:20'], 'zones.*' => ['string', 'max:64'],
+            'source' => ['nullable', 'in:zone,networks'], 'networks' => ['nullable', 'array', 'max:100'], 'networks.*' => ['string', 'max:64'],
+            'placement' => ['nullable', 'in:top,above_blocks'],
+        ]);
+        $known = collect(rescue(fn () => $pusher->manager()?->firewallZones() ?? [], [], false));
+        $zones = array_values(array_intersect($validated['zones'] ?? [], $known->pluck('id')->all()));
+        $networks = ($validated['source'] ?? 'zone') === 'networks'
+            ? array_values(array_intersect($validated['networks'] ?? [], $known->flatMap(fn (array $zone) => array_column($zone['members'] ?? [], 'id'))->all()))
+            : [];
         $list->forceFill([
             'all_zones' => $validated['scope'] === 'all',
             'rule_zones' => $validated['scope'] === 'chosen' && $zones ? $zones : null,
+            'source_networks' => $networks ?: null,
+            'placement' => $validated['placement'] ?? 'top',
         ])->save();
-        $audit->log('firewall.allow_zones_chosen', $list, ['scope' => $validated['scope'], 'zones' => $zones]);
+        $audit->log('firewall.allow_zones_chosen', $list, ['scope' => $validated['scope'], 'zones' => $zones, 'networks' => $networks, 'placement' => $list->placement]);
         if (! $pusher->canWrite() || ! $list->provider_reference) {
             return back()->with('success', 'Saved. The rules are created when the list is pushed.');
         }
@@ -134,6 +143,15 @@ class FirewallAllowController extends Controller
         return RunManualPush::flash(back(), $result, "Pushing {$list->name} to UniFi. It runs in the background; refresh in a minute.");
     }
 
+    /** Run the nightly check now: moved, no longer resolving, no longer needed. */
+    public function verify(FirewallList $list, FirewallAllowList $allow): RedirectResponse
+    {
+        abort_unless($list->isAllow(), 404);
+        $flags = $allow->verify($list);
+
+        return back()->with('success', $flags ? 'Checked. New to look at: '.implode(' ', $flags) : 'Checked: nothing new to look at.');
+    }
+
     /** Turn the plain-text URL on (a new secret each time) or off. */
     public function feed(Request $request, FirewallList $list, AuditLogger $audit): RedirectResponse
     {
@@ -155,6 +173,36 @@ class FirewallAllowController extends Controller
         $list->delete();
 
         return back()->with('success', 'Removed, along with the allow rules this app created. The IP group was left in UniFi.');
+    }
+
+    /**
+     * The rules this list keeps in UniFi, as UniFi has them: zones, what
+     * they match, whether they're on, and where they sit in their zone's
+     * order (with the rules just before and after).
+     *
+     * @param  list<array<string, mixed>>  $live
+     * @param  list<array<string, mixed>>  $zones
+     * @return list<array<string, mixed>>
+     */
+    public static function ruleDetails(FirewallList $list, array $live, array $zones): array
+    {
+        $names = collect($zones)->pluck('name', 'id');
+        $members = collect($zones)->flatMap(fn (array $zone) => $zone['members'] ?? [])->pluck('name', 'id');
+
+        return collect($list->rules ?? [])->map(function (array $rule) use ($live, $names, $members): array {
+            $found = collect($live)->firstWhere('id', $rule['id']);
+            $pair = $found ? collect($live)->filter(fn (array $other) => $other['source'] === $found['source'] && $other['destination'] === $found['destination'])->sortBy('index')->values() : collect();
+            $position = $found ? $pair->search(fn (array $other) => $other['id'] === $rule['id']) : false;
+
+            return [
+                'name' => $rule['name'], 'found' => $found !== null, 'enabled' => (bool) ($found['enabled'] ?? false), 'action' => $found['action'] ?? null,
+                'from' => $found ? ($names[$found['source']] ?? 'zone') : null, 'to' => $found ? ($names[$found['destination']] ?? 'zone') : null,
+                'sources' => collect($rule['networks'] ?? [])->map(fn (string $id) => $members[$id] ?? $id)->all(),
+                'position' => $position === false ? null : $position + 1, 'of' => $pair->count(),
+                'before' => $position !== false && $position > 0 ? $pair[$position - 1]['name'] : null,
+                'after' => $position !== false ? ($pair[$position + 1]['name'] ?? null) : null,
+            ];
+        })->all();
     }
 
     /** The list as plain text, one address or subnet per line, for a firewall that loads IP lists from a URL. */
@@ -195,16 +243,26 @@ class FirewallAllowController extends Controller
             ->filter(fn (array $zone) => collect($live)->contains(fn (array $rule) => $rule['enabled'] && $rule['source'] === $zone['id'] && $rule['destination'] === ($external['id'] ?? null) && in_array($rule['action'], ['BLOCK', 'REJECT'], true)))
             ->pluck('name')->values()->all();
 
+        // For each address: the block rules the Allow rules exempt it from, and the source-limited blocks they open it
+        // for too (a zone-wide Allow rule lets through networks another rule keeps off the internet). With source
+        // networks or "just above the matching blocks", those source-limited rules still come first.
         $effects = [];
+        $ours = collect($list->rules ?? [])->pluck('name')->all();
         foreach (array_slice($list->desiredEntries()['entries'], 0, 40) as $entry) {
             $address = explode('/', $entry)[0];
-            $exempts = collect($covered)->flatMap(fn (array $zone) => collect($firewall->evaluate($address, $zone['id'])['blocks'])
-                ->reject(fn (array $block) => collect($list->rules ?? [])->contains('name', $block['name']))
-                ->map(fn (array $block) => $block['name'].' ('.$block['via'].')'))->unique()->values()->all();
-            $effects[$entry] = $exempts;
+            $evaluations = collect($covered)->map(fn (array $zone) => $firewall->evaluate($address, $zone['id']));
+            $effects[$entry] = [
+                'exempts' => $evaluations->flatMap(fn (array $evaluation) => collect($evaluation['blocks'])->reject(fn (array $block) => in_array($block['name'], $ours, true))
+                    ->map(fn (array $block) => $block['name'].' ('.$block['via'].')'))->unique()->values()->all(),
+                'opens' => $list->source_networks || $list->placement === 'above_blocks' ? [] : $evaluations->flatMap(fn (array $evaluation) => collect($evaluation['source_scoped'])
+                    ->filter(fn (array $rule) => in_array($rule['action'], ['BLOCK', 'REJECT', 'DROP'], true))
+                    ->map(fn (array $rule) => "{$rule['source']} (which {$rule['name']} otherwise blocks)"))->unique()->values()->all(),
+            ];
         }
 
         return [
+            'members' => collect($covered)->flatMap(fn (array $zone) => collect($zone['members'] ?? [])->map(fn (array $member) => $member + ['zone' => $zone['name']]))->values()->all(),
+            'rule_details' => $this->ruleDetails($list, $live, $zones),
             'covered' => $covered,
             'uncovered' => $uncovered,
             'rules' => rescue(fn () => $pusher->wantedRules($list, $list->groups ?: [['id' => '', 'name' => $list->name]], $zones), [], false),

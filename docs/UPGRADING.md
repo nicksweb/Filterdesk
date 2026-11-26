@@ -45,6 +45,12 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.26 → 2026.12.27
+
+- Update as usual. A migration adds the allow rule options (source networks, placement) and the last check time.
+- Allow rules already in UniFi are kept. Their invalid-traffic exclusion only applies to rules created from now on: to have it on existing ones, untick the zones and save, then tick them again, or delete the rules in UniFi and push.
+- Check the probe checklist for the new *Firewall zone found* step.
+
 ## 2026.12.25 → 2026.12.26
 
 - Update as usual, including the probe image. No database changes.

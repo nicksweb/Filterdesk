@@ -47,9 +47,13 @@ class WebsiteCheckController extends Controller
                 }
                 $zone = $evaluator->zoneForProfile($profile);
                 if (! $zone) {
+                    if ($problem = $evaluator->zoneProblem($profile)) {
+                        $result[$check['hostname']][$key] = ['blocked' => false, 'text' => $problem];
+                    }
+
                     continue;
                 }
-                $evaluations = collect(array_slice((array) $outcome['addresses'], 0, 4))->mapWithKeys(fn (string $address) => [$address => $evaluator->evaluate($address, $zone['id'])]);
+                $evaluations = collect(array_slice((array) $outcome['addresses'], 0, 4))->mapWithKeys(fn (string $address) => [$address => $evaluator->evaluate($address, $zone['id'], networkId: $zone['network_id'])]);
                 $blocked = $evaluations->filter(fn (array $evaluation) => $evaluation['decision'] === 'block');
                 $result[$check['hostname']][$key] = [
                     'blocked' => $blocked->isNotEmpty(),

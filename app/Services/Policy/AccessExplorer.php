@@ -51,7 +51,7 @@ class AccessExplorer
         $firewall = $this->firewall($domain, $evidence['addresses'] ?? []);
 
         $unifi = $this->unifiFirewall($domain, $type, $evidence['addresses'] ?? []);
-        $firewallBlock = collect($unifi)->firstWhere('evaluation.decision', 'block');
+        $firewallBlock = collect($unifi)->first(fn (array $row) => ($row['evaluation']['decision'] ?? null) === 'block');
 
         $blocked = collect($policies)->firstWhere('verdict', 'blocked');
         [$verdict, $reason] = match (true) {
@@ -222,14 +222,17 @@ class AccessExplorer
         $profile = NetworkProfile::query()->where('audience', $type->key)->where('enabled', true)->orderBy('sort_order')->first();
         $zone = $profile ? $evaluator->zoneForProfile($profile) : null;
         if (! $zone) {
-            return [];
+            // Say so, rather than look as if no rule matched.
+            $problem = $profile && $evaluator->available() ? $evaluator->zoneProblem($profile) : null;
+
+            return $problem ? [['address' => null, 'zone' => null, 'problem' => $problem, 'evaluation' => null]] : [];
         }
         if ($addresses === [] && filled($profile->probe_url)) {
             $answer = rescue(fn () => app(SiteAddresses::class)->resolve($domain, collect([$profile]))[0] ?? null, null, false);
             $addresses = $answer && ! $answer['blocked'] ? $answer['addresses'] : [];
         }
 
-        return collect(array_slice($addresses, 0, 4))->map(fn (string $address) => ['address' => $address, 'zone' => $zone['name'], 'evaluation' => $evaluator->evaluate($address, $zone['id'])])->values()->all();
+        return collect(array_slice($addresses, 0, 4))->map(fn (string $address) => ['address' => $address, 'zone' => $zone['name'], 'evaluation' => $evaluator->evaluate($address, $zone['id'], networkId: $zone['network_id'])])->values()->all();
     }
 
     /** @return Collection<int, NetworkType> */

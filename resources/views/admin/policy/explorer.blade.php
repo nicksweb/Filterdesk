@@ -19,7 +19,7 @@
         <section class="panel policy-section explorer-result">
             <div class="panel-heading">
                 <div><h2>{{ $result['type']->name }}: <span class="verdict verdict-{{ $result['verdict'] }}">{{ ucfirst($result['verdict']) }}</span></h2><p>{{ $result['reason'] }}@if($result['pending']) <strong>A change is waiting to be published.</strong>@endif</p></div>
-                @if($result['evidence'])<span class="hint">Probe {{ $result['evidence']['profile'] }}: <span class="status status-{{ $result['evidence']['status'] === 'allowed' ? 'ok' : 'failed' }}">{{ $result['evidence']['status'] }}</span> {{ $result['evidence']['when']->diffForHumans() }}</span>@endif
+                @if($result['evidence'])<span class="hint">Probe {{ $result['evidence']['profile'] }}: <span class="status status-{{ $result['evidence']['status'] === 'allowed' ? 'ok' : 'failed' }}">{{ $result['evidence']['status'] }}</span> {{ $result['evidence']['when']->diffForHumans() }}@if(in_array($result['evidence']['status'], ['probe_error', 'unreachable'], true) || $result['evidence']['when']->lt(now()->subDay())) · the last saved check; <a href="{{ route('checks.create', ['websites' => $result['domain']]) }}">check again</a> for a fresh result @endif</span>@endif
             </div>
             @foreach($result['policies'] as $policy)
                 <h3>{{ $policy['policy']->name }}@if($policy['filter']) <small>· {{ $policy['filter'] }}</small>@endif</h3>
@@ -30,6 +30,7 @@
                 </ol>
             @endforeach
             @foreach($result['unifi_firewall'] ?? [] as $row)
+                @if(! empty($row['problem']))<p class="network-status warn"><strong>UniFi firewall:</strong> {{ $row['problem'] }}</p>@continue @endif
                 <p @class(['network-status', 'warn' => $row['evaluation']['decision'] === 'block', 'ok' => $row['evaluation']['decision'] !== 'block'])><strong>UniFi firewall</strong> (zone {{ $row['zone'] }} → External): {{ \App\Services\Policy\FirewallEvaluator::describe($row['evaluation'], $row['address']) }}@if($row['evaluation']['allow_lists']) On the firewall allow list {{ implode(', ', $row['evaluation']['allow_lists']) }}.@endif @if($row['evaluation']['skipped'])<small class="hint">Rules that match by something other than an address were skipped: {{ implode(', ', $row['evaluation']['skipped']) }}.</small>@endif</p>
             @endforeach
             @if($result['firewall'])<p class="network-status warn">Its address is in the firewall IP list {{ implode(', ', $result['firewall']) }}, which blocks it regardless of the content filter.</p>@endif

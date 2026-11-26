@@ -113,7 +113,7 @@
                 @endif
                 @php($plan = $rulePlans[$list->id] ?? ['rules' => [], 'ahead' => [], 'live' => []])
                 @if($list->rules)
-                    <p class="hint">Blocking rules managed here: @foreach($list->rules as $rule){{ $rule['name'] }}@if(isset($plan['live'][$rule['id']]) && !$plan['live'][$rule['id']]['enabled']) <span class="status status-action_required">disabled in UniFi</span>@endif @if(!$loop->last), @endif @endforeach</p>
+                    <x-firewall-rules :rules="$plan['details'] ?? []" />
                     @if($plan['ahead'])
                         <p class="network-status warn">UniFi checks these rules of yours first and they allow traffic for the same zones, so they can let listed addresses through: @foreach($plan['ahead'] as $rule)<strong>{{ $rule['name'] }}</strong> (above {{ $rule['before'] }})@if(!$loop->last), @endif @endforeach. Tick <em>Put these rules first</em> below, or move them in UniFi.</p>
                     @endif

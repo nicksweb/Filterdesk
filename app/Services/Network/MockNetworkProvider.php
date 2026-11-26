@@ -164,16 +164,19 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
     public function firewallZones(): array
     {
         return [
-            ['id' => 'zone-internal', 'name' => 'Internal', 'networks' => ['Staff Access', 'Student Access'], 'network_ids' => ['sim-staff', 'sim-student']], ['id' => 'zone-external', 'name' => 'External', 'networks' => [], 'network_ids' => []],
-            ['id' => 'zone-gateway', 'name' => 'Gateway', 'networks' => [], 'network_ids' => []], ['id' => 'zone-hotspot', 'name' => 'Hotspot', 'networks' => ['Guest Wi-Fi'], 'network_ids' => ['sim-guest']], ['id' => 'zone-vpn', 'name' => 'Vpn', 'networks' => [], 'network_ids' => []],
+            ['id' => 'zone-internal', 'name' => 'Internal', 'networks' => ['Staff Access', 'Student Access'], 'network_ids' => ['int-staff', 'int-student'],
+                'members' => [['id' => 'int-staff', 'name' => 'Staff Access', 'vlan' => 10], ['id' => 'int-student', 'name' => 'Student Access', 'vlan' => 20]]], ['id' => 'zone-external', 'name' => 'External', 'networks' => [], 'network_ids' => []],
+            ['id' => 'zone-gateway', 'name' => 'Gateway', 'networks' => [], 'network_ids' => []], ['id' => 'zone-hotspot', 'name' => 'Hotspot', 'networks' => ['Guest Wi-Fi'], 'network_ids' => ['int-guest'], 'members' => [['id' => 'int-guest', 'name' => 'Guest Wi-Fi', 'vlan' => 80]]], ['id' => 'zone-vpn', 'name' => 'Vpn', 'networks' => [], 'network_ids' => []],
         ];
     }
 
-    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK'): string
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK', array $sourceNetworkIds = []): string
     {
         $rules = Cache::get('mock.firewall_rules', []);
         $id = 'sim-rule-'.(count($rules) + 1).'-'.substr(md5($name.$groupId.$sourceZoneId), 0, 6);
-        $rules[$id] = ['id' => $id, 'name' => $name, 'group' => $groupId, 'source' => $sourceZoneId, 'destination' => $destinationZoneId, 'incoming' => $groupIsSource, 'action' => $action];
+        $rules[$id] = ['id' => $id, 'name' => $name, 'group' => $groupId, 'source' => $sourceZoneId, 'destination' => $destinationZoneId, 'incoming' => $groupIsSource, 'action' => $action,
+            'source_match' => $sourceNetworkIds ? ['kind' => 'networks', 'networks' => $sourceNetworkIds, 'opposite' => false] : ['kind' => 'any'],
+            'states' => $action === 'ALLOW' ? ['NEW', 'RELATED', 'ESTABLISHED'] : null];
         Cache::forever('mock.firewall_rules', $rules);
 
         return $id;
@@ -195,7 +198,15 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
             'index' => in_array($rule['id'], $order, true) ? array_search($rule['id'], $order, true) : 10000 + $index,
             'source' => $rule['source'], 'destination' => $rule['destination'], 'user' => $rule['user'] ?? true,
             'match' => $rule['match'] ?? (isset($rule['group']) ? ['kind' => 'group', 'group' => $rule['group'], 'opposite' => false, 'ports' => null] : ['kind' => 'any', 'ports' => null]),
+            'source_match' => $rule['source_match'] ?? ['kind' => 'any'], 'protocol' => $rule['protocol'] ?? 'any', 'ip_version' => $rule['ip_version'] ?? 'IPV4_AND_IPV6', 'states' => $rule['states'] ?? null,
         ])->all();
+    }
+
+    public function placeRulesBefore(string $sourceZoneId, string $destinationZoneId, array $ruleIds, string $beforeRuleId): void
+    {
+        $order = array_values(array_diff(Cache::get('mock.firewall_first', []), $ruleIds));
+        $at = array_search($beforeRuleId, $order, true);
+        Cache::forever('mock.firewall_first', $at === false ? [...$ruleIds, $beforeRuleId, ...$order] : [...array_slice($order, 0, $at), ...$ruleIds, ...array_slice($order, $at)]);
     }
 
     public function placeRulesFirst(string $sourceZoneId, string $destinationZoneId, array $ruleIds): void

@@ -18,14 +18,14 @@ class FirewallList extends Model
         'name', 'family', 'provider_reference', 'provider_name', 'manual_entries', 'enabled', 'max_entries',
         'last_pushed_at', 'last_push_status', 'last_push_message', 'live_count', 'referenced_by',
         'groups', 'rules', 'rule_zones', 'block_incoming', 'rules_first', 'pushed_hash',
-        'kind', 'allow_entries', 'all_zones', 'feed_token',
+        'kind', 'allow_entries', 'all_zones', 'feed_token', 'source_networks', 'placement', 'verified_at',
     ];
 
     protected function casts(): array
     {
         return ['manual_entries' => 'array', 'referenced_by' => 'array', 'enabled' => 'boolean', 'last_pushed_at' => 'datetime',
             'groups' => 'array', 'rules' => 'array', 'rule_zones' => 'array', 'block_incoming' => 'boolean', 'rules_first' => 'boolean',
-            'allow_entries' => 'array', 'all_zones' => 'boolean'];
+            'allow_entries' => 'array', 'all_zones' => 'boolean', 'source_networks' => 'array', 'verified_at' => 'datetime'];
     }
 
     public function sources(): HasMany

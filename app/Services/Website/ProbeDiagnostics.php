@@ -7,6 +7,7 @@ use App\Models\NetworkProfile;
 use App\Services\Network\InspectionCertificate;
 use App\Services\Network\ManagesReservations;
 use App\Services\Network\NetworkProviderManager;
+use App\Services\Policy\FirewallEvaluator;
 use App\Services\Policy\ProbePlanner;
 use App\Services\SettingsRepository;
 use Illuminate\Http\Client\Pool;
@@ -233,6 +234,19 @@ class ProbeDiagnostics
                 : $this->check('filtered', 'Network is filtered', 'warn', "No policy covers {$network->name}, so this probe shows sites unfiltered. That is fine for comparison, but it does not stand for any policy.", [
                     'Choose a network a content filter covers (see Policies → Networks & filters), or map this one to a policy there.',
                 ]);
+        }
+
+        // 7b. The network's firewall zone is known, so UniFi's firewall rules can be checked for it.
+        if ($network) {
+            $firewall = app(FirewallEvaluator::class);
+            if ($firewall->available()) {
+                $zone = $firewall->zoneForProfile($profile);
+                $checks[] = $zone
+                    ? $this->check('firewall_zone', 'Firewall zone found', 'ok', "{$network->name} is in the {$zone['name']} zone, so website checks and Quick allow can check UniFi's firewall rules for it.")
+                    : $this->check('firewall_zone', 'Firewall zone found', 'warn', (string) $firewall->zoneProblem($profile), [
+                        'Check the network exists in UniFi under the same VLAN and name, then read UniFi again (Policies → Networks & filters → Refresh).',
+                    ]);
+            }
         }
 
         // 8. The address is safe from DHCP: outside the range, or reserved for this MAC.

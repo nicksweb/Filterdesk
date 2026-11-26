@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\Domains\DomainNormalizer;
 use App\Services\Website\SiteAddresses;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\IpUtils;
 use Throwable;
@@ -87,7 +88,28 @@ class FirewallAllowList
         $added = [];
         $refused = [];
         $warnings = [];
-        foreach ($this->inspect($list, $values) as $check) {
+        $checks = $this->inspect($list, $values);
+        // "www." that resolves to the same addresses as the bare domain is one entry: "example.org (and www.)".
+        $aliases = [];
+        foreach ($checks as $index => $check) {
+            if ($check['type'] !== 'domain' || ! str_starts_with($check['value'], 'www.') || $check['addresses'] === []) {
+                continue;
+            }
+            $bare = substr($check['value'], 4);
+            $same = fn (array $addresses) => $addresses !== [] && collect($addresses)->sort()->values()->all() === collect($check['addresses'])->sort()->values()->all();
+            $partner = collect($checks)->first(fn (array $other) => $other['value'] === $bare && $same($other['addresses']));
+            $stored = collect($entries)->search(fn (array $entry) => $entry['value'] === $bare && $same(array_keys($entry['addresses'] ?? [])));
+            if ($partner || $stored !== false) {
+                $aliases[$bare][] = $check['value'];
+                unset($checks[$index]);
+                if (! $partner) {
+                    $entries[$stored]['aliases'] = array_values(array_unique([...($entries[$stored]['aliases'] ?? []), $check['value']]));
+                    $added[] = "{$check['value']} (with {$bare})";
+                }
+            }
+        }
+        $onList = $list->desiredEntries()['entries'];
+        foreach ($checks as $check) {
             if ($check['error']) {
                 $refused[] = "{$check['value']}: {$check['error']}";
 
@@ -100,6 +122,12 @@ class FirewallAllowList
             }
             $warnings = [...$warnings, ...array_map(fn (string $warning) => "{$check['value']}: {$warning}", $check['warnings'])];
             $existing = collect($entries)->search(fn (array $entry) => $entry['value'] === $check['value']);
+            // Already let through by another entry: kept for the record (its note, request and end), listed under that address.
+            $candidates = $check['type'] === 'domain' ? $check['addresses'] : [$check['value']];
+            $covered = $existing === false && $candidates !== [] && collect($candidates)->every(fn (string $address) => in_array($address, $onList, true));
+            if ($covered) {
+                $warnings[] = "{$check['value']}: its address is already on the list, so it's kept with the existing row.";
+            }
             $entry = [
                 'id' => $existing !== false ? $entries[$existing]['id'] : (string) Str::uuid(),
                 'value' => $check['value'], 'type' => $check['type'],
@@ -107,6 +135,10 @@ class FirewallAllowList
                 'request' => $request, 'expires_at' => $expiresAt,
                 'added_by' => $actor?->name, 'added_at' => now()->toIso8601String(),
                 'addresses' => $check['type'] === 'domain' ? array_fill_keys($check['addresses'], now()->toIso8601String()) : null,
+                'aliases' => array_values(array_unique([...($existing !== false ? ($entries[$existing]['aliases'] ?? []) : []), ...($aliases[$check['value']] ?? [])])),
+                // What it resolved to when added, for the nightly check that the site hasn't moved.
+                'discovered' => $check['type'] === 'domain' ? ($existing !== false ? ($entries[$existing]['discovered'] ?? $check['addresses']) : $check['addresses']) : null,
+                'flags' => [],
             ];
             if ($existing !== false) {
                 // An entry added again keeps the longer of the two expiries (none is longest).
@@ -117,7 +149,7 @@ class FirewallAllowList
             } else {
                 $entries[] = $entry;
             }
-            $added[] = $check['value'].($check['type'] === 'domain' && $check['addresses'] ? ' ('.implode(', ', $check['addresses']).')' : '');
+            $added[] = $check['value'].(isset($aliases[$check['value']]) ? ' (and www.)' : '').($check['type'] === 'domain' && $check['addresses'] ? ' ('.implode(', ', $check['addresses']).')' : '');
         }
         $list->forceFill(['allow_entries' => array_values($entries)])->save();
         if ($added) {
@@ -173,7 +205,7 @@ class FirewallAllowList
             if (($entry['type'] ?? null) !== 'domain') {
                 continue;
             }
-            $found = $this->domainAddresses($entry['value'], $list->family);
+            $found = $this->entryAddresses($entry, $list->family);
             if ($found === null) {
                 continue;
             }
@@ -191,6 +223,76 @@ class FirewallAllowList
         $list->forceFill(['allow_entries' => $entries])->save();
 
         return $changed;
+    }
+
+    /**
+     * The nightly check: for each domain, has it moved to addresses it
+     * didn't have when it was added, or stopped resolving? For every entry,
+     * is it still needed (does a firewall rule still block its address)?
+     * Flags are kept on the entry until the next check clears them.
+     *
+     * @return list<string> one line per entry flagged now
+     */
+    public function verify(FirewallList $list): array
+    {
+        $evaluator = app(FirewallEvaluator::class);
+        $pusher = app(FirewallListPusher::class);
+        $zones = $list->all_zones ? $pusher->ruleZones($list, $evaluator->zones()) : collect($evaluator->zones())->whereIn('id', $list->rule_zones ?? [])->values()->all();
+        $ours = collect($list->rules ?? [])->pluck('name')->all();
+        $entries = $list->allow_entries ?? [];
+        $report = [];
+        foreach ($entries as $index => $entry) {
+            $flags = [];
+            $addresses = ($entry['type'] ?? null) === 'domain' ? $this->entryAddresses($entry, $list->family) : [$entry['value']];
+            if (($entry['type'] ?? null) === 'domain' && $addresses !== null) {
+                $since = collect($entry['flags'] ?? [])->firstWhere('type', 'unresolved')['since'] ?? now()->toIso8601String();
+                if ($addresses === []) {
+                    $flags[] = ['type' => 'unresolved', 'since' => $since, 'text' => "{$entry['value']} no longer resolves on the school's DNS (since ".Carbon::parse($since)->local()->format('j M').'). The site may have closed; remove the entry if so.'];
+                } else {
+                    $new = array_values(array_diff($addresses, (array) ($entry['discovered'] ?? [])));
+                    if ($new !== [] && ! empty($entry['discovered'])) {
+                        $flags[] = ['type' => 'changed', 'since' => now()->toIso8601String(), 'text' => "{$entry['value']} now resolves to ".implode(', ', $new).', not only '.implode(', ', (array) $entry['discovered']).' as when it was added. Check it is still the same site; the new addresses are let through too.'];
+                    }
+                }
+            }
+            if ($zones !== [] && $addresses) {
+                $blocked = collect($addresses)->contains(fn (string $address) => collect($zones)->contains(fn (array $zone) => collect($evaluator->evaluate(explode('/', $address)[0], $zone['id'])['blocks'])
+                    ->reject(fn (array $block) => in_array($block['name'], $ours, true))->isNotEmpty()));
+                if (! $blocked && $evaluator->available()) {
+                    $flags[] = ['type' => 'not_needed', 'since' => now()->toIso8601String(), 'text' => "No firewall rule blocks {$entry['value']} any more, so the entry may not be needed."];
+                }
+            }
+            $entries[$index]['flags'] = $flags;
+            $entries[$index]['checked_at'] = now()->toIso8601String();
+            $previous = collect($entry['flags'] ?? [])->pluck('type')->all();
+            foreach ($flags as $flag) {
+                if (! in_array($flag['type'], $previous, true)) {
+                    $report[] = $flag['text'];
+                }
+            }
+        }
+        $list->forceFill(['allow_entries' => $entries, 'verified_at' => now()])->save();
+        if ($report) {
+            $this->audit->log('firewall.allow_verified', $list, ['flags' => $report]);
+        }
+
+        return $report;
+    }
+
+    /**
+     * The addresses a domain entry (and its www. alias) resolve to now, or null when nothing answered.
+     *
+     * @param  array<string, mixed>  $entry
+     * @return list<string>|null
+     */
+    private function entryAddresses(array $entry, string $family): ?array
+    {
+        $answers = collect([$entry['value'], ...($entry['aliases'] ?? [])])->map(fn (string $host) => $this->domainAddresses($host, $family));
+        if ($answers->every(fn ($found) => $found === null)) {
+            return null;
+        }
+
+        return $answers->filter()->flatten()->unique()->sort()->values()->all();
     }
 
     /**

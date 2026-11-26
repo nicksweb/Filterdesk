@@ -59,11 +59,24 @@ interface ManagesIpGroups
     /**
      * Create an enabled rule that blocks (or, with action ALLOW, allows)
      * traffic from one zone to another where the destination (or, for
-     * incoming rules, the source) is in the group.
+     * incoming rules, the source) is in the group. An Allow rule can be
+     * limited to some of the zone's networks (Integration API network IDs).
+     *
+     * @param  list<string>  $sourceNetworkIds
      *
      * @throws ProviderRequestFailed
      */
-    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK'): string;
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK', array $sourceNetworkIds = []): string;
+
+    /**
+     * Move rules (keeping their order) to just above another rule in the
+     * same zone pair; to the top when that rule is not there.
+     *
+     * @param  list<string>  $ruleIds
+     *
+     * @throws ProviderRequestFailed
+     */
+    public function placeRulesBefore(string $sourceZoneId, string $destinationZoneId, array $ruleIds, string $beforeRuleId): void;
 
     /** @throws ProviderRequestFailed */
     public function deleteFirewallRule(string $id): void;

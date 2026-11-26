@@ -441,10 +441,10 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     public function firewallZones(): array
     {
-        return Cache::remember(self::FIREWALL_CACHE.'zones.v3', 3600, function (): array {
-            $names = collect(rescue(fn () => $this->paginated('/networks'), [], false))
-                ->filter(fn ($network) => is_array($network) && isset($network['id']))
-                ->mapWithKeys(fn (array $network) => [(string) $network['id'] => (string) ($network['name'] ?? $network['id'])]);
+        return Cache::remember(self::FIREWALL_CACHE.'zones.v4', 3600, function (): array {
+            $networks = collect(rescue(fn () => $this->paginated('/networks'), [], false))
+                ->filter(fn ($network) => is_array($network) && isset($network['id']))->keyBy(fn (array $network) => (string) $network['id']);
+            $names = $networks->map(fn (array $network) => (string) ($network['name'] ?? $network['id']));
 
             return collect($this->paginated('/firewall/zones'))
                 ->filter(fn ($zone) => is_array($zone) && isset($zone['id']))
@@ -452,6 +452,10 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
                     'id' => (string) $zone['id'], 'name' => (string) ($zone['name'] ?? $zone['id']),
                     'networks' => $this->zoneNetworkNames((array) ($zone['networkIds'] ?? []), $names->all()),
                     'network_ids' => array_values(array_map('strval', (array) ($zone['networkIds'] ?? []))),
+                    // The Integration API's own network IDs differ from the Network application's, so networks are
+                    // matched across the two by VLAN (then name).
+                    'members' => collect((array) ($zone['networkIds'] ?? []))->map(fn ($id) => $networks->get((string) $id))->filter()
+                        ->map(fn (array $network) => ['id' => (string) $network['id'], 'name' => (string) ($network['name'] ?? ''), 'vlan' => isset($network['vlanId']) ? (int) $network['vlanId'] : null])->values()->all(),
                 ])->values()->all();
         });
     }
@@ -481,6 +485,10 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
                 'source' => (string) ($policy['source']['zoneId'] ?? ''), 'destination' => (string) ($policy['destination']['zoneId'] ?? ''),
                 'user' => ($policy['metadata']['origin'] ?? 'USER_DEFINED') === 'USER_DEFINED',
                 'match' => $this->destinationMatch((array) ($policy['destination'] ?? [])),
+                'source_match' => $this->sourceMatch((array) ($policy['source'] ?? [])),
+                'protocol' => $this->protocolOf((array) ($policy['ipProtocolScope'] ?? [])),
+                'ip_version' => strtoupper((string) ($policy['ipProtocolScope']['ipVersion'] ?? 'IPV4_AND_IPV6')),
+                'states' => isset($policy['connectionStateFilter']) ? array_values(array_map('strval', (array) $policy['connectionStateFilter'])) : null,
             ])->values()->all();
     }
 
@@ -492,6 +500,41 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
      * @param  array<string, mixed>  $destination
      * @return array{kind: string, group?: string, addresses?: list<string>, opposite?: bool, ports?: list<array{0: int, 1: int}>|null, label?: string}
      */
+    private function sourceMatch(array $source): array
+    {
+        $filter = (array) ($source['trafficFilter'] ?? []);
+
+        return match (true) {
+            $filter === [] || ($filter['type'] ?? '') === 'PORT' => ['kind' => 'any'],
+            ($filter['type'] ?? '') === 'NETWORK' => ['kind' => 'networks', 'networks' => array_values(array_map('strval', (array) ($filter['networkFilter']['networkIds'] ?? []))), 'opposite' => (bool) ($filter['networkFilter']['matchOpposite'] ?? false)],
+            ($filter['type'] ?? '') === 'MAC_ADDRESS' => ['kind' => 'devices', 'label' => count((array) ($filter['macAddressFilter']['macAddresses'] ?? [])).' device(s) by MAC address'],
+            default => (function () use ($filter): array {
+                $destination = $this->destinationMatch(['trafficFilter' => $filter]);
+
+                return $destination + ['label' => match ($destination['kind']) {
+                    'addresses' => implode(', ', array_slice($destination['addresses'] ?? [], 0, 3)),
+                    'group' => 'an IP list',
+                    default => $destination['label'] ?? 'some sources',
+                }];
+            })(),
+        };
+    }
+
+    /** TCP, UDP, both, or another protocol (ICMP…); "any" when the rule names none. */
+    private function protocolOf(array $scope): string
+    {
+        $filter = (array) ($scope['protocolFilter'] ?? []);
+        if ($filter === []) {
+            return 'any';
+        }
+        $name = strtoupper((string) ($filter['protocol']['name'] ?? $filter['preset']['name'] ?? ''));
+        $protocol = match ($name) {
+            'TCP' => 'tcp', 'UDP' => 'udp', 'TCP_UDP' => 'tcp_udp', default => strtolower($name) ?: 'other',
+        };
+
+        return ! empty($filter['matchOpposite']) ? "not_{$protocol}" : $protocol;
+    }
+
     private function destinationMatch(array $destination): array
     {
         $filter = (array) ($destination['trafficFilter'] ?? []);
@@ -504,6 +547,9 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
             $ports = ($portFilter['type'] ?? '') === 'TRAFFIC_MATCHING_LIST' ? [] : collect((array) ($portFilter['items'] ?? []))->map(fn ($item) => is_array($item)
                 ? (isset($item['start']) ? [(int) $item['start'], (int) ($item['stop'] ?? $item['end'] ?? $item['start'])] : [(int) ($item['value'] ?? 0), (int) ($item['value'] ?? 0)])
                 : [(int) $item, (int) $item])->values()->all();
+        }
+        if (($filter['type'] ?? '') === 'NETWORK') {
+            return ['kind' => 'networks', 'networks' => array_values(array_map('strval', (array) ($filter['networkFilter']['networkIds'] ?? []))), 'ports' => $ports];
         }
         $address = $filter['ipAddressFilter'] ?? null;
         if (! is_array($address)) {
@@ -539,14 +585,42 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         $this->forgetFirewall();
     }
 
-    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK'): string
+    public function placeRulesBefore(string $sourceZoneId, string $destinationZoneId, array $ruleIds, string $beforeRuleId): void
+    {
+        $path = $this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies/ordering');
+        $query = ['sourceFirewallZoneId' => $sourceZoneId, 'destinationFirewallZoneId' => $destinationZoneId];
+        $response = $this->client()->timeout(30)->get($path, $query);
+        $this->ensureSuccessful($response, 'the firewall rule order');
+        $before = array_values(array_map('strval', (array) $response->json('orderedFirewallPolicyIds.beforeSystemDefined', [])));
+        $after = array_values(array_map('strval', (array) $response->json('orderedFirewallPolicyIds.afterSystemDefined', [])));
+        $ours = array_values(array_intersect($ruleIds, [...$before, ...$after]));
+        $rest = array_values(array_diff($before, $ours));
+        $at = array_search($beforeRuleId, $rest, true);
+        $wanted = $at === false ? [...$ours, ...$rest] : [...array_slice($rest, 0, $at), ...$ours, ...array_slice($rest, $at)];
+        if ($wanted === $before && array_intersect($after, $ours) === []) {
+            return;
+        }
+
+        $saved = $this->client()->timeout(30)->withQueryParameters($query)->put($path, ['orderedFirewallPolicyIds' => [
+            'beforeSystemDefined' => $wanted, 'afterSystemDefined' => array_values(array_diff($after, $ours)),
+        ]]);
+        $this->ensureSuccessful($saved, 'the firewall rule order', writing: true);
+        $this->forgetFirewall();
+    }
+
+    public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK', array $sourceNetworkIds = []): string
     {
         $filter = ['type' => 'IP_ADDRESS', 'ipAddressFilter' => ['type' => 'TRAFFIC_MATCHING_LIST', 'matchOpposite' => false, 'trafficMatchingListId' => $groupId]];
+        $allow = $action === 'ALLOW';
+        $source = $groupIsSource ? ['trafficFilter' => $filter]
+            : ($sourceNetworkIds !== [] ? ['trafficFilter' => ['type' => 'NETWORK', 'networkFilter' => ['networkIds' => array_values($sourceNetworkIds), 'matchOpposite' => false]]] : []);
         $response = $this->client()->timeout(30)->post($this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies'), [
-            'enabled' => true, 'name' => $name, 'action' => ['type' => $action === 'ALLOW' ? 'ALLOW' : 'BLOCK'] + ($action === 'ALLOW' ? ['allowReturnTraffic' => true] : []),
-            'source' => ['zoneId' => $sourceZoneId] + ($groupIsSource ? ['trafficFilter' => $filter] : []),
+            'enabled' => true, 'name' => $name, 'action' => ['type' => $allow ? 'ALLOW' : 'BLOCK'] + ($allow ? ['allowReturnTraffic' => true] : []),
+            'source' => ['zoneId' => $sourceZoneId] + $source,
             'destination' => ['zoneId' => $destinationZoneId] + ($groupIsSource ? [] : ['trafficFilter' => $filter]),
             'ipProtocolScope' => ['ipVersion' => $family === 'ipv6' ? 'IPV6' : 'IPV4'],
+            // An Allow rule never lets invalid-state traffic through ahead of UniFi's own Block Invalid Traffic.
+            ...($allow ? ['connectionStateFilter' => ['NEW', 'RELATED', 'ESTABLISHED']] : []),
             'loggingEnabled' => false,
         ]);
         $this->ensureSuccessful($response, 'a firewall rule', writing: true);

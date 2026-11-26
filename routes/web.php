@@ -153,6 +153,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/firewall-allow/{list}/zones', [FirewallAllowController::class, 'zones'])->middleware('throttle:10,1')->name('firewall-allow.zones');
                     Route::post('/firewall-allow/{list}/adopt', [FirewallAllowController::class, 'adopt'])->middleware('throttle:10,1')->name('firewall-allow.adopt');
                     Route::post('/firewall-allow/{list}/push', [FirewallAllowController::class, 'push'])->middleware('throttle:10,1')->name('firewall-allow.push');
+                    Route::post('/firewall-allow/{list}/verify', [FirewallAllowController::class, 'verify'])->middleware('throttle:6,1')->name('firewall-allow.verify');
                     Route::post('/firewall-allow/{list}/feed', [FirewallAllowController::class, 'feed'])->name('firewall-allow.feed');
                     Route::delete('/firewall-allow/{list}', [FirewallAllowController::class, 'destroy'])->name('firewall-allow.destroy');
                     Route::get('/setup', [ControllerSetupController::class, 'show'])->name('setup.show');

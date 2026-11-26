@@ -42,28 +42,52 @@
             <x-push-status :status="$firewallStatus[$list->id] ?? null" />
 
             <h3>Entries</h3>
-            @if($list->allow_entries)
+            @php($entries = collect($list->allow_entries ?? []))
+            @php($flagged = $entries->filter(fn ($entry) => ! empty($entry['flags'])))
+            @if($flagged->isNotEmpty())
+                <div class="alert error"><strong>To check ({{ $flagged->count() }}):</strong>
+                    <ul>@foreach($flagged as $entry)@foreach($entry['flags'] as $flag)<li>{{ $flag['text'] }}</li>@endforeach @endforeach</ul>
+                </div>
+            @endif
+            @if($entries->isNotEmpty())
+                {{-- One row per address, with every entry that lets it through underneath: removing one entry keeps an address another still needs. --}}
+                @php($rows = collect($desired['entries'])->map(fn ($address) => ['address' => $address, 'entries' => $entries->filter(fn ($entry) => ($entry['type'] ?? null) === 'domain' ? array_key_exists($address, $entry['addresses'] ?? []) : $entry['value'] === $address)->values()]))
+                @php($unresolved = $entries->filter(fn ($entry) => ($entry['type'] ?? null) === 'domain' && empty($entry['addresses'])))
                 <form method="post" action="{{ route('admin.policy.firewall-allow.remove', $list) }}">@csrf @method('DELETE')
                     <div class="table-wrap compact"><table>
-                        <thead><tr><th></th><th>Address or domain</th><th>Resolves to</th><th>Why</th><th>Until</th><th>Exempts it from</th></tr></thead>
+                        <thead><tr><th>Address</th><th>From</th><th>What the Allow rules do for it</th></tr></thead>
                         <tbody>
-                            @foreach($list->allow_entries as $entry)
-                                @php($expired = !empty($entry['expires_at']) && now()->gte($entry['expires_at']))
-                                <tr @class(['muted-row' => $expired])>
-                                    <td><input type="checkbox" name="entries[]" value="{{ $entry['id'] }}" aria-label="Select {{ $entry['value'] }}"></td>
-                                    <td><strong>{{ $entry['value'] }}</strong><small>{{ ['ip' => 'Address', 'cidr' => 'Subnet', 'domain' => 'Domain'][$entry['type']] ?? $entry['type'] }}{{ $entry['added_by'] ? ' · '.$entry['added_by'] : '' }}{{ !empty($entry['added_at']) ? ' · '.\Illuminate\Support\Carbon::parse($entry['added_at'])->local()->format('j M Y') : '' }}</small></td>
-                                    <td>@if(($entry['type'] ?? null) === 'domain')<x-host-list :items="array_keys($entry['addresses'] ?? [])" :max="4" />@if(empty($entry['addresses']))<span class="hint">Not resolved yet</span>@endif @else<span class="hint">—</span>@endif</td>
-                                    <td>{{ $entry['note'] ?? '' }}@if(!empty($entry['request']))<small>Request {{ $entry['request'] }}</small>@endif</td>
-                                    <td>{{ $expired ? 'Expired' : (!empty($entry['expires_at']) ? \Illuminate\Support\Carbon::parse($entry['expires_at'])->local()->format('j M Y g:i a') : 'No end') }}</td>
-                                    <td>@php($addresses = ($entry['type'] ?? null) === 'domain' ? array_keys($entry['addresses'] ?? []) : [$entry['value']])
-                                        @php($exempts = collect($addresses)->flatMap(fn ($address) => $plan['effects'][$address] ?? [])->unique()->values()->all())
-                                        @if($exempts)<x-host-list :items="$exempts" :max="3" />@else<span class="hint">No block rule matches it</span>@endif</td>
+                            @foreach($rows as $row)
+                                @php($effect = $plan['effects'][$row['address']] ?? ['exempts' => [], 'opens' => []])
+                                <tr>
+                                    <td><strong>{{ $row['address'] }}</strong></td>
+                                    <td>
+                                        @foreach($row['entries'] as $entry)
+                                            @php($expired = !empty($entry['expires_at']) && now()->gte($entry['expires_at']))
+                                            <label class="choice compact allow-source @if($expired) muted-row @endif"><input type="checkbox" name="entries[]" value="{{ $entry['id'] }}" aria-label="Select {{ $entry['value'] }}">
+                                                <span><strong>{{ ($entry['type'] ?? null) === 'domain' ? $entry['value'].(! empty($entry['aliases']) ? ' (and '.implode(', ', $entry['aliases']).')' : '') : 'Added by hand' }}</strong>
+                                                    <small>{{ collect([$entry['note'] ?? null, ! empty($entry['request']) ? 'Request '.$entry['request'] : null, $entry['added_by'] ?? null, ! empty($entry['added_at']) ? \Illuminate\Support\Carbon::parse($entry['added_at'])->local()->format('j M Y') : null,
+                                                        $expired ? 'Expired' : (! empty($entry['expires_at']) ? 'until '.\Illuminate\Support\Carbon::parse($entry['expires_at'])->local()->format('j M Y g:i a') : null)])->filter()->join(' · ') }}</small>
+                                                    @foreach($entry['flags'] ?? [] as $flag)<small class="network-status warn">{{ $flag['text'] }}</small>@endforeach
+                                                </span></label>
+                                        @endforeach
+                                        @if($row['entries']->isEmpty())<span class="hint">A subnet entry covers it</span>@endif
+                                    </td>
+                                    <td>@if($effect['exempts'])<small><strong>Exempts it from:</strong> <x-host-list :items="$effect['exempts']" :max="3" /></small>@else<small class="hint">No block rule for these zones matches it.</small>@endif
+                                        @if($effect['opens'])<small class="network-status warn"><strong>Also opens it for</strong> <x-host-list :items="$effect['opens']" :max="2" />. Limit the source networks or place the rules above the matching blocks (Zones, below) to keep those blocks.</small>@endif</td>
                                 </tr>
+                            @endforeach
+                            @foreach($unresolved as $entry)
+                                <tr class="muted-row"><td><span class="hint">Not resolved yet</span></td><td><label class="choice compact"><input type="checkbox" name="entries[]" value="{{ $entry['id'] }}"><span><strong>{{ $entry['value'] }}</strong>@foreach($entry['flags'] ?? [] as $flag)<small class="network-status warn">{{ $flag['text'] }}</small>@endforeach</span></label></td><td></td></tr>
                             @endforeach
                         </tbody>
                     </table></div>
-                    <div class="button-row"><button class="button small secondary" data-confirm="Remove the ticked entries from {{ $list->name }}? Their addresses are blocked again by any rule that blocks them, at the next push.">Remove ticked</button></div>
+                    <div class="button-row">
+                        <button class="button small secondary" data-confirm="Remove the ticked entries from {{ $list->name }}? An address nothing else lets through is blocked again, at the next push, by any rule that blocks it.">Remove ticked</button>
+                        <small class="hint">Checked every night{{ $list->verified_at ? ', last '.$list->verified_at->diffForHumans() : '' }}: whether each domain still resolves, has moved to new addresses, and whether a firewall rule still blocks each address.</small>
+                    </div>
                 </form>
+                <form method="post" action="{{ route('admin.policy.firewall-allow.verify', $list) }}" class="button-row">@csrf<button class="button small secondary">Check the entries now</button></form>
             @else
                 <p class="hint">No entries yet.</p>
             @endif
@@ -90,10 +114,21 @@
                     @endforeach
                 </div>
                 <label class="choice compact"><input type="radio" name="scope" value="none" @checked(! $list->all_zones && ! $list->rule_zones)><span><strong>No rules</strong><small>Keep the UniFi list only (for your own rule, or for a firewall that loads the URL below).</small></span></label>
+                <h4>Which devices</h4>
+                <label class="choice compact"><input type="radio" name="source" value="zone" @checked(! $list->source_networks)><span><strong>Every network in those zones</strong><small>Simplest. A network another rule keeps off the internet (servers, management) is let through to these addresses too.</small></span></label>
+                <label class="choice compact"><input type="radio" name="source" value="networks" @checked((bool) $list->source_networks)><span><strong>Only these networks</strong><small>Each zone's Allow rule names its ticked networks; a zone with none ticked gets no rule.</small></span></label>
+                <div class="category-grid">
+                    @foreach($plan['members'] as $member)
+                        <label class="choice compact"><input type="checkbox" name="networks[]" value="{{ $member['id'] }}" @checked(in_array($member['id'], $list->source_networks ?? [], true))><span>{{ $member['name'] }}<small>{{ $member['zone'] }}{{ $member['vlan'] ? ' · VLAN '.$member['vlan'] : '' }}</small></span></label>
+                    @endforeach
+                </div>
+                <h4>Where the rules go</h4>
+                <label class="choice compact"><input type="radio" name="placement" value="top" @checked(($list->placement ?? 'top') === 'top')><span><strong>At the top of each zone's order</strong><small>Ahead of every block rule. Invalid connections are never let through either way.</small></span></label>
+                <label class="choice compact"><input type="radio" name="placement" value="above_blocks" @checked($list->placement === 'above_blocks')><span><strong>Just above the block rules that match these addresses</strong><small>The rules above them (general blocks, and blocks for single networks or devices) are still checked first, the way you'd place one by hand.</small></span></label>
                 @if($plan['uncovered'])<p class="network-status warn">Zones with block rules this list doesn't cover: {{ implode(', ', $plan['uncovered']) }}. Addresses in it stay blocked there.</p>@endif
                 @if($plan['ahead'])<p class="network-status warn">Block rules checked before this list's Allow rules: @foreach($plan['ahead'] as $rule)<strong>{{ $rule['name'] }}</strong> (above {{ $rule['before'] }})@if(!$loop->last), @endif @endforeach. Push again to move the Allow rules back to the top.</p>@endif
-                @if($list->rules)
-                    <p class="hint">Allow rules in UniFi: @foreach($list->rules as $rule){{ $rule['name'] }}@if(isset($plan['live'][$rule['id']]) && !$plan['live'][$rule['id']]['enabled']) <span class="status status-action_required">disabled in UniFi</span>@endif @if(!$loop->last), @endif @endforeach</p>
+                @if($plan['rule_details'])
+                    <x-firewall-rules :rules="$plan['rule_details']" />
                 @elseif($plan['rules'])
                     <p class="hint">Rules that will be created: @foreach($plan['rules'] as $rule)<code>{{ $rule['name'] }}</code> ({{ $rule['from'] }} → {{ $rule['to'] }})@if(!$loop->last), @endif @endforeach. Each goes to the top of its zone's order.</p>
                 @endif

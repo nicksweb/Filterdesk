@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.27
+
+### Fixed
+- **The UniFi firewall check now runs.** It never found a network's firewall zone, because UniFi's two APIs give the same network different IDs. Networks are now matched by VLAN, then by name, so Quick allow, request approvals, website checks, Access explorer and allow lists check the rules.
+  - When a zone still can't be found, the result says so ("UniFi's firewall rules weren't checked for Student Access") instead of saying no rule matches.
+  - The probe checklist has a new step, *Firewall zone found*.
+- **The firewall evaluation follows each rule's conditions**, as UniFi reads them:
+  - Rules limited to some networks, devices or addresses don't decide for the whole network. They're listed separately, and a rule for the probe's own network does count.
+  - Rules for other protocols (*Block QUIC* on UDP), other connection states (*Block Invalid Traffic*) or the other IP version are left out.
+- **Allow rules never let invalid connections through.** They match new, related and established connections only.
+- **Allow list entries for the same address are one row.**
+  - Each address is listed once, with every domain and hand-added entry behind it, each with its own note, request and end date.
+  - Removing one entry keeps an address another entry still needs.
+  - `www.` that resolves to the same addresses as the bare domain becomes one entry: "example.org (and www.)".
+  - Adding an entry whose address is already on the list says so.
+- **Access explorer marks old evidence.** When the last saved check failed or is more than a day old, it says so and links to a fresh check.
+
+### Added
+- **Allow rule options** (allow list → Zones):
+  - **Only these networks:** limit the Allow rules to chosen networks, so a network another rule keeps off the internet (servers, management) stays off.
+  - **Just above the block rules that match these addresses:** place the rules there instead of at the top, so general rules and blocks for single networks or devices are still checked first.
+  - The page warns which source-limited blocks a zone-wide Allow rule would open the address for.
+- **See the firewall rules a list keeps in UniFi**, on allow lists and block lists. Each rule shows its zones, the networks it applies to, its place in the zone's order (with the rules just before and after) and whether it's on, disabled or missing.
+- **Nightly check of allow list entries** (02:40, or *Check the entries now*). Each domain is resolved again and compared with the addresses it had when it was added. It is flagged when:
+  - it has **moved** to new addresses;
+  - it **no longer resolves**;
+  - **no firewall rule blocks** its address any more, so the entry may not be needed.
+
+  Flags show on the list's page until they clear, and new ones are emailed to IT with the filter sync alerts.
+
 ## 2026.12.26
 
 ### Fixed

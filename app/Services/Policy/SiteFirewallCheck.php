@@ -49,16 +49,17 @@ class SiteFirewallCheck
         $allowLists = [];
         foreach ($this->addresses->resolve($host, $profiles, $connect) as $answer) {
             $zone = $answer['profile'] ? $this->firewall->zoneForProfile($answer['profile']) : null;
+            $problem = $answer['profile'] && ! $zone && $this->firewall->available() ? $this->firewall->zoneProblem($answer['profile']) : null;
             $rows = [];
             foreach (array_slice($answer['addresses'], 0, 4) as $address) {
-                $evaluation = $zone && ! $answer['blocked'] ? $this->firewall->evaluate($address, $zone['id']) : null;
+                $evaluation = $zone && ! $answer['blocked'] ? $this->firewall->evaluate($address, $zone['id'], networkId: $zone['network_id']) : null;
                 if (($evaluation['decision'] ?? null) === 'block') {
                     $blockedAddresses[] = $address;
                 }
                 $allowLists = [...$allowLists, ...($evaluation['allow_lists'] ?? $this->firewall->allowListsHolding($address))];
                 $rows[] = ['address' => $address, 'evaluation' => $evaluation, 'connect' => $answer['connect'][$address] ?? null];
             }
-            $networks[] = ['network' => $answer['network'], 'zone' => $zone['name'] ?? null, 'resolver' => $answer['resolver'], 'blocked' => $answer['blocked'],
+            $networks[] = ['network' => $answer['network'], 'zone' => $zone['name'] ?? null, 'zone_problem' => $problem, 'resolver' => $answer['resolver'], 'blocked' => $answer['blocked'],
                 'error' => $answer['error'], 'addresses' => $rows];
         }
 
@@ -74,6 +75,9 @@ class SiteFirewallCheck
             default => 'allowed',
         };
         $first = collect($networks)->flatMap(fn (array $network) => $network['addresses'])->first(fn (array $row) => ($row['evaluation']['decision'] ?? null) === 'block');
+        // Networks whose zone wasn't found: the rules weren't checked there, which is not the same as "no rule matches".
+        $unchecked = collect($networks)->filter(fn (array $network) => $network['zone_problem'] !== null && $network['addresses'] !== [])->pluck('network');
+        $notChecked = $unchecked->isNotEmpty() ? ' UniFi\'s firewall rules weren\'t checked for '.$unchecked->join(', ').': its firewall zone couldn\'t be found (see Settings → Network profiles).' : '';
 
         return [
             'verdict' => $verdict,
@@ -81,8 +85,9 @@ class SiteFirewallCheck
                 'firewall' => "{$host} ({$first['address']}) is blocked by the firewall rule {$first['evaluation']['rule']['name']}".($first['evaluation']['via'] ? " ({$first['evaluation']['via']})" : '').'. A content filter allow won\'t open it.',
                 'dns_missing' => "{$host} doesn't resolve on the school's DNS, so no allow will open it.",
                 'dns_blocked' => "{$host} is blocked by DNS on every network checked (the content filter's block answer).",
-                'unreachable' => "No reply from {$host} (".$resolved->flatMap(fn (array $network) => collect($network['addresses'])->pluck('address'))->unique()->join(', ').'): the connection is being dropped, usually by a firewall, but no UniFi rule here matches it. Check threat management (IPS), region blocking and the gateway.',
-                'allowed' => "Nothing outside the content filter blocks {$host}.",
+                'unreachable' => "No reply from {$host} (".$resolved->flatMap(fn (array $network) => collect($network['addresses'])->pluck('address'))->unique()->join(', ').'): the connection is being dropped, usually by a firewall.'
+                    .($unchecked->count() === $resolved->count() ? $notChecked : ' No UniFi firewall rule checked here matches it. Check threat management (IPS), region blocking and the gateway.'.$notChecked),
+                'allowed' => "Nothing outside the content filter blocks {$host}.".$notChecked,
                 default => "{$host} couldn't be checked: no probe answered.",
             },
             'rule' => $first['evaluation']['rule']['name'] ?? null,

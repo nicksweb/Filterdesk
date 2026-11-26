@@ -19,7 +19,7 @@
                 @endif
                 <details class="hint"><summary>Per network</summary>
                     <ul>@foreach($result['networks'] as $network)
-                        <li><strong>{{ $network['network'] }}</strong>{{ $network['zone'] ? ' (zone '.$network['zone'].')' : '' }}: @if($network['blocked'])sinkholed by DNS @elseif(!$network['addresses']){{ $network['error'] === 'NXDOMAIN' || ! $network['error'] ? "doesn't resolve" : $network['error'] }} @else @foreach($network['addresses'] as $row){{ $row['address'] }}{{ $row['connect'] ? ' · connection '.$row['connect'] : '' }}{{ $row['evaluation'] ? ' · '.\App\Services\Policy\FirewallEvaluator::describe($row['evaluation'], $row['address']) : '' }}@if(!$loop->last); @endif @endforeach @endif <small>{{ $network['resolver'] }}</small></li>
+                        <li><strong>{{ $network['network'] }}</strong>{{ $network['zone'] ? ' (zone '.$network['zone'].')' : '' }}@if($network['zone_problem'] ?? null) <span class="network-status warn">{{ $network['zone_problem'] }}</span>@endif: @if($network['blocked'])sinkholed by DNS @elseif(!$network['addresses']){{ $network['error'] === 'NXDOMAIN' || ! $network['error'] ? "doesn't resolve" : $network['error'] }} @else @foreach($network['addresses'] as $row){{ $row['address'] }}{{ $row['connect'] ? ' · connection '.$row['connect'] : '' }}{{ $row['evaluation'] ? ' · '.\App\Services\Policy\FirewallEvaluator::describe($row['evaluation'], $row['address']) : '' }}@if(!$loop->last); @endif @endforeach @endif <small>{{ $network['resolver'] }}</small></li>
                     @endforeach</ul>
                 </details>
             </li>

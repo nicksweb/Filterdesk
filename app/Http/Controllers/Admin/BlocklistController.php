@@ -67,6 +67,7 @@ class BlocklistController extends Controller
                     $list->rule_zones ?? collect($zones)->where(fn (array $zone) => strtolower($zone['name']) === 'internal')->pluck('id')->all()), [], false),
                 'ahead' => $firewall->rulesAhead($list, $liveRules),
                 'live' => collect($liveRules)->whereIn('id', collect($list->rules ?? [])->pluck('id'))->keyBy('id')->all(),
+                'details' => FirewallAllowController::ruleDetails($list, $liveRules, $zones),
             ]])->all(),
             'firewallStatus' => FirewallList::query()->pluck('id')->mapWithKeys(fn (int $id) => [$id => Cache::get(RunManualPush::statusKey('firewall', $id))])->filter()->all(),
             'groupLimit' => $firewall->groupLimit(),
