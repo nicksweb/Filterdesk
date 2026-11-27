@@ -2,6 +2,7 @@
 
 namespace App\Services\Network;
 
+use App\Models\IntegrationConfig;
 use App\Models\WebsiteRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -172,6 +173,7 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK', array $sourceNetworkIds = []): string
     {
+        FirewallRuleMode::guard(IntegrationConfig::query()->where('provider', 'mock')->first(), 'create firewall rules');
         $rules = Cache::get('mock.firewall_rules', []);
         $id = 'sim-rule-'.(count($rules) + 1).'-'.substr(md5($name.$groupId.$sourceZoneId), 0, 6);
         $rules[$id] = ['id' => $id, 'name' => $name, 'group' => $groupId, 'source' => $sourceZoneId, 'destination' => $destinationZoneId, 'incoming' => $groupIsSource, 'action' => $action,
@@ -184,6 +186,7 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function deleteFirewallRule(string $id): void
     {
+        FirewallRuleMode::guard(IntegrationConfig::query()->where('provider', 'mock')->first(), 'delete firewall rules');
         $rules = Cache::get('mock.firewall_rules', []);
         unset($rules[$id]);
         Cache::forever('mock.firewall_rules', $rules);
@@ -204,6 +207,7 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function placeRulesBefore(string $sourceZoneId, string $destinationZoneId, array $ruleIds, string $beforeRuleId): void
     {
+        FirewallRuleMode::guard(IntegrationConfig::query()->where('provider', 'mock')->first(), 'reorder firewall rules');
         $order = array_values(array_diff(Cache::get('mock.firewall_first', []), $ruleIds));
         $at = array_search($beforeRuleId, $order, true);
         Cache::forever('mock.firewall_first', $at === false ? [...$ruleIds, $beforeRuleId, ...$order] : [...array_slice($order, 0, $at), ...$ruleIds, ...array_slice($order, $at)]);
@@ -211,6 +215,7 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function placeRulesFirst(string $sourceZoneId, string $destinationZoneId, array $ruleIds): void
     {
+        FirewallRuleMode::guard(IntegrationConfig::query()->where('provider', 'mock')->first(), 'reorder firewall rules');
         Cache::forever('mock.firewall_first', array_values(array_unique([...$ruleIds, ...Cache::get('mock.firewall_first', [])])));
     }
 

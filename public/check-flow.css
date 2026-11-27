@@ -28,3 +28,4 @@
 .simple-results .probe-screenshot{flex-basis:100%;margin:6px 0 0}.simple-results .probe-screenshot img{width:100%;max-width:560px;border-radius:8px}
 .site-result>.site-categories{margin:0;padding:12px 20px 0;row-gap:6px}.site-result>.site-categories .category-unifi{font-size:.78rem;line-height:1.45;margin-top:2px}.site-result>.simple-results{margin:0;padding:12px 20px 18px}@media(max-width:620px){.site-result>.site-categories{padding:10px 14px 0}.site-result>.simple-results{padding:10px 14px 14px}}
 .probe-state.unreachable{background:#fde8e9;color:#a6222b}.firewall-finding.blocked{color:#a6222b;font-weight:600}
+.embed-body{background:var(--canvas);padding:16px}.embed-body .panel{margin-bottom:14px}.public-check input{max-width:420px}

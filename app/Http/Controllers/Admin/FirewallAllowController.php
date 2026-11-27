@@ -38,6 +38,7 @@ class FirewallAllowController extends Controller
             'groups' => collect($groups),
             'error' => $firewall->error(),
             'canWrite' => $pusher->canWrite(),
+            'managesRules' => $pusher->managesRules(),
             'unused' => $firewall->unusedGroups(),
             'firewallStatus' => $lists->mapWithKeys(fn (FirewallList $list) => [$list->id => Cache::get(RunManualPush::statusKey('firewall', $list->id))])->filter()->all(),
             'plans' => $lists->mapWithKeys(fn (FirewallList $list) => [$list->id => $this->plan($list, $pusher, $firewall, $zones, $live)])->all(),
@@ -47,7 +48,8 @@ class FirewallAllowController extends Controller
     public function store(Request $request, AuditLogger $audit): RedirectResponse
     {
         $validated = $request->validate(['name' => ['required', 'string', 'max:120'], 'family' => ['required', 'in:ipv4,ipv6']]);
-        $list = FirewallList::query()->create($validated + ['kind' => 'allow', 'all_zones' => true, 'max_entries' => 2000]);
+        // With IP lists only, a new list makes no rules; otherwise it covers every zone.
+        $list = FirewallList::query()->create($validated + ['kind' => 'allow', 'all_zones' => app(FirewallListPusher::class)->managesRules(), 'max_entries' => 2000]);
         $audit->log('firewall.allow_list_created', $list);
 
         return back()->with('success', "{$list->name} created. Add addresses or domains, then create its IP group in UniFi.");
@@ -100,6 +102,9 @@ class FirewallAllowController extends Controller
         $networks = ($validated['source'] ?? 'zone') === 'networks'
             ? array_values(array_intersect($validated['networks'] ?? [], $known->flatMap(fn (array $zone) => array_column($zone['members'] ?? [], 'id'))->all()))
             : [];
+        if (! $pusher->managesRules()) {
+            return back()->with('error', 'Filterdesk is set to keep IP lists only, so it doesn\'t create firewall rules (Settings → Network provider → Firewall rules).');
+        }
         $list->forceFill([
             'all_zones' => $validated['scope'] === 'all',
             'rule_zones' => $validated['scope'] === 'chosen' && $zones ? $zones : null,
@@ -166,7 +171,7 @@ class FirewallAllowController extends Controller
     public function destroy(FirewallList $list, FirewallListPusher $pusher, AuditLogger $audit): RedirectResponse
     {
         abort_unless($list->isAllow(), 404);
-        if ($pusher->canWrite()) {
+        if ($pusher->canWrite() && $pusher->managesRules()) {
             $pusher->removeRules($list);
         }
         $audit->log('firewall.list_deleted', $list, ['name' => $list->name]);

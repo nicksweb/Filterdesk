@@ -94,7 +94,7 @@ class TimedAccessTest extends TestCase
         $request->refresh();
         $this->assertTrue($request->windowChanged());
         $this->assertEquals($request->expires_at, PolicyEntry::query()->where('website_request_id', $request->id)->value('expires_at'));
-        Notification::assertSentTo($request->requester, RequestDecisionNotification::class, fn ($notification, $channels, $notifiable) => str_contains($notification->toMail($notifiable)->subject, 'approved and scheduled'));
+        Notification::assertSentTo($request->requester, RequestDecisionNotification::class, fn ($notification, $channels, $notifiable) => str_contains($notification->toMail($notifiable)->subject, 'Approved from '));
 
         $this->actingAs($it)->post(route('it.requests.action', $request), ['action' => 'window', 'access_from' => '', 'access_until' => ''])->assertSessionHas('success');
         $this->assertNull($request->refresh()->expires_at);
@@ -111,7 +111,7 @@ class TimedAccessTest extends TestCase
             'domains' => ['course.example.org'], 'access_scope' => Reach::types('staff', 'student'), 'category' => 'Teaching and learning',
             'use_case' => 'Students need this resource for a supervised classroom activity.', 'requested_from' => null, 'requested_until' => now()->addDays(3),
         ]);
-        Notification::assertSentTo($teacher, RequestDecisionNotification::class, fn ($notification, $channels, $notifiable) => str_contains($notification->toMail($notifiable)->subject, 'received'));
+        Notification::assertSentTo($teacher, RequestDecisionNotification::class, fn ($notification, $channels, $notifiable) => str_contains($notification->toMail($notifiable)->subject, 'We have your request'));
 
         app(RequestWorkflow::class)->approve($request, User::factory()->it()->create());
         $this->travel(49)->hours();
@@ -122,6 +122,6 @@ class TimedAccessTest extends TestCase
         $this->travel(1)->day();
         $this->artisan('requests:expire')->assertSuccessful();
         $this->assertSame(RequestStatus::Expired, $request->refresh()->status);
-        Notification::assertSentTo($teacher, RequestDecisionNotification::class, fn ($notification, $channels, $notifiable) => str_contains($notification->toMail($notifiable)->subject, 'access has ended'));
+        Notification::assertSentTo($teacher, RequestDecisionNotification::class, fn ($notification, $channels, $notifiable) => str_contains($notification->toMail($notifiable)->subject, 'Ended: '));
     }
 }

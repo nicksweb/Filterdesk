@@ -15,7 +15,7 @@ class UniFiProviderTest extends TestCase
     private function provider(array $configuration, string $mode = 'read_only'): UniFiNetworkProvider
     {
         return new UniFiNetworkProvider(new IntegrationConfig([
-            'provider' => 'unifi', 'mode' => $mode, 'configuration' => $configuration, 'credentials' => ['api_key' => 'test-key'],
+            'provider' => 'unifi', 'mode' => $mode, 'configuration' => $configuration + ['firewall_rules' => 'manage'], 'credentials' => ['api_key' => 'test-key'],
         ]));
     }
 

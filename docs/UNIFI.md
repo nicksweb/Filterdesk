@@ -54,6 +54,12 @@ How the rules are built, and why there are several:
 - **Drift:** a rule deleted in UniFi is recreated on the next push or hourly refresh. A rule you only disable stays disabled, and the page shows it as disabled. The app deletes its rules when you untick the zones or delete the list. Rules you made yourself are listed but never changed.
 - **Content filters are separate.** They apply per network and keep working as before; firewall IP lists add address-level blocking on top.
 
+### Firewall rules: IP lists only, and list size
+
+Settings → Network provider → **Firewall rules** chooses whether Filterdesk may write firewall rules. With **IP lists only**, it keeps its UniFi IP lists (block and allow) up to date and never creates, changes, reorders or deletes a rule. The provider refuses rule writes in that mode, so nothing can make one by accident. Use the lists in your own rules. When a list grows past *Addresses per UniFi IP list*, it gains a part (*Name (2 of 2)*), and Filterdesk warns you until you've added that part to your rules.
+
+**Addresses per UniFi IP list** is 20,000 by default and can go to 100,000. Reports say recent UniFi takes 100,000 per list, but we haven't confirmed it on a gateway. Try it on yours first: `docker compose exec app php artisan filterdesk:test-ip-list-size --sizes=50000,100000`. It creates temporary lists from 100.64.0.0/10 (never on the internet), with no rules, then reads them back, rewrites 10% and deletes them. Add `--subnets` to see whether UniFi counts a subnet as one entry. Watch the gateway's CPU and memory and the Firewall pages while larger lists are in use.
+
 ### Firewall allow lists
 
 **Policies → Firewall allow lists** (admins) lets addresses through the firewall instead, for a site whose address one of your block rules (or a feed's) blocks. A content filter allow can't open those.

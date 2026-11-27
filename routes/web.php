@@ -33,6 +33,7 @@ use App\Http\Controllers\InstallController;
 use App\Http\Controllers\ItRequestActionController;
 use App\Http\Controllers\OidcTestController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PublicCheckController;
 use App\Http\Controllers\QuickDecisionController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\WebsiteCheckController;
@@ -57,6 +58,11 @@ Route::middleware('installation.only')->group(function (): void {
 });
 
 Route::middleware('installed')->group(function (): void {
+    // Website checks without signing in (off unless Settings → Network profiles allows them), and a bare page to embed.
+    Route::get('/check/public', [PublicCheckController::class, 'show'])->name('checks.public');
+    Route::post('/check/public', [PublicCheckController::class, 'store'])->middleware('throttle:public-check')->name('checks.public.store');
+    Route::get('/check/embed', [PublicCheckController::class, 'show'])->name('checks.embed');
+    Route::post('/check/embed', [PublicCheckController::class, 'store'])->middleware('throttle:public-check')->name('checks.embed.store');
     Route::get('/login', [AuthController::class, 'login'])->name('login');
     Route::post('/login', [AuthController::class, 'local'])->middleware('throttle:login')->name('auth.local');
     Route::get('/auth/oidc', [AuthController::class, 'oidcRedirect'])->middleware('throttle:20,1')->name('auth.oidc');
@@ -145,6 +151,7 @@ Route::middleware('installed')->group(function (): void {
                     Route::post('/blocklists/firewall/{list}/create-group', [BlocklistController::class, 'createGroup'])->middleware('throttle:6,1')->name('blocklists.firewall.create-group');
                     Route::post('/blocklists/firewall/{list}/rules', [BlocklistController::class, 'rules'])->middleware('throttle:6,1')->name('blocklists.firewall.rules');
                     Route::post('/blocklists/firewall/{list}/push', [BlocklistController::class, 'pushFirewallList'])->middleware('throttle:10,1')->name('blocklists.firewall.push');
+                    Route::post('/blocklists/firewall/{list}/parts-added', [BlocklistController::class, 'partsAdded'])->name('blocklists.firewall.parts-added');
                     Route::delete('/blocklists/firewall/{list}', [BlocklistController::class, 'destroyFirewallList'])->name('blocklists.firewall.destroy');
                     Route::get('/firewall-allow', [FirewallAllowController::class, 'index'])->name('firewall-allow.index');
                     Route::post('/firewall-allow', [FirewallAllowController::class, 'store'])->name('firewall-allow.store');

@@ -71,6 +71,9 @@ class BlocklistController extends Controller
             ]])->all(),
             'firewallStatus' => FirewallList::query()->pluck('id')->mapWithKeys(fn (int $id) => [$id => Cache::get(RunManualPush::statusKey('firewall', $id))])->filter()->all(),
             'groupLimit' => $firewall->groupLimit(),
+            'managesRules' => $firewall->managesRules(),
+            'totals' => ['lists' => FirewallList::query()->get()->sum(fn (FirewallList $list) => count($list->groups ?? [])),
+                'addresses' => FirewallList::query()->get()->sum(fn (FirewallList $list) => collect($list->groups ?? [])->sum('count'))],
             'groupsError' => $groupsError,
             'canWrite' => $firewall->canWrite(),
             'maxFilterEntries' => app(ControllerPusher::class)->maxEntries(),
@@ -265,12 +268,24 @@ class BlocklistController extends Controller
         if (! $pusher->canWrite()) {
             return back()->with('error', 'Set the network provider to Active to create firewall rules.');
         }
+        if (! $pusher->managesRules()) {
+            return back()->with('error', 'Filterdesk is set to keep IP lists only, so it doesn\'t create firewall rules (Settings → Network provider → Firewall rules).');
+        }
         $zones = array_values(array_intersect($validated['zones'] ?? [], collect(rescue(fn () => $pusher->manager()->firewallZones(), [], false))->pluck('id')->all()));
         $list->forceFill(['rule_zones' => $zones ?: null, 'block_incoming' => $zones !== [] && $request->boolean('block_incoming'), 'rules_first' => $zones !== [] && $request->boolean('rules_first')])->save();
         $audit->log('firewall.rules_chosen', $list, ['zones' => $zones, 'incoming' => $list->block_incoming, 'first' => $list->rules_first]);
         $result = RunManualPush::start('firewall', $list->id, $request->user(), force: true);
 
         return RunManualPush::flash(back(), $result, ($zones ? 'Updating the blocking rules' : 'Removing the blocking rules')." for {$list->name} in UniFi. It runs in the background; refresh in a minute to see the result.");
+    }
+
+    /** IT has added a list's new UniFi IP list part to their own rules. */
+    public function partsAdded(FirewallList $list, AuditLogger $audit): RedirectResponse
+    {
+        $audit->log('firewall.new_parts_added', $list, ['parts' => $list->new_parts]);
+        $list->forceFill(['new_parts' => null])->save();
+
+        return back()->with('success', 'Noted.');
     }
 
     public function pushFirewallList(Request $request, FirewallList $list, FirewallListPusher $pusher): RedirectResponse
@@ -286,7 +301,7 @@ class BlocklistController extends Controller
     public function destroyFirewallList(FirewallList $list, FirewallListPusher $pusher, AuditLogger $audit): RedirectResponse
     {
         // Rules this app created would otherwise keep blocking a list nobody manages.
-        if ($pusher->canWrite()) {
+        if ($pusher->canWrite() && $pusher->managesRules()) {
             $pusher->removeRules($list);
         }
         $audit->log('firewall.list_deleted', $list, ['name' => $list->name]);

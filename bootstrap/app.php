@@ -33,6 +33,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', SecurityHeaders::class);
         $middleware->appendToGroup('web', RequireTwoFactor::class);
         $middleware->redirectGuestsTo(fn () => route('login'));
+        // The signed-out website check changes nothing and is rate limited; framed on another site it gets no session cookie.
+        $middleware->validateCsrfTokens(except: ['check/public', 'check/embed']);
 
         $trusted = array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', '127.0.0.1')))));
         $middleware->trustProxies(at: $trusted);

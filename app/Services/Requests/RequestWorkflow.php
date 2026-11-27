@@ -89,6 +89,8 @@ class RequestWorkflow
     public function approve(WebsiteRequest $websiteRequest, User $actor, ?string $note = null, ?array $domains = null, ?Reach $scope = null, ?array $window = null, bool $smart = false, ?string $override = null): WebsiteRequest
     {
         $this->guard($websiteRequest, RequestStatus::open(), 'Only pending requests can be approved.');
+        // IT's own words, for the requester's email (the note below may gain IT-only text such as two-person details).
+        $itNote = $note;
         // A second approver who leaves the form as it is confirms what the first approver chose.
         $first = $websiteRequest->first_approval;
         $domains = array_values(array_unique($domains ?: ($first['domains'] ?? null) ?: $websiteRequest->domains));
@@ -197,7 +199,7 @@ class RequestWorkflow
         $guide = app(AccessGuide::class);
         $tips = $guide->appliesTo($websiteRequest) ? "\n\n".$guide->settings()['intro']."\n\n".collect($guide->steps())->map(fn (string $step, int $index) => ($index + 1).'. '.$step)->join("\n") : '';
         $this->notifier->decision($websiteRequest, trim(($note ? "{$note}\n\n" : 'Your request was approved. ')."{$verb}: ".implode(', ', $domains).'.'.$opens
-            .($websiteRequest->windowChanged() ? ' IT set the access window to '.$websiteRequest->windowLabel().'.' : '').$tips));
+            .($websiteRequest->windowChanged() ? ' IT set the access window to '.$websiteRequest->windowLabel().'.' : '').$tips), $itNote);
 
         if ($websiteRequest->status === RequestStatus::ActionRequired && $this->pusher()->automatic()) {
             $this->pushAfter($websiteRequest, $actor, $scope, 'approval');
@@ -285,7 +287,7 @@ class RequestWorkflow
             $websiteRequest->forceFill(['status' => RequestStatus::Active, 'resolved_at' => now()])->save();
             $this->event($websiteRequest, $actor, 'applied', "Applied automatically to the controller content filters: {$names}.");
             $this->audit->log('website_request.applied', $websiteRequest, ['automatic' => true]);
-            $this->notifier->decision($websiteRequest, $websiteRequest->isBlock() ? 'The block you asked for is now in place on the network.' : 'Your approved access is now live on the network.');
+            $this->notifier->decision($websiteRequest, $websiteRequest->isBlock() ? 'The block you asked for is now in place on the network.' : 'Your approved access is now live on the network.', $websiteRequest->requesterNote());
             $settled++;
         }
 
@@ -341,7 +343,7 @@ class RequestWorkflow
         $websiteRequest->forceFill(['status' => RequestStatus::Rejected, 'resolution' => $reason, 'resolved_at' => now()])->save();
         $this->event($websiteRequest, $actor, 'rejected', $reason);
         $this->audit->log('website_request.rejected', $websiteRequest);
-        $this->notifier->decision($websiteRequest, $reason);
+        $this->notifier->decision($websiteRequest, $reason, $reason);
         app(Webhooks::class)->request('request.declined', $websiteRequest);
 
         return $websiteRequest;
@@ -352,7 +354,7 @@ class RequestWorkflow
         $this->guard($websiteRequest, RequestStatus::open(), 'Information can only be requested on a pending request.');
         $websiteRequest->forceFill(['status' => RequestStatus::NeedsInformation])->save();
         $this->event($websiteRequest, $actor, 'information_requested', $question);
-        $this->notifier->decision($websiteRequest, $question);
+        $this->notifier->decision($websiteRequest, $question, $question);
 
         return $websiteRequest;
     }
@@ -391,7 +393,7 @@ class RequestWorkflow
         $websiteRequest->forceFill(['status' => RequestStatus::Active, 'resolved_at' => now()])->save();
         $this->event($websiteRequest, $actor, 'manually_applied', $note);
         $this->audit->log('website_request.applied', $websiteRequest);
-        $this->notifier->decision($websiteRequest, $note);
+        $this->notifier->decision($websiteRequest, $note, $note);
 
         return $websiteRequest;
     }
@@ -413,7 +415,7 @@ class RequestWorkflow
             $this->event($websiteRequest, $actor, 'revoked', "{$reason}\n\n{$removed} policy entr".($removed === 1 ? 'y' : 'ies').' removed. '
                 .($automatic ? 'Removing them from the linked controller filters.' : 'Remove them from the network controller at the next reconciliation.'));
             $this->audit->log('website_request.revoked', $websiteRequest, ['entries_removed' => $removed]);
-            $this->notifier->decision($websiteRequest, $reason);
+            $this->notifier->decision($websiteRequest, $reason, $reason);
 
             return $websiteRequest;
         });
@@ -443,7 +445,7 @@ class RequestWorkflow
         $after = $websiteRequest->windowLabel();
         $this->event($websiteRequest, $actor, 'window_changed', "Access window changed from {$before} to {$after}.".($note ? "\n\n{$note}" : ''), ['before' => $before, 'after' => $after]);
         $this->audit->log('website_request.window_changed', $websiteRequest, ['before' => $before, 'after' => $after]);
-        $this->notifier->decision($websiteRequest, "IT changed when your access applies. It is now: {$after}.".($note ? "\n\n{$note}" : ''));
+        $this->notifier->decision($websiteRequest, "IT changed when your access applies. It is now: {$after}.".($note ? "\n\n{$note}" : ''), trim('Your access now applies '.$after.'. '.($note ?? '')));
 
         if ($this->pusher()->automatic()) {
             $this->pushAfter($websiteRequest, $actor, $websiteRequest->effectiveScope(), 'window_change');

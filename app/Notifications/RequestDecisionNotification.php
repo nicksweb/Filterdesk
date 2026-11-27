@@ -13,8 +13,11 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    /** @param  string|null  $stage  Overrides the subject wording: received or ending. */
-    public function __construct(private readonly WebsiteRequest $websiteRequest, private readonly string $message, private readonly ?string $stage = null) {}
+    /**
+     * @param  string|null  $stage  Overrides the subject wording: received or ending.
+     * @param  string|null  $note  IT's own words, for the {note} placeholder (the plain templates use it instead of {message}).
+     */
+    public function __construct(private readonly WebsiteRequest $websiteRequest, private readonly string $message, private readonly ?string $stage = null, private readonly ?string $note = null) {}
 
     public function via(object $notifiable): array
     {
@@ -24,7 +27,15 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->websiteRequest;
-        $template = match ($this->stage ?? $request->status->value) {
+
+        return app(EmailTemplates::class)->mail(self::templateFor($request, $this->stage), RequestTemplateValues::for($request, $notifiable)
+            + ['message' => $this->message, 'note' => trim((string) $this->note)], route('requests.show', $request));
+    }
+
+    /** Which email a request gets at this point. */
+    public static function templateFor(WebsiteRequest $request, ?string $stage = null): string
+    {
+        return match ($stage ?? $request->status->value) {
             'received', 'pending' => 'request_received',
             'ending' => 'request_ending',
             'approved', 'action_required', 'failed', 'active' => match (true) {
@@ -38,7 +49,5 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
             'expired' => 'request_expired',
             default => 'request_approved',
         };
-
-        return app(EmailTemplates::class)->mail($template, RequestTemplateValues::for($request, $notifiable) + ['message' => $this->message], route('requests.show', $request));
     }
 }

@@ -98,6 +98,7 @@ class WebsiteRequestController extends Controller
         }
 
         return view('requests.create', [
+            'short' => $request->query('type') !== 'block' && $form->shortFor($request->user()),
             'block' => $request->query('type') === 'block',
             'categories' => $form->categories($request->user()),
             'reasonLabel' => $form->label($request->query('type') === 'block'),
@@ -118,6 +119,9 @@ class WebsiteRequestController extends Controller
 
         $categories = $form->categories($request->user());
         $block = $request->input('request_type') === 'block';
+        if (! $block && $form->shortFor($request->user())) {
+            return $this->storeShort($request, $normalizer, $workflow, $form, $categories);
+        }
         $validated = $request->validate([
             'request_type' => ['nullable', 'in:allow,block'],
             'domains' => ['required', 'string', 'max:4000'],
@@ -189,6 +193,37 @@ class WebsiteRequestController extends Controller
             'success',
             $automaticallyApproved ? 'Staff-only request approved under the configured policy.' : ($block ? 'Block request submitted to IT.' : 'Request submitted to IT.')
         );
+    }
+
+    /**
+     * The short form: websites and why. The networks are the person's own
+     * network types (or their role's), the category the first one offered,
+     * and the access permanent until IT decides otherwise when approving.
+     */
+    private function storeShort(Request $request, DomainNormalizer $normalizer, RequestWorkflow $workflow, RequestFormSettings $form, array $categories): RedirectResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'domains' => ['required', 'string', 'max:4000'],
+            'use_case' => [$form->required($user) ? 'required' : 'nullable', 'string', 'min:'.$form->minLength(), 'max:5000'],
+        ], ['use_case.required' => 'Say why you need it.']);
+
+        $requestable = NetworkType::query()->where('requestable', true)->pluck('key')->all();
+        $types = array_values(array_intersect((array) $user->network_types, $requestable))
+            ?: array_values(array_intersect([$user->isStudent() ? 'student' : 'staff'], $requestable))
+            ?: array_slice($requestable, 0, 1);
+        $websiteRequest = $workflow->submit($user, [
+            'request_type' => 'allow',
+            'domains' => $normalizer->many($validated['domains']),
+            'access_scope' => Reach::types(...$types),
+            'department' => $user->department,
+            'category' => $categories[0] ?? 'Other',
+            'use_case' => $validated['use_case'] ?? null,
+            'requested_from' => null, 'requested_until' => null, 'schedule' => null, 'hours' => null,
+        ]);
+        $websiteRequest->forceFill(['it_decides' => true])->save();
+
+        return redirect()->route('requests.show', $websiteRequest)->with('success', "Sent. IT will email you when they've looked at it.");
     }
 
     /** "Your access is on its way": what to do while the change reaches the network. */

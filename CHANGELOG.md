@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.31
+
+### Added
+- **Website checks without signing in** (Settings → Network profiles → Website checks, off by default), at `/check/public`.
+  - Up to 3 websites, with one plain answer per network type: allowed, blocked or couldn't check. A blocked or unchecked site gets *Sign in to request access*.
+  - Results are shared for 10 minutes and limited to 5 checks a minute per address and 60 in all. Each check is in the audit log.
+  - `/check/embed` is the same without navigation, for an iframe on the sites you list (`frame-ancestors`).
+- **A short request form for students**, or students and staff (Settings → Approval policy → *Short request form for*): just the websites and why. The networks, category and period are left to IT, and the approval page says so. Students no longer see *Request a block*.
+- **Never IT or admin** (Settings → Authentication): email addresses or `group:` names that never get IT or admin from the role rules. It's checked at every single sign-on, so someone loses IT at their next sign-in, and *Test a sign-in* shows when it applies.
+- **Firewall rules: IP lists only** (Settings → Network provider). Filterdesk keeps its UniFi IP lists up to date and never creates, changes, reorders or deletes a firewall rule. A guard in the provider enforces it for every path.
+  - In this mode the zone options are hidden, and rules Filterdesk made before are left in place and listed as yours to manage.
+  - When a list grows into a new part (*Name (3 of 3)*), the list, the push result and an email to IT say so until you confirm it's in your rules.
+  - A part that shrinks away but is still used by a rule is kept, emptied.
+  - New installs default to *IP lists only*. Installs that already have rules made by Filterdesk keep managing them until you change it.
+- **Addresses per UniFi IP list** (Settings → Network provider), 20,000 by default and up to 100,000. Saving the provider settings no longer resets it. The Protection page shows how many UniFi IP lists and addresses Filterdesk keeps. To try larger lists on your gateway: `php artisan filterdesk:test-ip-list-size`, which uses temporary lists that no rule uses.
+- **The helpdesk can never be blocked by accident.** These are always protected, on top of Settings → Protected sites, and shown there:
+  - the support article's site;
+  - the helpdesk email's domain (at the top level);
+  - Filterdesk's own address;
+  - the single sign-on server.
+
+### Changed
+- **Plainer emails to requesters.**
+  - New default wording, for example "IT has reviewed your request for … It's now allowed until Friday 12 December". Times show without a timezone.
+  - Every requester email ends with "For anything else, contact … at …" from Settings → Help and support.
+  - New switches for the *approved, before it works* email (untick it to send one email, when it works), *approved for a later start* and *access removed*, next to the existing *request received* switch.
+  - Customised templates keep their wording. New placeholders: `{note}`, `{outcome}`, `{until}`, `{starts}`, `{ends}` and `{tips}`.
+- **Plain website check results for students and staff.** Each network says *Allowed*, *Blocked* or *Couldn't check*, with no certificate, DNS or probe details. IT-only notes moved out of their view, and IT's "fresh browser" hint is now a small line.
+
 ## 2026.12.30
 
 ### Security

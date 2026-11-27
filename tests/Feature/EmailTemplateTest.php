@@ -41,6 +41,6 @@ class EmailTemplateTest extends TestCase
 
         $this->actingAs($admin)->put(route('admin.settings.update', 'templates'), ['templates' => ['request_declined' => ['reset' => '1']]]);
         $default = (new RequestDecisionNotification($request->fresh(), 'Not suitable.'))->toMail($request->requester);
-        $this->assertSame("Website request {$request->reference}: declined", $default->subject);
+        $this->assertSame('Not changed: games.example', $default->subject);
     }
 }

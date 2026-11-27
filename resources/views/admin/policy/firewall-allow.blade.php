@@ -104,7 +104,9 @@
                 <div class="button-row"><button class="button primary">Add</button></div>
             </form>
 
-            <h3>Zones</h3>
+            <h3>{{ $managesRules ? 'Zones' : 'In UniFi' }}</h3>
+            <x-ip-list-parts :list="$list" :manages-rules="$managesRules" :details="$plan['rule_details']" />
+            @if($managesRules)
             <form method="post" action="{{ route('admin.policy.firewall-allow.zones', $list) }}">@csrf
                 <label class="choice compact"><input type="radio" name="scope" value="all" @checked($list->all_zones)><span><strong>Every zone</strong><small>All zones except External and Gateway, now: {{ collect($plan['covered'])->pluck('name')->join(', ') ?: 'none read' }}. A zone you create later is added at the next push.</small></span></label>
                 <label class="choice compact"><input type="radio" name="scope" value="chosen" @checked(! $list->all_zones && $list->rule_zones)><span><strong>Only these zones</strong></span></label>
@@ -134,6 +136,10 @@
                 @endif
                 <div class="button-row"><button class="button secondary" data-confirm="Save the zones for {{ $list->name }}? The Allow rules in UniFi are changed to match.">Save zones</button></div>
             </form>
+
+            @else
+                <p class="hint">An Allow rule in UniFi for this list should sit above the block rules it is meant to beat, in each zone. Filterdesk's firewall checks read your rules, so the entries above show which block rules still apply.</p>
+            @endif
 
             <h3>Other ways in</h3>
             <div class="fields two">

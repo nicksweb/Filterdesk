@@ -24,7 +24,7 @@ class FirewallGroupTest extends TestCase
         Notification::fake();
         Cache::flush();
         $this->installWithPolicies('active');
-        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['max_ip_group_entries' => 100, 'auto_push' => true]]);
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['max_ip_group_entries' => 100, 'auto_push' => true, 'firewall_rules' => 'manage']]);
     }
 
     private function list(int $count): FirewallList

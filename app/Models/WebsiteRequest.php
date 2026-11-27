@@ -23,6 +23,7 @@ class WebsiteRequest extends Model
     protected function casts(): array
     {
         return [
+            'it_decides' => 'boolean',
             'domains' => 'array',
             'provider_state' => 'array',
             'approved_domains' => 'array',
@@ -113,6 +114,18 @@ class WebsiteRequest extends Model
     }
 
     /** End of access: as approved once approved, otherwise as requested. Null means permanent. */
+    /**
+     * IT's note on the decision as the requester should see it: without the
+     * IT-only paragraphs the workflow adds (two-person approval details,
+     * protected sites).
+     */
+    public function requesterNote(): string
+    {
+        return collect(preg_split('/\R{2,}/', (string) $this->resolution) ?: [])
+            ->reject(fn (string $paragraph) => preg_match('/^(Two-person approval|Approved by .+ without a second IT officer|Second approval skipped|Not blocked, because)/', trim($paragraph)) === 1)
+            ->map('trim')->filter()->join("\n\n");
+    }
+
     public function accessUntil(): ?Carbon
     {
         return $this->approved_at ? $this->expires_at : $this->requested_until;

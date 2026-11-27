@@ -74,6 +74,12 @@
                 <small><code>email_domain:</code> matches the address domain and its subdomains. <code>group:</code> matches a value in the <code>groups</code> or <code>roles</code> claim (Entra: add a groups claim or app roles to the token).</small>
             </label>
             <div class="fields two">
+                <label>Never IT or admin <span class="optional">one per line · email addresses, or group:Name</span>
+                    <textarea name="never_it" rows="3" class="mono" placeholder="student.helper@example.edu.au&#10;group:Contractors">{{ old('never_it', implode("\n", $oidc?->configuration['never_it'] ?? [])) }}</textarea>
+                    <small>Checked at every single sign-on: these people never get IT or admin from the rules above, even if they're in an IT group, and someone who has IT loses it at their next sign-in. <em>Test a sign-in</em> shows when it applies.</small></label>
+                <label>Instead, they get<select name="never_it_role">@foreach(['teacher' => 'Staff (teacher)', 'student' => 'Student'] as $value => $label)<option value="{{ $value }}" @selected(old('never_it_role', $oidc?->configuration['never_it_role'] ?? 'teacher') === $value)>{{ $label }}</option>@endforeach</select></label>
+            </div>
+            <div class="fields two">
                 <label>Network type rules <span class="optional">one per line · every match adds its types</span>
                     <textarea name="type_rules" rows="4" class="mono" placeholder="email_domain:students.example.edu.au=student&#10;group:staff=staff&#10;group:boarding=student,boarding">{{ old('type_rules', $typeRules) }}</textarea>
                     <small>The networks a person uses, by type key. New requests choose these networks by default.</small></label>
@@ -166,8 +172,8 @@
                 @endforeach
             </fieldset>
             <fieldset><legend>Email requesters when</legend>
-                <p class="hint">Requesters are always emailed when their request is approved, declined, needs more information, goes live, has its access window changed or is revoked.</p>
-                @foreach(['submitted' => 'Their request is received (confirmation)', 'expiry_reminder' => 'Temporary access longer than a day ends within 24 hours', 'expired' => 'Temporary access has ended'] as $event => $label)
+                <p class="hint">Requesters are always emailed when it's allowed (or blocked) on the network, declined, or IT needs more information. Every requester email ends with your helpdesk's contact (Settings → Help and support), when one is set.</p>
+                @foreach(['submitted' => 'Their request is received (confirmation)', 'approved' => 'It is approved, before it works on the network (untick to send one email, when it works)', 'scheduled' => 'It is approved for a later start', 'expiry_reminder' => 'Temporary access longer than a day ends within 24 hours', 'expired' => 'Temporary access has ended', 'revoked' => 'IT removes access'] as $event => $label)
                     <label class="choice compact"><input type="checkbox" name="requester_events[]" value="{{ $event }}" @checked($settings->get("notifications.requester.{$event}", true))><span>{{ $label }}</span></label>
                 @endforeach
             </fieldset>
@@ -220,6 +226,12 @@
                 <label>Largest list per content filter <span class="optional">entries</span><input type="number" name="max_filter_entries" min="50" max="100000" value="{{ old('max_filter_entries', $network?->configuration['max_filter_entries'] ?? 100000) }}"><small>Pushes that would make a filter's allow or block list longer than this are refused. UniFi handles up to about 100,000 entries, but its Content Filtering page gets slow to open and edit above a few thousand. A layer keeps big feeds in their own filter.</small></label>
                 <label>Largest automatic push <span class="optional">changes</span><input type="number" name="max_automatic_changes" min="10" max="100000" value="{{ old('max_automatic_changes', $network?->configuration['max_automatic_changes'] ?? 1000) }}"><small>Automatic pushes (approvals, schedules, feed refreshes) with more changes than this wait for someone to push them from the policy page.</small></label>
             </div>
+            @php($ruleMode = \App\Services\Network\FirewallRuleMode::current($network))
+            <fieldset><legend>Firewall rules</legend>
+                <label class="choice compact"><input type="radio" name="firewall_rules" value="lists_only" @checked(old('firewall_rules', $ruleMode) === 'lists_only')><span><strong>IP lists only</strong><small>Filterdesk keeps its UniFi IP lists up to date and never creates, changes, reorders or deletes a firewall rule. You use the lists in your own rules in UniFi. Rules Filterdesk made before stay as they are, listed on the Protection page. Firewall checks still read your rules.</small></span></label>
+                <label class="choice compact"><input type="radio" name="firewall_rules" value="manage" @checked(old('firewall_rules', $ruleMode) === 'manage')><span><strong>Let Filterdesk create and order firewall rules</strong><small>Block and allow lists create their rules for the zones you tick, recreate rules deleted in UniFi, and move them to the top of each zone's order (your own rules keep their order below).</small></span></label>
+            </fieldset>
+            <label>Addresses per UniFi IP list <span class="optional">entries</span><input type="number" name="max_ip_group_entries" min="1000" max="{{ \App\Services\Policy\FirewallListPusher::MAX_GROUP_LIMIT }}" value="{{ old('max_ip_group_entries', $network?->configuration['max_ip_group_entries'] ?? \App\Services\Policy\FirewallListPusher::GROUP_LIMIT) }}"><small>A list longer than this is split into "Name (1 of 3)", "Name (2 of 3)"… 20,000 is known to work. Larger lists (up to 100,000 is reported to work on recent UniFi) mean fewer lists and rules, but take longer to push and use more gateway memory. Test first: <code>docker compose exec app php artisan filterdesk:test-ip-list-size</code>.</small></label>
             <label class="choice compact"><input type="hidden" name="controller_authoritative" value="0"><input type="checkbox" name="controller_authoritative" value="1" @checked(old('controller_authoritative', $network?->configuration['controller_authoritative'] ?? true))><span><strong>The controller is the source of truth</strong><small>Entries added in UniFi are imported into the policy's own lists, and managed entries removed in UniFi are kept out of that filter, so pushes never undo changes made in UniFi (for example while this app was unavailable). Turn off to only report those changes for review.</small></span></label>
             <label class="choice compact"><input type="hidden" name="auto_push" value="0"><input type="checkbox" name="auto_push" value="1" @checked(old('auto_push', $network?->configuration['auto_push'] ?? false))><span><strong>Push automatically</strong><small>Active mode only. Approvals and revocations are pushed straight away; expiries, scheduled starts and list edits within five minutes. Entries added in UniFi by hand are never removed.</small></span></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
@@ -307,6 +319,9 @@
                 </tbody>
             </table></div>
             <h3>Website checks</h3>
+            @php($probeSettingsForm = app(\App\Services\Website\ProbeSettings::class))
+            <label class="choice compact"><input type="hidden" name="public_checks" value="0"><input type="checkbox" name="public_checks" value="1" @checked($probeSettingsForm->publicChecks())><span><strong>Allow website checks without signing in</strong><small>At <a href="{{ route('checks.public') }}">{{ route('checks.public') }}</a>: up to 3 websites at a time, with one plain answer per network type (allowed, blocked or couldn't check) and <em>Sign in to request access</em>. Limited to 5 checks a minute per address and 60 a minute in all; results are reused for 10 minutes, and each check is in the audit log.</small></span></label>
+            <label>Sites that may embed it <span class="optional">one per line, for example your intranet or LMS</span><textarea name="embed_origins" rows="2" class="mono" placeholder="https://intranet.example.edu.au">{{ old('embed_origins', implode("\n", $probeSettingsForm->embedOrigins())) }}</textarea>@error('embed_origins')<small class="field-error">{{ $message }}</small>@enderror<small class="hint">Embed <code>{{ route('checks.embed') }}</code> (no navigation) in an iframe on these sites.</small></label>
             <label>Check method
                 <select name="check_method">@foreach(\App\Services\Website\ProbeSettings::METHODS as $value => $label)<option value="{{ $value }}" @selected($checkMethod === $value)>{{ $label }}</option>@endforeach</select>
                 <small class="hint">UniFi's content filter blocks at DNS, so DNS only answers most checks: blocked or not, on each network, in about a second, without the probe ever fetching the site. It cannot see a block page, HTTPS inspection, or parts of a page that fail to load, and it shows no previews.</small>
@@ -362,6 +377,11 @@
         @php($protectedSites = app(\App\Services\Policy\ProtectedSites::class))
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.update', 'protected') }}">@csrf @method('PUT')
             <p class="section-copy">A safety net: these sites are never blocked, whatever a list, blocklist feed, website scan, request or UniFi says. A block of one is left out of every filter when Filterdesk pushes, and one added in UniFi is taken out on the next push. Adding one to a block list is refused with a message. Allowing them is not affected.</p>
+            @if($automatic = $protectedSites->automatic())
+                <div class="notice"><strong>Always protected:</strong> the way to get help can never be blocked by accident.
+                    <ul>@foreach($automatic as $entry => $why)<li><code>{{ $entry }}</code>: {{ $why }}</li>@endforeach</ul>
+                    <small>These come from Settings → Help and support, this app's address and single sign-on, and follow them when they change.</small></div>
+            @endif
             <label>Protected sites<textarea name="sites" rows="14" spellcheck="false">{{ old('sites', implode("\n", $protectedSites->all())) }}</textarea>@error('sites')<small class="field-error">{{ $message }}</small>@enderror</label>
             <p class="hint">One per line. <code>google.com</code> protects the top level: google.com and www.google.com, so nothing can block the whole of Google, while a subdomain such as <code>gemini.google.com</code> can still be blocked. <code>*.gstatic.com</code> protects the whole domain, every subdomain too. A single hostname such as <code>accounts.google.com</code> protects just that hostname. Public suffixes on their own (<code>com</code>, <code>com.au</code>) are always protected. Add your country's versions too, for example <code>google.com.au</code>, and your school's own domains.</p>
             <div class="form-actions"><button class="button primary">Save</button><button class="button secondary" name="restore_defaults" value="1" data-confirm="Replace the list with the defaults?">Restore the defaults</button></div>
@@ -627,6 +647,10 @@
                 <label class="choice compact"><input type="hidden" name="form[student_required]" value="0"><input type="checkbox" name="form[student_required]" value="1" @checked($form['student_required'])><span><strong>Required for students</strong><small>When students may submit requests.</small></span></label>
             </div>
             <label>Minimum length when filled in <span class="optional">characters</span><input type="number" name="form[min_length]" min="0" max="500" value="{{ $form['min_length'] }}"></label>
+            <label>Short request form for
+                <select name="form[short_form]">@foreach(\App\Services\Requests\RequestFormSettings::SHORT_FORM as $value => $label)<option value="{{ $value }}" @selected(($form['short_form'] ?? 'students') === $value)>{{ $label }}</option>@endforeach</select>
+                <small>The short form asks only for the websites and why (required or not, as set above). IT chooses the networks, category and how long when approving, and the request says they were left to IT.</small>
+            </label>
             <label>Block requests: when <span class="optional">for network types with a school-hours filter</span>
                 <select name="form[block_hours]">@foreach(\App\Services\Requests\RequestFormSettings::BLOCK_HOURS as $value => $label)<option value="{{ $value }}" @selected($form['block_hours'] === $value)>{{ $label }}</option>@endforeach</select>
                 <small>A block in <em>school hours only</em> goes into the school-hours filter (for example Student - School Time), so the site is open after hours and at weekends. When the requester chooses, it is a suggestion: IT can still change it when approving. <em>Always all the time</em> hides the choice from IT too.</small>

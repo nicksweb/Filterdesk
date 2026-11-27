@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\FirewallList;
+use App\Models\IntegrationConfig;
 use App\Models\NetworkProfile;
 use App\Models\NetworkType;
 use App\Models\User;
@@ -37,6 +38,7 @@ class FirewallAllowListTest extends TestCase
         Notification::fake();
         Cache::flush();
         $this->installWithPolicies('active');
+        IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['firewall_rules' => 'manage']]);
         $this->admin = User::factory()->admin()->create();
         NetworkProfile::query()->where('key', 'student')->update(['unifi_network_id' => 'sim-student', 'enabled' => true]);
         NetworkProfile::query()->where('key', 'staff')->update(['unifi_network_id' => 'sim-staff', 'enabled' => true]);

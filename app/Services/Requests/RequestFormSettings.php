@@ -23,6 +23,14 @@ class RequestFormSettings
         'min_length' => 10,
         'student_categories' => ['Schoolwork', 'Assignment research', 'Class activity', 'Other'],
         'block_hours' => 'it',
+        'short_form' => 'students',
+    ];
+
+    /** @var array<string, string> who gets the short request form (websites and a reason; IT decides the rest) */
+    public const SHORT_FORM = [
+        'students' => 'Students',
+        'everyone' => 'Students and staff',
+        'nobody' => 'Nobody (everyone gets the full form)',
     ];
 
     /** @var array<string, string> who decides whether a block applies only in school hours */
@@ -45,6 +53,16 @@ class RequestFormSettings
         $value = (string) $this->all()['block_hours'];
 
         return array_key_exists($value, self::BLOCK_HOURS) ? $value : 'it';
+    }
+
+    /** Whether this person gets the short form: websites and why, with networks, category and period left to IT. */
+    public function shortFor(User $user): bool
+    {
+        return ! $user->isIt() && match ($this->all()['short_form'] ?? 'students') {
+            'everyone' => true,
+            'nobody' => false,
+            default => $user->isStudent(),
+        };
     }
 
     /** @return array<string, mixed> */

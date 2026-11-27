@@ -1,6 +1,15 @@
 <x-layouts.app title="Request website access">
     <x-slot:head><link rel="stylesheet" href="{{ asset('request-flow.css') }}"></x-slot:head>
-    <div class="page-heading"><div><p class="eyebrow">{{ $block ? 'New block request' : 'New access request' }}</p><h1>{{ $block ? 'Request a website block' : 'Request website access' }}</h1><p>{{ $block ? 'Tell IT which websites should be blocked, for whom, and for how long. IT reviews every block before it is applied.' : 'Tell IT what is needed, who needs it, and for how long.' }}</p></div>@if($block)<a class="button secondary" href="{{ route('requests.create', ['domains' => old('domains', $prefillDomains ?? '')]) }}">Request access instead</a>@else<a class="button secondary" href="{{ route('requests.create', ['type' => 'block', 'domains' => old('domains', $prefillDomains ?? '')]) }}">Request a block instead</a>@endif</div>
+    @if($short ?? false)
+        {{-- The short form: what and why. IT decides who it's for, the category and how long. --}}
+        <div class="page-heading"><div><p class="eyebrow">Ask IT</p><h1>Ask for a website</h1><p>Tell IT which website you need and why. They'll email you when they've looked at it.</p></div></div>
+        <form class="panel form-panel" method="post" action="{{ route('requests.store') }}">@csrf<input type="hidden" name="request_type" value="allow">
+            <label>Website <span class="optional">or several, separated by spaces or commas</span><textarea name="domains" rows="2" required placeholder="example.com">{{ old('domains', $prefillDomains ?? '') }}</textarea>@error('domains')<small class="field-error">{{ $message }}</small>@enderror</label>
+            <label>Why do you need it? @unless($reasonRequired)<span class="optional">optional</span>@endunless<textarea name="use_case" rows="4" @if($reasonRequired) required minlength="{{ $reasonMinLength }}" @endif placeholder="For example: my history assignment on the gold rush">{{ old('use_case') }}</textarea>@error('use_case')<small class="field-error">{{ $message }}</small>@enderror</label>
+            <div class="form-actions"><button class="button primary">Send to IT</button></div>
+        </form>
+    @else
+    <div class="page-heading"><div><p class="eyebrow">{{ $block ? 'New block request' : 'New access request' }}</p><h1>{{ $block ? 'Request a website block' : 'Request website access' }}</h1><p>{{ $block ? 'Tell IT which websites should be blocked, for whom, and for how long. IT reviews every block before it is applied.' : 'Tell IT what is needed, who needs it, and for how long.' }}</p></div>@if($block)<a class="button secondary" href="{{ route('requests.create', ['domains' => old('domains', $prefillDomains ?? '')]) }}">Request access instead</a>@elseif(! auth()->user()->isStudent())<a class="button secondary" href="{{ route('requests.create', ['type' => 'block', 'domains' => old('domains', $prefillDomains ?? '')]) }}">Request a block instead</a>@endif</div>
     <form class="panel form-panel" method="post" action="{{ route('requests.store') }}">@csrf<input type="hidden" name="request_type" value="{{ $block ? 'block' : 'allow' }}">
         <label>Domains <span class="optional">up to 25, separated by spaces or commas</span><textarea name="domains" rows="3" required placeholder="example.com&#10;learning.example.org">{{ old('domains', $prefillDomains ?? '') }}</textarea></label>
         @if(!empty($siteCategories))<div class="category-guide">@foreach($siteCategories as $domain => $lookup)<x-site-categories :lookup="$lookup" :domain="$domain" />@endforeach<small class="hint">A guide to what these sites are, from a website category service. Mention anything surprising in the use case.</small></div>@endif
@@ -71,4 +80,5 @@
         <label class="choice"><input type="checkbox" name="standards_confirmed" value="1" required @checked(old('standards_confirmed'))><span><strong>{{ $block ? 'I have checked these are the websites to block' : 'I have reviewed this website for the intended audience' }}</strong><small>{{ $block ? 'Blocking a shared domain can break other sites; IT will check before applying it.' : 'I believe it is appropriate and does not breach school policy or the code of conduct.' }}</small></span></label>
         <div class="form-actions"><a class="button secondary" href="{{ route('requests.index') }}">Cancel</a><button class="button primary">{{ $block ? 'Submit block request' : 'Submit request' }}</button></div>
     </form>
+    @endif
 </x-layouts.app>

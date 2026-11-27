@@ -2,8 +2,10 @@
 
 namespace App\Services\Policy;
 
+use App\Models\IntegrationConfig;
 use App\Services\Domains\PublicSuffixList;
 use App\Services\SettingsRepository;
+use App\Services\Support;
 
 /**
  * A safety net: sites that must never be blocked, whatever a list, feed,
@@ -33,6 +35,36 @@ class ProtectedSites
     private ?array $rules = null;
 
     public function __construct(private readonly SettingsRepository $settings, private readonly PublicSuffixList $suffixes) {}
+
+    /**
+     * Always protected, whatever the list says: the way to get help and to
+     * ask for access. The helpdesk's support article site and email domain
+     * (Settings → Help and support), this app's own address, and the
+     * single sign-on server.
+     *
+     * @return array<string, string> entry => why
+     */
+    public function automatic(): array
+    {
+        $support = app(Support::class)->all();
+        $host = fn (?string $url): ?string => filled($url) ? (strtolower((string) parse_url(str_contains((string) $url, '://') ? (string) $url : "https://{$url}", PHP_URL_HOST)) ?: null) : null;
+        $entries = [];
+        if ($article = $host($support['article_url'] ?? null)) {
+            $entries["*.{$article}"] = 'the helpdesk support article (Help and support)';
+        }
+        if (filled($support['email'] ?? null) && str_contains($support['email'], '@')) {
+            $entries[strtolower(substr(strrchr($support['email'], '@'), 1))] = 'the helpdesk email domain (Help and support)';
+        }
+        if ($app = $host(config('app.url'))) {
+            $entries["*.{$app}"] = 'this app (people check sites and ask for access here)';
+        }
+        $issuer = rescue(fn () => IntegrationConfig::query()->where('provider', 'oidc')->where('enabled', true)->first()?->configuration['issuer'] ?? null, null, false);
+        if ($sso = $host($issuer)) {
+            $entries["*.{$sso}"] = 'single sign-on (people sign in here)';
+        }
+
+        return array_filter($entries, fn ($why, string $entry) => ! in_array(ltrim($entry, '*.'), ['localhost', ''], true) && str_contains($entry, '.'), ARRAY_FILTER_USE_BOTH);
+    }
 
     /** @return list<string> as entered: "example.com" or "*.example.com" */
     public function all(): array
@@ -129,6 +161,12 @@ class ProtectedSites
     }
 
     /** @param array<string, string> $protected */
+    /** Why a protected entry is there, when it is one of the automatic ones. */
+    public function why(string $entry): ?string
+    {
+        return $this->automatic()[$entry] ?? null;
+    }
+
     public static function message(array $protected): string
     {
         return 'Not blocked, because '.(count($protected) === 1 ? 'it is a protected site' : 'they are protected sites').' (Settings → Protected sites): '
@@ -142,7 +180,7 @@ class ProtectedSites
             return $this->rules;
         }
         $rules = ['top' => [], 'whole' => [], 'exact' => []];
-        foreach ($this->all() as $site) {
+        foreach ([...$this->all(), ...array_keys($this->automatic())] as $site) {
             if (str_starts_with($site, '*.')) {
                 $rules['whole'][] = substr($site, 2);
             } else {

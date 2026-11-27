@@ -4,10 +4,13 @@ namespace App\Services\Policy;
 
 use App\Models\FirewallList;
 use App\Models\User;
+use App\Notifications\FilterSyncAlertNotification;
 use App\Services\AuditLogger;
+use App\Services\Network\FirewallRuleMode;
 use App\Services\Network\ManagesIpGroups;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ProviderRequestFailed;
+use App\Services\Requests\RequestNotifier;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -43,9 +46,18 @@ class FirewallListPusher
     /** UniFi rejects an IP group above about 20,000 addresses (30,000 returned HTTP 400). */
     public const GROUP_LIMIT = 20000;
 
+    /** The most the setting allows: reported to work on recent UniFi, not yet confirmed here (filterdesk:test-ip-list-size). */
+    public const MAX_GROUP_LIMIT = 100000;
+
+    /** Whether Filterdesk may write firewall rules, or keeps IP lists only (Settings → Network provider). */
+    public function managesRules(): bool
+    {
+        return FirewallRuleMode::allowsRules($this->providers->integration());
+    }
+
     public function groupLimit(): int
     {
-        return max(100, (int) ($this->providers->integration()?->configuration['max_ip_group_entries'] ?? self::GROUP_LIMIT));
+        return min(self::MAX_GROUP_LIMIT, max(100, (int) ($this->providers->integration()?->configuration['max_ip_group_entries'] ?? self::GROUP_LIMIT)));
     }
 
     /**
@@ -75,7 +87,7 @@ class FirewallListPusher
         }
         ['hash' => $hash, 'count' => $count] = $this->desiredHash($list);
 
-        return $hash !== $list->pushed_hash || count($list->groups ?? []) !== $count ? 'Its addresses or blocking rules changed since the last push.' : null;
+        return $hash !== $list->pushed_hash || count(array_filter($list->groups ?? [], fn (array $group) => empty($group['spare']))) !== $count ? 'Its addresses or blocking rules changed since the last push.' : null;
     }
 
     /**
@@ -117,9 +129,13 @@ class FirewallListPusher
                 if ($entries === []) {
                     return $this->record($list, 'failed', 'There are no addresses to push yet. '.($list->isAllow() ? 'Add addresses or domains first.' : 'Refresh its feeds or add manual entries first.'), $actor);
                 }
-                $wantRules = $list->all_zones || ($list->rule_zones !== null && $list->rule_zones !== []);
+                // "IP lists only": the groups are kept up to date and every rule is left to IT, including
+                // rules made here before (they stay recorded on the list, so the page can list them).
+                $managesRules = $this->managesRules();
+                $wantRules = $managesRules && ($list->all_zones || ($list->rule_zones !== null && $list->rule_zones !== []));
                 $groups = array_values($list->groups ?? []);
-                $rules = array_values($list->rules ?? []);
+                $rules = $managesRules ? array_values($list->rules ?? []) : [];
+                $partsBefore = count(array_filter($groups, fn (array $group) => empty($group['spare'])));
 
                 // Rules deleted in UniFi are recreated (a rule someone only disabled is left as it is).
                 $missing = [];
@@ -133,7 +149,9 @@ class FirewallListPusher
                     }
                 }
 
-                if (! $force && $missing === [] && $hash === $list->pushed_hash && count($groups) === $count) {
+                // Spare parts (kept, emptied, because a rule still uses them) don't count, and are reused first when the list grows again.
+                $active = count(array_filter($groups, fn (array $group) => empty($group['spare'])));
+                if (! $force && $missing === [] && $hash === $list->pushed_hash && $active === $count) {
                     return ['ok' => true, 'skipped' => true, 'message' => "{$list->name}: unchanged since the last push, nothing sent."];
                 }
                 try {
@@ -147,8 +165,10 @@ class FirewallListPusher
                         $groups[$index] = ['id' => $groups[$index]['id'], 'name' => $names[$index], 'count' => count($chunk)];
                     }
 
-                    // The list shrank: remove our rules for the surplus groups, then the groups.
+                    // The list shrank: remove our rules for the surplus groups, then the groups. A group a rule
+                    // still uses is kept; with IP lists only it is emptied too, so it stops blocking old addresses.
                     $kept = [];
+                    $keptGroups = [];
                     foreach (array_slice($groups, $count) as $surplus) {
                         foreach (array_filter($rules, fn (array $rule) => $rule['group'] === $surplus['id']) as $rule) {
                             $manager->deleteFirewallRule($rule['id']);
@@ -157,10 +177,14 @@ class FirewallListPusher
                         if ($manager->firewallRulesUsing($surplus['id']) === []) {
                             $manager->deleteIpGroup($surplus['id']);
                         } else {
-                            $kept[] = $surplus['name'];
+                            $emptied = ! $managesRules && rescue(fn () => $manager->writeIpGroup($surplus['id'], $surplus['name'], $list->family, []) ?? true, false, false);
+                            $kept[] = $surplus['name'].($emptied ? ' (now empty)' : '');
+                            $keptGroups[] = ['id' => $surplus['id'], 'name' => $surplus['name'], 'count' => $emptied ? 0 : ($surplus['count'] ?? 0), 'spare' => true];
                         }
                     }
-                    $groups = array_slice($groups, 0, $count);
+                    $groups = [...array_slice($groups, 0, $count), ...($managesRules ? [] : $keptGroups)];
+                    // New parts are not in any rule IT made: say so loudly.
+                    $newParts = ! $managesRules && $count > $partsBefore ? array_slice($names, $partsBefore) : [];
 
                     // Blocking rules: one per group and zone pair, created by this app.
                     $wanted = $wantRules ? $this->wantedRules($list, $groups, $manager->firewallZones()) : [];
@@ -182,11 +206,11 @@ class FirewallListPusher
                             unset($rules[$index]);
                         }
                     }
-                    $rules = array_values($rules);
+                    $rules = $managesRules ? array_values($rules) : array_values($list->rules ?? []);
 
                     // Order at the top of each zone pair: every allow list's rules first (so allowed addresses
                     // get through), then block lists that asked to be first (above the Allow rules people made).
-                    if ($list->rules_first || $list->isAllow()) {
+                    if ($managesRules && ($list->rules_first || $list->isAllow())) {
                         $list->forceFill(['rules' => $rules])->save();
                         foreach (collect($wanted)->groupBy(fn (array $want) => $want['source'].'>'.$want['destination']) as $pair) {
                             [$source, $destination] = [$pair->first()['source'], $pair->first()['destination']];
@@ -220,9 +244,18 @@ class FirewallListPusher
                 $message = number_format(count($entries)).' address(es) in '.($count === 1 ? $groups[0]['name'] : "{$count} groups of up to ".number_format($this->groupLimit())).'.'
                     .($total > count($entries) ? ' '.number_format($total - count($entries)).' more were left out by the limit of '.number_format($list->max_entries).'.' : '')
                     .($kept ? ' Kept '.implode(', ', $kept).' because a rule you made still uses it.' : '')
-                    .($usedBy === [] ? ($list->isAllow() ? ' No firewall rule uses these groups yet, so nothing is let through until you choose the zones.' : ' No firewall rule uses these groups yet, so nothing is blocked until you create the blocking rules.')
-                        : ' '.count($rules).($list->isAllow() ? ' allow rule(s), above the block rules for their zones.' : ' blocking rule(s) managed here.'))
+                    .($newParts ? ' NEW UniFi IP list: '.implode(', ', $newParts).'. Your firewall rules in UniFi don\'t use it yet, so its addresses aren\'t '.($list->isAllow() ? 'let through' : 'blocked').' until you add it to them.' : '')
+                    .(! $managesRules ? ($usedBy === [] ? ' No firewall rule in UniFi uses these lists yet: add them to your own rules.' : ' Used by your rules: '.collect($usedBy)->pluck('name')->join(', ').'.')
+                        : ($usedBy === [] ? ($list->isAllow() ? ' No firewall rule uses these groups yet, so nothing is let through until you choose the zones.' : ' No firewall rule uses these groups yet, so nothing is blocked until you create the blocking rules.')
+                        : ' '.count($rules).($list->isAllow() ? ' allow rule(s), above the block rules for their zones.' : ' blocking rule(s) managed here.')))
                     .($missing ? ' Recreated '.count($missing).' rule(s) that had been deleted in UniFi.' : '');
+
+                if ($newParts) {
+                    $list->forceFill(['new_parts' => $newParts])->save();
+                    app(RequestNotifier::class)->filterSyncAlert(new FilterSyncAlertNotification([[
+                        'policy' => $list->name, 'slug' => '', 'status' => 'firewall', 'summary' => 'has a new UniFi IP list, '.implode(', ', $newParts).'. Add it to your firewall rules in UniFi: until then its addresses aren\'t '.($list->isAllow() ? 'let through.' : 'blocked.'),
+                    ]]));
+                }
 
                 return $this->record($list, $total > count($entries) ? 'truncated' : 'ok', $message, $actor);
             });

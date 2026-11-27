@@ -21,7 +21,7 @@
                 <textarea name="websites" rows="5" required placeholder="example.com&#10;https://learning.example.org/resource">{{ old('websites', request('websites')) }}</textarea>
             </label>
             <div class="check-submit-row">
-                <p>{{ auth()->user()->isIt() ? 'Each run starts a fresh browser with an empty DNS cache, so re-running after a filter change shows the current result.' : app(\App\Services\Wording::class)->get('check_hint') }}</p>
+                @if(auth()->user()->isIt())<small class="hint" title="Each run starts a fresh browser with an empty DNS cache, so re-running after a filter change shows the current result.">Fresh browser and DNS on every run.</small>@else<p>{{ app(\App\Services\Wording::class)->get('check_hint') }}</p>@endif
                 <button class="button primary">Run checks</button>
             </div>
         </form>
@@ -60,11 +60,12 @@
                             @foreach($check['results'] as $key => $result)
                                 @php($status = $result['status'] ?? 'unknown')
                                 @php($certificate = $status === 'tls_error' && app(\App\Services\Network\InspectionCertificate::class)->matches($result['tls_issuer'] ?? null))
-                                @php([$label, $tone] = match (true) { $status === 'unreachable' && ($firewallFindings[$check['hostname']][$key]['blocked'] ?? false) => ['Blocked by the school firewall', 'blocked'], $status === 'unreachable' => ["Can't connect from the school network", 'blocked'], in_array($status, ['blocked', 'dns_failed'], true) => ['Blocked', 'blocked'], $status === 'allowed' => ['Allowed', 'allowed'], $certificate => ['Works, but needs the school certificate', 'tls_error'], default => ["Couldn't check right now", 'unknown'] })
+                                {{-- One plain answer: no certificate, DNS or probe details (IT sees those in the request and their own view). --}}
+                                @php([$label, $tone] = match (true) { in_array($status, ['blocked', 'dns_failed', 'unreachable'], true) => ['Blocked', 'blocked'], $status === 'allowed' || $certificate => ['Allowed', 'allowed'], default => ["Couldn't check", 'unknown'] })
                                 @php($when = $schoolHoursOnly[$check['hostname']][$key] ?? null)
                                 <li><span><strong>{{ $result['profile'] }}</strong>@if(($here['profile'] ?? null)?->key === $key)<small>Your network</small>@endif</span>
                                     <span><span class="probe-state {{ $tone }}">{{ $label }}</span>@if($when && $tone === 'blocked') <small>in school hours ({{ $when }}), open outside them</small>@endif
-                                    @if($certificate)<small><a href="{{ route('certificate.show') }}">Install the school certificate</a></small>@endif</span>
+                                    </span>
                                     @if(($previews ?? false) && !empty($result['screenshot']))<figure class="probe-screenshot"><img src="data:image/jpeg;base64,{{ $result['screenshot'] }}" alt="Screenshot of {{ $check['hostname'] }} from the {{ $result['profile'] }} network"></figure>@endif</li>
                             @endforeach
                         </ul>
@@ -119,22 +120,22 @@
             @endforeach
 
             <section class="panel request-shortlist">
-                <div class="panel-heading"><div><h2>Ask IT to allow or block</h2><p>Select the domains to include. Domains detected as blocked are selected automatically for an access request; for a block request, select the ones that should be blocked.</p></div></div>
+                <div class="panel-heading"><div>@if($isIt)<h2>Ask IT to allow or block</h2><p>Select the domains to include. Domains detected as blocked are selected automatically for an access request; for a block request, select the ones that should be blocked.</p>@else<h2>Ask IT</h2><p>Tick the websites you need, then press Request access.</p>@endif</div></div>
                 <div class="shortlist-grid">
                     @foreach($checks as $check)
                         @php($isBlocked = collect($check['results'])->contains(fn ($result) => in_array($result['status'] ?? '', ['blocked', 'dns_failed', 'unreachable'], true)))
                         <label class="choice shortlist-option">
                             <input type="checkbox" name="domains[]" value="{{ $check['hostname'] }}" @checked($isBlocked)>
-                            <span><strong>{{ $check['hostname'] }}</strong><small>{{ $isBlocked ? 'Blocked on at least one network — automatically selected' : 'Not identified as blocked — select to include' }}</small></span>
+                            <span><strong>{{ $check['hostname'] }}</strong><small>{{ $isBlocked ? ($isIt ? 'Blocked on at least one network — automatically selected' : 'Blocked') : ($isIt ? 'Not identified as blocked — select to include' : 'Allowed') }}</small></span>
                         </label>
                     @endforeach
                 </div>
             </section>
 
             <div class="batch-request-bar">
-                <p>Selected domains are combined into one request.</p>
+                @if($isIt)<p>Selected domains are combined into one request.</p>@else<p></p>@endif
                 <div class="button-row">
-                    <button class="button secondary" type="submit" name="type" value="block">Request a block</button>
+                    @unless(auth()->user()->isStudent())<button class="button secondary" type="submit" name="type" value="block">Request a block</button>@endunless
                     <button class="button primary" type="submit">Request access</button>
                 </div>
             </div>

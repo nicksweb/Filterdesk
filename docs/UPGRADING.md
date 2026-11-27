@@ -45,6 +45,14 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.30 → 2026.12.31
+
+- Update as usual. Migrations add a new-parts note to firewall lists and a flag to requests sent with the short form.
+- **Students get the short request form** from now on (websites and why). Choose who gets it under Settings → Approval policy → *Short request form for*.
+- **Requester emails use new default wording**, unless you customised them, and end with your helpdesk contact. To send one email when access works instead of two, untick *It is approved, before it works on the network* under Settings → Email and notifications.
+- **Firewall rules:** if Filterdesk already made firewall rules for you, it keeps managing them. Choose *IP lists only* under Settings → Network provider to manage the rules yourself; existing rules stay in UniFi.
+- **Always protected:** your helpdesk's support article site and email domain, this app's address and the single sign-on server can't be blocked any more. Check Settings → Protected sites.
+
 ## 2026.12.29 → 2026.12.30
 
 - Update as usual. No database changes; security updates to Symfony components.

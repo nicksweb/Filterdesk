@@ -19,6 +19,7 @@ use App\Services\AuditLogger;
 use App\Services\Auth\TwoFactor;
 use App\Services\Auth\UserProvisioningService;
 use App\Services\Domains\DomainCategorizer;
+use App\Services\Network\FirewallRuleMode;
 use App\Services\Network\InspectionCertificate;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ReadsContentFilters;
@@ -28,6 +29,7 @@ use App\Services\Oidc\OidcClient;
 use App\Services\Oidc\OidcDiscoveryService;
 use App\Services\Oidc\OidcProviderHints;
 use App\Services\Policy\ControllerPusher;
+use App\Services\Policy\FirewallListPusher;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Policy\ProbePlanner;
 use App\Services\Policy\ProtectedSites;
@@ -156,12 +158,13 @@ class SettingsController extends Controller
         $configuration = IntegrationConfig::query()->where('provider', 'oidc')->first()?->configuration ?? [];
         $claims = ['email' => $validated['try_email'], 'groups' => array_values(array_filter(array_map('trim', preg_split('/\R/', (string) ($validated['try_groups'] ?? '')) ?: [])))];
 
-        $role = $users->roleFor($claims, $configuration);
+        $explained = $users->explainRole($claims, $configuration);
+        $role = $explained['role'];
         $identity = $users->identityFor($claims, $configuration);
         $names = UserProvisioningService::groupNames($claims['groups']);
 
         return back()->withInput()->with('rule_result', [
-            'role' => $role ?? 'refused (no rule matched and the default is to refuse sign-in)',
+            'role' => ($role ?? 'refused (no rule matched and the default is to refuse sign-in)').(($explained['capped'] ?? false) ? ' — '.$explained['rule'] : ''),
             'types' => $identity['types'] ? implode(', ', array_map(fn (string $key) => NetworkType::labelFor($key), $identity['types'])) : 'none (requests start with no network chosen)',
             'department' => $identity['department'] ?? 'none',
             'names' => implode(', ', $names) ?: 'none',
@@ -308,6 +311,8 @@ class SettingsController extends Controller
             'department_rules' => ['nullable', 'string', 'max:5000'],
             'default_role' => ['required', 'in:student,teacher,deny'],
             'sync_roles' => ['nullable', 'boolean'],
+            'never_it' => ['nullable', 'string', 'max:5000'],
+            'never_it_role' => ['nullable', 'in:student,teacher'],
             'emergency_local_login' => ['nullable', 'boolean'],
             'two_factor_required_for' => ['nullable', Rule::in(array_keys(TwoFactor::REQUIRED_FOR))],
             'two_factor_after_sso' => ['nullable', 'boolean'],
@@ -338,6 +343,8 @@ class SettingsController extends Controller
                 'department_rules' => UserProvisioningService::parseMappingRules($validated['department_rules'] ?? '', 'department_rules'),
                 'default_role' => $validated['default_role'],
                 'sync_roles' => $request->boolean('sync_roles'),
+                'never_it' => UserProvisioningService::parseNeverIt($validated['never_it'] ?? ''),
+                'never_it_role' => $validated['never_it_role'] ?? 'teacher',
             ],
         ]);
         if (filled($validated['oidc_client_secret'] ?? null)) {
@@ -364,7 +371,7 @@ class SettingsController extends Controller
             'events' => ['nullable', 'array'],
             'events.*' => ['in:new_request,requester_reply,assignment,filter_sync'],
             'requester_events' => ['nullable', 'array'],
-            'requester_events.*' => ['in:submitted,expiry_reminder,expired'],
+            'requester_events.*' => ['in:submitted,approved,scheduled,expiry_reminder,expired,revoked'],
             'daily_digest' => ['nullable', 'boolean'],
             'digest_time' => ['required', 'date_format:H:i'],
         ]);
@@ -396,7 +403,7 @@ class SettingsController extends Controller
         $settings->set('notifications', [
             'it_address' => strtolower($validated['it_notification_address']),
             'events' => collect(['new_request', 'requester_reply', 'assignment', 'filter_sync'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $events, true)])->all(),
-            'requester' => collect(['submitted', 'expiry_reminder', 'expired'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $validated['requester_events'] ?? [], true)])->all(),
+            'requester' => collect(['submitted', 'approved', 'scheduled', 'expiry_reminder', 'expired', 'revoked'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $validated['requester_events'] ?? [], true)])->all(),
             'daily_digest' => $request->boolean('daily_digest'),
             'digest_time' => $validated['digest_time'],
         ]);
@@ -419,6 +426,8 @@ class SettingsController extends Controller
             'controller_authoritative' => ['nullable', 'boolean'],
             'max_filter_entries' => ['nullable', 'integer', 'min:50', 'max:'.ControllerPusher::DEFAULT_MAX_ENTRIES],
             'max_automatic_changes' => ['nullable', 'integer', 'min:10', 'max:'.ControllerPusher::DEFAULT_MAX_ENTRIES],
+            'max_ip_group_entries' => ['nullable', 'integer', 'min:1000', 'max:'.FirewallListPusher::MAX_GROUP_LIMIT],
+            'firewall_rules' => ['nullable', 'in:'.FirewallRuleMode::MANAGE.','.FirewallRuleMode::LISTS_ONLY],
         ], ['site_id.different' => 'That is the console ID. Leave Site ID blank (the first site is used), or enter the site\'s ID or short name such as "default".']);
 
         $integration = IntegrationConfig::query()->where('provider', $validated['provider'])->first()
@@ -445,8 +454,14 @@ class SettingsController extends Controller
                 'controller_authoritative' => $request->boolean('controller_authoritative', true),
                 'max_filter_entries' => (int) ($validated['max_filter_entries'] ?? ControllerPusher::DEFAULT_MAX_ENTRIES),
                 'max_automatic_changes' => (int) ($validated['max_automatic_changes'] ?? ControllerPusher::AUTOMATIC_CHANGE_LIMIT),
+                'max_ip_group_entries' => (int) ($validated['max_ip_group_entries'] ?? $integration->configuration['max_ip_group_entries'] ?? FirewallListPusher::GROUP_LIMIT),
+                'firewall_rules' => $validated['firewall_rules'] ?? FirewallRuleMode::current($integration->exists ? $integration : null),
             ],
         ]);
+        $before = FirewallRuleMode::current($integration->exists ? IntegrationConfig::query()->find($integration->id) : null);
+        if ($before !== ($integration->configuration['firewall_rules'] ?? null)) {
+            app(AuditLogger::class)->log('settings.firewall_rules_changed', $integration->exists ? $integration : null, ['from' => $before, 'to' => $integration->configuration['firewall_rules']]);
+        }
         if (filled($validated['api_key'] ?? null)) {
             $integration->credentials = ['api_key' => $validated['api_key']];
         }
@@ -478,9 +493,20 @@ class SettingsController extends Controller
             'check_previews' => ['nullable', Rule::in(array_keys(ProbeSettings::PREVIEWS))],
             'check_method' => ['nullable', Rule::in(array_keys(ProbeSettings::METHODS))],
             'block_addresses' => ['nullable', 'string', 'max:1000'],
+            'public_checks' => ['nullable', 'boolean'],
+            'embed_origins' => ['nullable', 'string', 'max:2000'],
         ]);
 
         $probeSettings = app(ProbeSettings::class);
+        if ($request->has('public_checks')) {
+            app(SettingsRepository::class)->set(ProbeSettings::PUBLIC_KEY, $request->boolean('public_checks'));
+            $origins = array_values(array_unique(array_filter(array_map(fn (string $origin) => rtrim(strtolower(trim($origin)), '/'), preg_split('/[\s,]+/', (string) ($validated['embed_origins'] ?? '')) ?: []))));
+            $bad = array_filter($origins, fn (string $origin) => preg_match('#^https://[a-z0-9.-]+(:\d+)?$#', $origin) !== 1);
+            if ($bad !== []) {
+                throw ValidationException::withMessages(['embed_origins' => implode(', ', $bad).' is not a site address like https://intranet.example.edu.au.']);
+            }
+            app(SettingsRepository::class)->set(ProbeSettings::EMBED_KEY, $origins);
+        }
         if (isset($validated['check_method'])) {
             app(SettingsRepository::class)->set(ProbeSettings::METHOD_KEY, $validated['check_method']);
         }
@@ -764,6 +790,7 @@ class SettingsController extends Controller
             'form.min_length' => ['nullable', 'integer', 'min:0', 'max:500'],
             'form.student_categories' => ['nullable', 'string', 'max:2000'],
             'form.block_hours' => ['nullable', Rule::in(array_keys(RequestFormSettings::BLOCK_HOURS))],
+            'form.short_form' => ['nullable', Rule::in(array_keys(RequestFormSettings::SHORT_FORM))],
         ]);
         $defaults = RequestFormSettings::DEFAULTS;
         $form = $validated['form'] ?? [];
@@ -774,6 +801,7 @@ class SettingsController extends Controller
             'min_length' => (int) ($form['min_length'] ?? $defaults['min_length']),
             'student_categories' => filled($form['student_categories'] ?? null) ? $this->commaList($form['student_categories'], lower: false) : $defaults['student_categories'],
             'block_hours' => $form['block_hours'] ?? $defaults['block_hours'],
+            'short_form' => $form['short_form'] ?? $defaults['short_form'],
         ]);
 
         $settings->set('approval', [

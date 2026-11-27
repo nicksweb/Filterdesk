@@ -38,7 +38,7 @@ class RequestFormSettingsTest extends TestCase
             'default_temporary_days' => 30, 'categories' => "Teaching and learning\nAdministration",
             'students_can_request' => '1',
             'form' => ['access_label' => 'Class and unit', 'access_hint' => 'Year 9 Science, unit 3', 'staff_required' => '0', 'student_required' => '1',
-                'min_length' => 5, 'student_categories' => "Homework\nAssignment research"],
+                'min_length' => 5, 'student_categories' => "Homework\nAssignment research", 'short_form' => 'nobody'],
         ])->assertSessionHas('success');
 
         $teacher = User::factory()->teacher()->create();

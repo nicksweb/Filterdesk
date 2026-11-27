@@ -76,9 +76,16 @@ class RequestNotifier
         }
     }
 
-    public function decision(WebsiteRequest $request, string $message): void
+    public function decision(WebsiteRequest $request, string $message, ?string $note = null): void
     {
-        $this->send($request->requester, new RequestDecisionNotification($request, $message));
+        // The optional steps can be switched off (Settings → Email and notifications). With "approved" off, the
+        // requester hears once, when it works; the outcome emails (allowed, declined, a question) always go.
+        $optional = ['request_approved' => 'approved', 'request_scheduled' => 'scheduled', 'request_revoked' => 'revoked'];
+        $event = $optional[RequestDecisionNotification::templateFor($request)] ?? null;
+        if ($event !== null && ! $this->requesterEnabled($event)) {
+            return;
+        }
+        $this->send($request->requester, new RequestDecisionNotification($request, $message, null, $note));
     }
 
     /** Confirmation to the requester that the request reached IT. */

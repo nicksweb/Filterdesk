@@ -46,7 +46,7 @@ class WebsiteCheckFlowTest extends TestCase
         $response->assertOk()
             ->assertSee('2 websites checked')
             ->assertSee('data:image/jpeg;base64,'.base64_encode('jpeg'), false)
-            ->assertSee('automatically selected');
+            ->assertSee('Ask IT');
         $this->assertSame(2, WebsiteCheck::query()->count());
         $this->assertArrayNotHasKey('screenshot', WebsiteCheck::query()->first()->results['student']);
         Http::assertSentCount(2);

@@ -566,6 +566,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     public function placeRulesFirst(string $sourceZoneId, string $destinationZoneId, array $ruleIds): void
     {
+        FirewallRuleMode::guard($this->integration, 'reorder firewall rules');
         $path = $this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies/ordering');
         $query = ['sourceFirewallZoneId' => $sourceZoneId, 'destinationFirewallZoneId' => $destinationZoneId];
         $response = $this->client()->timeout(30)->get($path, $query);
@@ -587,6 +588,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     public function placeRulesBefore(string $sourceZoneId, string $destinationZoneId, array $ruleIds, string $beforeRuleId): void
     {
+        FirewallRuleMode::guard($this->integration, 'reorder firewall rules');
         $path = $this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies/ordering');
         $query = ['sourceFirewallZoneId' => $sourceZoneId, 'destinationFirewallZoneId' => $destinationZoneId];
         $response = $this->client()->timeout(30)->get($path, $query);
@@ -610,6 +612,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     public function createBlockRule(string $name, string $groupId, string $family, string $sourceZoneId, string $destinationZoneId, bool $groupIsSource = false, string $action = 'BLOCK', array $sourceNetworkIds = []): string
     {
+        FirewallRuleMode::guard($this->integration, 'create firewall rules');
         $filter = ['type' => 'IP_ADDRESS', 'ipAddressFilter' => ['type' => 'TRAFFIC_MATCHING_LIST', 'matchOpposite' => false, 'trafficMatchingListId' => $groupId]];
         $allow = $action === 'ALLOW';
         $source = $groupIsSource ? ['trafficFilter' => $filter]
@@ -635,6 +638,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
 
     public function deleteFirewallRule(string $id): void
     {
+        FirewallRuleMode::guard($this->integration, 'delete firewall rules');
         $response = $this->client()->timeout(30)->delete($this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies/'.rawurlencode($id)));
         if ($response->status() !== 404) {
             $this->ensureSuccessful($response, 'deleting the firewall rule', writing: true);

@@ -39,7 +39,8 @@ class UserProvisioningService
         $user = User::query()->where('oidc_subject', $claims['sub'])->first()
             ?? User::query()->whereNull('oidc_subject')->where('email', $claims['email'])->first();
         $isNew = ! $user;
-        $mapped = $this->roleFor($claims, $configuration);
+        $explained = $this->explainRole($claims, $configuration);
+        $mapped = $explained['role'];
 
         if ($isNew && $mapped === null) {
             throw new AuthorizationException('Your account is not permitted to use this service.');
@@ -61,7 +62,12 @@ class UserProvisioningService
             $user->department = $identity['department'];
         }
 
-        if (! $isNew && $mapped !== null && ($configuration['sync_roles'] ?? false) && ! $user->isIt() && $user->role !== $mapped) {
+        // "Never IT or admin" applies at every sign-in, even to someone who already has IT, so taking a
+        // person out of IT works from their next sign-in.
+        if (! $isNew && ($explained['capped'] ?? false) && $user->isIt()) {
+            $this->audit->log('user.role_capped', $user, ['from' => $user->role, 'to' => $mapped, 'rule' => $explained['rule']]);
+            $user->role = $mapped;
+        } elseif (! $isNew && $mapped !== null && ($configuration['sync_roles'] ?? false) && ! $user->isIt() && $user->role !== $mapped) {
             $this->audit->log('user.role_synced', $user, ['from' => $user->role, 'to' => $mapped]);
             $user->role = $mapped;
         }
@@ -115,13 +121,53 @@ class UserProvisioningService
             };
 
             if ($matches) {
-                return ['role' => $role, 'rule' => "{$rule['type']}:{$value}={$role}"];
+                return $this->capped(['role' => $role, 'rule' => "{$rule['type']}:{$value}={$role}"], $claims, $configuration);
             }
         }
 
         $default = $configuration['default_role'] ?? 'teacher';
 
-        return ['role' => $default === 'deny' ? null : (in_array($default, self::ROLES, true) ? $default : 'teacher'), 'rule' => null];
+        return $this->capped(['role' => $default === 'deny' ? null : (in_array($default, self::ROLES, true) ? $default : 'teacher'), 'rule' => null], $claims, $configuration);
+    }
+
+    /**
+     * "Never IT or admin": an address or group on that list never gets more
+     * than the chosen role (teacher by default), whatever the rules say.
+     *
+     * @param  array{role: ?string, rule: ?string}  $result
+     * @param  array{email: string, groups?: list<string>}  $claims
+     * @param  array<string, mixed>  $configuration
+     * @return array{role: ?string, rule: ?string, capped?: bool}
+     */
+    private function capped(array $result, array $claims, array $configuration): array
+    {
+        if (! in_array($result['role'], ['it', 'admin'], true)) {
+            return $result;
+        }
+        $email = strtolower(trim($claims['email']));
+        $groups = self::groupNames($claims['groups'] ?? []);
+        foreach ((array) ($configuration['never_it'] ?? []) as $entry) {
+            $entry = strtolower(trim((string) $entry));
+            $hit = str_starts_with($entry, 'group:') ? in_array(substr($entry, 6), $groups, true) : $entry === $email;
+            if ($hit) {
+                $cap = in_array($configuration['never_it_role'] ?? 'teacher', ['student', 'teacher'], true) ? $configuration['never_it_role'] ?? 'teacher' : 'teacher';
+
+                return ['role' => $cap, 'rule' => "never IT or admin: {$entry} (the rules gave {$result['role']}".($result['rule'] ? " through {$result['rule']}" : '').')', 'capped' => true];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Read the "Never IT or admin" box: email addresses, and groups as group:Name.
+     *
+     * @return list<string>
+     */
+    public static function parseNeverIt(string $text): array
+    {
+        return array_values(array_unique(array_filter(array_map(fn (string $line) => strtolower(trim($line)), preg_split('/[\r\n,]+/', $text) ?: []),
+            fn (string $line) => $line !== '' && (str_starts_with($line, 'group:') ? strlen($line) > 6 : filter_var($line, FILTER_VALIDATE_EMAIL) !== false))));
     }
 
     /**
@@ -141,7 +187,7 @@ class UserProvisioningService
                     return null;
                 }
 
-                return ['user' => $user, 'from' => $user->role, 'to' => $result['role'], 'rule' => $result['rule'], 'kept' => $user->isIt() && ! in_array($result['role'], ['it', 'admin'], true)];
+                return ['user' => $user, 'from' => $user->role, 'to' => $result['role'], 'rule' => $result['rule'], 'kept' => $user->isIt() && ! in_array($result['role'], ['it', 'admin'], true) && ! ($result['capped'] ?? false)];
             })->filter()->values();
     }
 

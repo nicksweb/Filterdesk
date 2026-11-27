@@ -161,7 +161,7 @@ class SchoolHoursBlocksTest extends TestCase
         ]);
 
         $this->actingAs(User::factory()->teacher()->create())->post(route('checks.store'), ['websites' => 'chat.example.com'])->assertOk()
-            ->assertSee('Blocked')->assertSee('in school hours (Mon–Fri 08:15–15:10), open outside them', false)->assertSee("Couldn't check right now")
+            ->assertSee('Blocked')->assertSee('in school hours (Mon–Fri 08:15–15:10), open outside them', false)->assertSee("Couldn't check")
             ->assertDontSee('203.0.113.250')->assertDontSee('page.goto')->assertDontSee('Re-run these checks')->assertSee('Request access');
         $this->actingAs($this->admin)->post(route('checks.store'), ['websites' => 'chat.example.com'])->assertOk()
             ->assertSee('203.0.113.250')->assertSee('page.goto')->assertSee('Quick block or allow');

@@ -107,17 +107,16 @@
                 </details></div>
         </div>
         @if($groupsError)<div class="alert error">Controller IP groups could not be read: {{ $groupsError }}</div>@endif
+        <p class="notice"><strong>On the gateway:</strong> {{ $totals['lists'] }} UniFi IP list(s) kept by Filterdesk, {{ number_format($totals['addresses']) }} addresses in total (block and allow lists), up to {{ number_format($groupLimit) }} per list (Settings → Network provider). {{ $managesRules ? 'Filterdesk creates and orders the firewall rules for them.' : 'IP lists only: the firewall rules are yours, in UniFi.' }}</p>
         @foreach($firewallLists as $list)
             @php($desired = $list->desiredEntries())
             <article class="probe-plan">
                 <h3>{{ $list->name }} <small>{{ strtoupper($list->family) }} · {{ number_format($desired['total']) }} address(es) from {{ count($list->manual_entries ?? []) }} manual + {{ $list->sources_count }} feed(s){{ $list->provider_reference ? ' · controller group '.($list->provider_name ?: $list->provider_reference) : ' · not linked' }}</small></h3>
                 <x-push-status :status="$firewallStatus[$list->id] ?? null" />
                 @if($list->last_pushed_at)<p class="hint"><span class="status status-{{ $list->last_push_status === 'failed' ? 'failed' : ($list->last_push_status === 'truncated' ? 'action_required' : 'ok') }}">{{ ucfirst($list->last_push_status) }}</span> {{ $list->last_pushed_at->diffForHumans() }} · {{ $list->last_push_message }}</p>@endif
-                @if($list->groups)
-                    <p class="hint">In UniFi: @foreach($list->groups as $group)<code>{{ $group['name'] }}</code> ({{ number_format($group['count'] ?? 0) }})@if(!$loop->last), @endif @endforeach. UniFi takes up to {{ number_format($groupLimit) }} addresses per group, so longer lists are split across groups automatically.</p>
-                @endif
                 @php($plan = $rulePlans[$list->id] ?? ['rules' => [], 'ahead' => [], 'live' => []])
-                @if($list->rules)
+                <x-ip-list-parts :list="$list" :manages-rules="$managesRules" :details="$plan['details'] ?? []" />
+                @if($list->rules && $managesRules)
                     <x-firewall-rules :rules="$plan['details'] ?? []" />
                     @if($plan['ahead'])
                         <p class="network-status warn">UniFi checks these rules of yours first and they allow traffic for the same zones, so they can let listed addresses through: @foreach($plan['ahead'] as $rule)<strong>{{ $rule['name'] }}</strong> (above {{ $rule['before'] }})@if(!$loop->last), @endif @endforeach. Tick <em>Put these rules first</em> below, or move them in UniFi.</p>
@@ -127,7 +126,7 @@
                 @elseif($list->referenced_by)
                     <p class="hint">Used by your rules: @foreach($list->referenced_by as $rule){{ $rule['name'] }} ({{ $rule['action'] }}{{ $rule['enabled'] ? '' : ', disabled' }})@if(!$loop->last), @endif @endforeach</p>
                 @endif
-                @if($canWrite && $list->provider_reference && $zones)
+                @if($canWrite && $list->provider_reference && $zones && $managesRules)
                     <form method="post" action="{{ route('admin.policy.blocklists.firewall.rules', $list) }}" class="firewall-rules">@csrf
                         <p><strong>Block traffic to these addresses from</strong> <span class="hint">One rule per IP group and ticked zone is created in UniFi and kept in step when the list grows or shrinks. Untick everything to remove them.</span></p>
                         <div class="category-grid">

@@ -20,6 +20,11 @@ class ProbeSettings
 
     public const METHOD_KEY = 'checks.method';
 
+    /** Website checks without signing in (off by default), and the sites allowed to embed the check page. */
+    public const PUBLIC_KEY = 'checks.public';
+
+    public const EMBED_KEY = 'checks.embed_origins';
+
     /** @var array<string, string> how a check decides */
     public const METHODS = [
         'browser' => 'Load the page (DNS, block pages, HTTPS inspection, failing parts)',
@@ -47,6 +52,17 @@ class ProbeSettings
     {
         $valid = array_filter(array_map(fn ($address) => strtolower(trim((string) $address)), $addresses), fn (string $address) => filter_var($address, FILTER_VALIDATE_IP) !== false);
         $this->settings->set(self::BLOCK_ADDRESSES_KEY, array_values(array_unique($valid)));
+    }
+
+    public function publicChecks(): bool
+    {
+        return (bool) $this->settings->get(self::PUBLIC_KEY, false);
+    }
+
+    /** @return list<string> origins (https://intranet.example.edu.au) allowed to put the check page in a frame */
+    public function embedOrigins(): array
+    {
+        return array_values(array_filter((array) $this->settings->get(self::EMBED_KEY, []), fn ($origin) => is_string($origin) && preg_match('#^https://[a-z0-9.-]+(:\d+)?$#i', $origin) === 1));
     }
 
     /** DNS-only checks: the probes answer from DNS and never load the page (so no previews either). */

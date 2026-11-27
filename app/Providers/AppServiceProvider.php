@@ -47,6 +47,8 @@ class AppServiceProvider extends ServiceProvider
         Paginator::defaultView('pagination.default');
 
         RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)->by(strtolower((string) $request->input('email')).'|'.$request->ip()));
+        // Public website checks run a real browser on each probe: 5 a minute per address, 60 a minute in all.
+        RateLimiter::for('public-check', fn (Request $request) => [Limit::perMinute(5)->by('ip:'.$request->ip()), Limit::perMinute(60)->by('all')]);
 
         try {
             $settings = app(SettingsRepository::class);

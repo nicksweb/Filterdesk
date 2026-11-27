@@ -61,6 +61,7 @@
                     <form method="post" action="{{ route('it.requests.action', $websiteRequest) }}" class="approve-form">
                         @csrf
                         <input type="hidden" name="action" value="approve">
+                        @if($websiteRequest->it_decides)<p class="notice">Sent with the short form: the requester didn't choose the networks, category or how long. They're set to {{ $websiteRequest->access_scope?->label() }}, {{ $websiteRequest->category }} and permanent for now: check them below.</p>@endif
                         @if(!empty($firewallCheck['hosts']) && collect($firewallCheck['hosts'])->contains(fn ($result) => $result['verdict'] !== 'allowed'))
                             <div class="firewall-plan"><x-firewall-check :check="$firewallCheck" kind="allow" :lists="$allowLists" /></div>
                         @endif

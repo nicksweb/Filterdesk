@@ -3,6 +3,7 @@
 namespace App\Services\Notifications;
 
 use App\Services\SettingsRepository;
+use App\Services\Support;
 use Illuminate\Notifications\Messages\MailMessage;
 
 /**
@@ -21,36 +22,38 @@ class EmailTemplates
         'reference' => 'Request reference, e.g. WEB-2026-00012', 'websites' => 'The approved (or requested) websites',
         'window' => 'When access applies', 'timezone' => 'Timezone of the times', 'message' => "IT's note or decision",
         'requester' => 'Who asked', 'scope' => 'Networks it is for', 'category' => 'Request category', 'reason' => 'Reason given',
+        'note' => "IT's own note, if they wrote one", 'outcome' => '"allowed" or "blocked", for what was asked',
+        'until' => '" until Friday 12 December" for timed access, otherwise empty', 'tips' => 'What to do if it still looks blocked (your "access is on its way" steps)', 'starts' => 'When it starts, e.g. "Monday 3 March"', 'ends' => 'When it ends, e.g. "Friday 12 December at 3:00 pm"',
     ];
 
     public const DEFINITIONS = [
         'request_received' => ['group' => 'Requester', 'label' => 'Request received', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: received', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}\n\nWhen: {window} ({timezone} time).", 'action' => 'View request'],
-        'request_approved' => ['group' => 'Requester', 'label' => 'Approved (being applied)', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: approved', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}\n\nWhen: {window} ({timezone} time).", 'action' => 'View request'],
+            'subject' => 'We have your request for {websites}', 'greeting' => 'Hello {name},',
+            'body' => "IT has your request for {websites}. They'll email you when they've looked at it.", 'action' => 'View request'],
+        'request_approved' => ['group' => 'Requester', 'label' => 'Approved (being set up)', 'placeholders' => self::REQUEST,
+            'subject' => 'Approved: {websites}', 'greeting' => 'Hello {name},',
+            'body' => "IT has approved your request for {websites}. It will be {outcome} shortly{until}.\n\n{tips}\n\n{note}", 'action' => 'View request'],
         'request_scheduled' => ['group' => 'Requester', 'label' => 'Approved for a later start', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: approved and scheduled', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}\n\nWhen: {window} ({timezone} time).", 'action' => 'View request'],
-        'request_live' => ['group' => 'Requester', 'label' => 'Live on the network', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: access is live', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}\n\nWhen: {window} ({timezone} time).", 'action' => 'View request'],
+            'subject' => 'Approved from {starts}: {websites}', 'greeting' => 'Hello {name},',
+            'body' => "IT has approved your request for {websites}. It will be {outcome} from {starts}{until}.\n\n{note}", 'action' => 'View request'],
+        'request_live' => ['group' => 'Requester', 'label' => 'Allowed (or blocked) now', 'placeholders' => self::REQUEST,
+            'subject' => 'Now {outcome}: {websites}', 'greeting' => 'Hello {name},',
+            'body' => "IT has reviewed your request for {websites}. It's now {outcome}{until}.\n\n{tips}\n\n{note}", 'action' => 'View request'],
         'request_information' => ['group' => 'Requester', 'label' => 'IT needs more information', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: more information needed', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}\n\nWhen: {window} ({timezone} time).\n\nReply from the request page so IT can continue.", 'action' => 'View request'],
+            'subject' => 'A question about your request for {websites}', 'greeting' => 'Hello {name},',
+            'body' => "IT needs a bit more information about your request for {websites}.\n\n{note}\n\nPlease reply on the request page.", 'action' => 'Reply'],
         'request_declined' => ['group' => 'Requester', 'label' => 'Declined', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: declined', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}", 'action' => 'View request'],
+            'subject' => 'Not changed: {websites}', 'greeting' => 'Hello {name},',
+            'body' => "IT has reviewed your request for {websites} and won't change it, so it stays as it is.\n\n{note}", 'action' => 'View request'],
         'request_ending' => ['group' => 'Requester', 'label' => 'Access ends soon', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: access ends soon', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}", 'action' => 'View request'],
+            'subject' => 'Ending soon: {websites}', 'greeting' => 'Hello {name},',
+            'body' => 'Your access to {websites} ends {ends}. If you still need it after that, send a new request.', 'action' => 'View request'],
         'request_expired' => ['group' => 'Requester', 'label' => 'Access has ended', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: access has ended', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}", 'action' => 'View request'],
+            'subject' => 'Ended: {websites}', 'greeting' => 'Hello {name},',
+            'body' => 'Your access to {websites} has ended. If you need it again, send a new request.', 'action' => 'View request'],
         'request_revoked' => ['group' => 'Requester', 'label' => 'Access removed by IT', 'placeholders' => self::REQUEST,
-            'subject' => 'Website request {reference}: access removed', 'greeting' => 'Hello {name},',
-            'body' => "{message}\n\nWebsites: {websites}", 'action' => 'View request'],
+            'subject' => 'Removed: {websites}', 'greeting' => 'Hello {name},',
+            'body' => "IT has removed your access to {websites}.\n\n{note}", 'action' => 'View request'],
         'it_activity' => ['group' => 'IT team', 'label' => 'New request, reply or assignment', 'placeholders' => self::REQUEST + ['headline' => 'What happened, e.g. "New website request"', 'details' => 'Extra lines for this event'],
             'subject' => '{reference}: {headline}', 'greeting' => '{headline}',
             'body' => "Domains: {websites}\n\nRequested by {requester} · {scope} · {category}\n\n{details}", 'action' => 'Open request'],
@@ -62,8 +65,8 @@ class EmailTemplates
             'subject' => 'Approved without a second IT officer: {subject}', 'greeting' => 'Please review this approval',
             'body' => "{officer} approved {subject} alone, although it needs two IT officers ({reasons}).\n\nReason given: {why}\n\nCheck it and revoke or change it if it is not right.", 'action' => 'Review it'],
         'exceptions_due' => ['group' => 'Requester', 'label' => 'Exceptions due for review', 'placeholders' => ['name' => 'Owner name', 'details' => 'One line per site with its list', 'expires' => 'When they expire if not reviewed'],
-            'subject' => 'Website exceptions due for review', 'greeting' => 'Hello {name},',
-            'body' => "These website exceptions you own are due for their regular review:\n\n{details}\n\nIf they are still needed, mark them to keep. Anything not reviewed is removed on {expires}.", 'action' => 'Review them'],
+            'subject' => 'Do you still need these websites?', 'greeting' => 'Hello {name},',
+            'body' => "Some websites you asked for are due for a check that they're still needed:\n\n{details}\n\nIf you still need them, mark them to keep. Anything not marked is removed on {expires}.", 'action' => 'Check them'],
         'account_locked' => ['group' => 'Security', 'label' => 'Sign-in locked', 'placeholders' => ['email' => 'Account email', 'minutes' => 'Lock length', 'ip' => 'Address of the last attempt'],
             'subject' => 'Sign-in locked after failed attempts', 'greeting' => '',
             'body' => "Password sign-in for {email} was locked for {minutes} minutes after repeated failed attempts.\n\nLast attempt from {ip}.\n\nIf this was not you, tell IT. Administrators can turn off password sign-in for an account under Users, or turn off emergency local sign-in entirely under Settings → Authentication.", 'action' => 'Open {app_name}'],
@@ -116,8 +119,21 @@ class EmailTemplates
         if ($url) {
             $mail->action($this->fill($action, $flat, singleLine: true) ?: 'Open', $url);
         }
+        // Every email to a requester ends with the helpdesk (Settings → Help and support), when there is one.
+        if ((self::DEFINITIONS[$key]['group'] ?? null) === 'Requester' && ($footer = $this->helpdeskLine()) !== null) {
+            $mail->line($footer);
+        }
 
         return $mail;
+    }
+
+    /** "For anything else, contact the IT Service Desk at …", or null when no email or phone is set. */
+    public function helpdeskLine(): ?string
+    {
+        $support = app(Support::class)->all();
+        $how = $support['email'] ?: $support['phone'];
+
+        return $how === '' ? null : 'For anything else, contact '.($support['name'] ?: 'the IT helpdesk').' at '.$how.'.';
     }
 
     /**
