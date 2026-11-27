@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.32
+
+### Added
+- **Test larger UniFi IP lists from the browser** (Settings → Network provider, admins). Choose the sizes (20,000 to 150,000) and, optionally, /30 subnets, confirm you're watching the gateway, and the test runs in the background.
+  - For each size, Filterdesk creates a temporary list of 100.64.0.0/10 addresses, which no firewall rule uses, reads it back, rewrites a tenth of it, then deletes it. It stops at the first size UniFi refuses.
+  - The results are shown with the times taken, and *Use … per list* sets *Addresses per UniFi IP list* from the largest size that worked (up to 100,000).
+  - Every test and change is in the audit log. `php artisan filterdesk:test-ip-list-size` runs the same test and saves its results to the same page.
+
 ## 2026.12.31
 
 ### Added

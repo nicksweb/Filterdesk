@@ -45,6 +45,10 @@ docker compose run --rm migrate
 
 From 2026.11.0, releases use calendar versions `YYYY.MM.N` (year, month, then the release number within that month). They compare correctly with the earlier `0.x` versions, so upgrading from 0.1.x works as before.
 
+## 2026.12.31 → 2026.12.32
+
+- Update as usual. No database changes.
+
 ## 2026.12.30 → 2026.12.31
 
 - Update as usual. Migrations add a new-parts note to firewall lists and a flag to requests sent with the short form.

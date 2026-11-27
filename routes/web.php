@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\FirewallAllowController;
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\Admin\InsightsController;
 use App\Http\Controllers\Admin\IntegrationController;
+use App\Http\Controllers\Admin\IpListSizeTestController;
 use App\Http\Controllers\Admin\NetworkMapController;
 use App\Http\Controllers\Admin\NetworkTypePolicyController;
 use App\Http\Controllers\Admin\PolicyController;
@@ -218,6 +219,8 @@ Route::middleware('installed')->group(function (): void {
             Route::post('/settings/authentication/apply-roles', [SettingsController::class, 'applyRoles'])->middleware('throttle:10,1')->name('settings.apply-roles');
             Route::post('/settings/network/test', [SettingsController::class, 'testNetwork'])->middleware('throttle:10,1')->name('settings.test-network');
             Route::post('/settings/categories/test', [SettingsController::class, 'testCategories'])->middleware('throttle:10,1')->name('settings.test-categories');
+            Route::post('/settings/ip-list-size-test', [IpListSizeTestController::class, 'start'])->middleware('throttle:3,10')->name('settings.ip-list-size-test');
+            Route::post('/settings/ip-list-size-test/use', [IpListSizeTestController::class, 'use'])->name('settings.ip-list-size-test.use');
             Route::post('/settings/network/discover', [SettingsController::class, 'discover'])->middleware('throttle:10,1')->name('settings.discover');
             Route::post('/probes/{profile}/reserve', [ProbeSetupController::class, 'reserve'])->middleware('throttle:10,1')->name('probes.reserve');
             Route::post('/probes/{profile}/confirm-relay', [ProbeSetupController::class, 'confirmRelay'])->name('probes.confirm-relay');
