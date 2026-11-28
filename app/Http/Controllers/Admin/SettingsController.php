@@ -24,6 +24,7 @@ use App\Services\Network\InspectionCertificate;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ReadsContentFilters;
 use App\Services\Network\UniFiNetworkProvider;
+use App\Services\Notifications\CommsHours;
 use App\Services\Notifications\EmailTemplates;
 use App\Services\Oidc\OidcClient;
 use App\Services\Oidc\OidcDiscoveryService;
@@ -385,6 +386,10 @@ class SettingsController extends Controller
             'summary' => ['nullable', 'in:weekly,daily,off'],
             'summary_day' => ['nullable', 'integer', 'between:1,7'],
             'alerts' => ['nullable', 'in:summary,now'],
+            'hours_enabled' => ['nullable', 'boolean'],
+            'hours_days' => ['nullable', 'array'], 'hours_days.*' => ['integer', 'between:1,7'],
+            'hours_from' => ['nullable', 'date_format:H:i'],
+            'hours_to' => ['nullable', 'date_format:H:i', 'after:hours_from'],
             'digest_time' => ['required', 'date_format:H:i'],
         ]);
 
@@ -420,6 +425,12 @@ class SettingsController extends Controller
             'summary_day' => (int) ($validated['summary_day'] ?? 1),
             'alerts' => $validated['alerts'] ?? 'summary',
             'digest_time' => $validated['digest_time'],
+            'hours' => $request->has('hours_enabled') ? [
+                'enabled' => $request->boolean('hours_enabled'),
+                'days' => array_values(array_map('intval', $validated['hours_days'] ?? [])),
+                'from' => $validated['hours_from'] ?? CommsHours::DEFAULTS['from'],
+                'to' => $validated['hours_to'] ?? CommsHours::DEFAULTS['to'],
+            ] : ($settings->get('notifications.hours') ?? CommsHours::DEFAULTS),
         ]);
     }
 

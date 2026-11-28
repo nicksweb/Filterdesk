@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Concerns\WaitsForCommsHours;
 use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +12,7 @@ use Illuminate\Notifications\Notification;
 /** Tells an owner (or IT) which of their website exceptions are due for review. */
 class ExceptionsDueNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, WaitsForCommsHours;
 
     /** @param list<string> $lines */
     public function __construct(public readonly string $name, public readonly array $lines, public readonly string $expires) {}

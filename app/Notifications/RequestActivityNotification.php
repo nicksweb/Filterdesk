@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\WebsiteRequest;
+use App\Notifications\Concerns\WaitsForCommsHours;
 use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\URL;
 /** IT-facing email about a request: new submission, reply, assignment. */
 class RequestActivityNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, WaitsForCommsHours;
 
     /** @param list<string> $lines */
     public function __construct(

@@ -196,6 +196,16 @@
                     <label class="choice compact"><input type="checkbox" name="requester_events[]" value="{{ $event }}" @checked($settings->get("notifications.requester.{$event}", true))><span>{{ $label }}</span></label>
                 @endforeach
             </fieldset>
+            @php($hours = app(\App\Services\Notifications\CommsHours::class)->settings())
+            <fieldset><legend>When emails are sent</legend>
+                <p class="hint">Emails that come up outside these hours wait and go at the next opening, in the school's timezone ({{ $settings->timezone() }}). For example, a request approved on Saturday is emailed at {{ \Illuminate\Support\Carbon::createFromFormat('H:i', $hours['from'])->format('g:i a') }} on Monday. Sign-in alerts and the test email are always sent straight away. An "access ends soon" email that would arrive after the access has ended isn't sent.</p>
+                <label class="choice compact"><input type="hidden" name="hours_enabled" value="0"><input type="checkbox" name="hours_enabled" value="1" @checked(old('hours_enabled', $hours['enabled']))><span><strong>Only send emails in these hours</strong><small>Now: {{ app(\App\Services\Notifications\CommsHours::class)->describe() }}.</small></span></label>
+                <div class="chip-choices">@foreach([1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'] as $value => $label)<label class="choice compact"><input type="checkbox" name="hours_days[]" value="{{ $value }}" @checked(in_array($value, old('hours_days', $hours['days'])))><span>{{ $label }}</span></label>@endforeach</div>
+                <div class="fields two">
+                    <label>From<input type="time" name="hours_from" value="{{ old('hours_from', $hours['from']) }}"></label>
+                    <label>Until<input type="time" name="hours_to" value="{{ old('hours_to', $hours['to']) }}"></label>
+                </div>
+            </fieldset>
             @php($summary = \App\Console\Commands\SendPolicyDigest::frequency($settings))
             <fieldset><legend>Summary for IT</legend>
                 <p class="hint">One email (the digest) when something may need IT: requests waiting, exceptions due, filters with changes to push, and the alerts below. Nothing is sent when there's nothing to look at. New requests and replies are still emailed as they happen (above).</p>

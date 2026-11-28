@@ -7,6 +7,9 @@
  * optionally a route name (and its parameters) for "where".
  */
 return [
+    '2026.12.34' => [
+        ['text' => 'Emails are only sent Monday to Friday, 7 am to 5 pm, unless you change it; others wait for the next opening.', 'route' => 'admin.settings.show', 'params' => ['section' => 'email', 'find' => 'When emails are sent']],
+    ],
     '2026.12.33' => [
         ['text' => 'Search all settings from the box at the top of Settings.', 'route' => 'admin.settings.show'],
         ['text' => 'Privacy policy link, shown at the foot of every page and on the request forms.', 'route' => 'admin.settings.show', 'params' => ['section' => 'general', 'find' => 'Privacy policy link']],

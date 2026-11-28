@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Concerns\WaitsForCommsHours;
 use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +12,7 @@ use Illuminate\Notifications\Notification;
 /** Tells the other IT officers that someone approved alone where two were needed. */
 class TwoPersonOverrideNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, WaitsForCommsHours;
 
     /** @param list<string> $reasons */
     public function __construct(public readonly string $officer, public readonly string $subject, public readonly array $reasons, public readonly string $why, public readonly string $url) {}

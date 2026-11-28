@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Concerns\WaitsForCommsHours;
 use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +12,7 @@ use Illuminate\Notifications\Notification;
 /** Sent when a controller filter starts to differ from its policy, cannot be read, or a network was given baseline filtering. */
 class FilterSyncAlertNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, WaitsForCommsHours;
 
     /** @param list<array{policy: string, slug: string, status: string, summary: string}> $policies */
     public function __construct(public readonly array $policies) {}

@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Concerns\WaitsForCommsHours;
 use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +12,7 @@ use Illuminate\Notifications\Notification;
 /** The summary for IT: things that may need attention, and the alerts held since the last one. */
 class PolicyDigestNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, WaitsForCommsHours;
 
     /**
      * @param  list<array{policy: string, slug: string, allow_add: int, allow_remove: int, block_add: int, block_remove: int, snapshot: bool}>  $policies  filters not in step

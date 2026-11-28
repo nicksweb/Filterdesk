@@ -5,6 +5,7 @@ namespace App\Notifications;
 use App\Http\Controllers\EmailPreferenceController;
 use App\Models\User;
 use App\Models\WebsiteRequest;
+use App\Notifications\Concerns\WaitsForCommsHours;
 use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,7 +14,7 @@ use Illuminate\Notifications\Notification;
 
 class RequestDecisionNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, WaitsForCommsHours;
 
     /**
      * @param  string|null  $stage  Overrides the subject wording: received or ending.
@@ -24,6 +25,12 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         return ['mail'];
+    }
+
+    /** An "ends soon" email held for the hours emails are sent is dropped if the access has already ended by then. */
+    public function shouldSend(object $notifiable, string $channel): bool
+    {
+        return $this->stage !== 'ending' || $this->websiteRequest->expires_at === null || $this->websiteRequest->expires_at->isFuture();
     }
 
     public function toMail(object $notifiable): MailMessage

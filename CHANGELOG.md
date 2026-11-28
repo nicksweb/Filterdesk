@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.34
+
+### Added
+- **When emails are sent** (Settings → Email and notifications), Monday to Friday, 7 am to 5 pm by default, in the school's timezone. Choose the days and hours, or turn it off.
+  - An email that comes up outside those hours waits in the queue and goes at the next opening. A request approved on Saturday is emailed at 7 am on Monday.
+  - This covers requester emails, emails to IT (new requests, replies, the summary, alerts) and exception reviews. Sign-in alerts and the test email are always sent straight away.
+  - An "access ends soon" email that would arrive after the access has ended isn't sent.
+
 ## 2026.12.33
 
 ### Added
