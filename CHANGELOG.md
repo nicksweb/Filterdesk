@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.35
+
+### Fixed
+- **UniFi limits an IP list by its stored size, not by entries** (about 126,000 bytes: roughly 24,000 typical internet addresses). Pushes with a larger *Addresses per UniFi IP list* failed with "UniFi returned HTTP 400 when listing a new IP group".
+  - Now, when UniFi refuses a part as too large, Filterdesk splits that list smaller and pushes it again, up to 4 tries. The new size comes from UniFi's own figures, with a 10% margin.
+  - The list remembers the size that worked. The push result and the list say so: "UniFi took at most about 22,680 of these entries per list, so it is split into 3 parts."
+  - Changing the setting clears what was learned, so the new size is tried again. *Addresses per UniFi IP list* is now a ceiling, and its help text says what UniFi really limits.
+- **UniFi's own reason is in the error.** "UniFi returned HTTP 400 when saving the new IP group "Abuse (1 of 4)": …", instead of "when listing a new IP group". The size refusal reads "it is 206,251 bytes as UniFi stores it, over its limit of 126,000 bytes (40,000 entries)".
+- **The size test uses real data.** It used sequential 100.64.x.x addresses, which UniFi stores far more compactly, so it overstated sizes about twofold. Now it uses your largest IP feed, topped up with random public addresses (about 7% subnets).
+  - The sizes offered are 20,000, 30,000, 50,000 and 100,000.
+  - It reads each list back from UniFi, not from the 5-minute cache, so accepted sizes no longer show "read back ?".
+  - When UniFi refuses a size, it says how many entries fit. *Use … per list* suggests a size with a 10% margin.
+  - Results from the old sequential test no longer offer a size. `--sequential` runs the old data from the command line.
+- **The migration log no longer reports the same request as "placed into lists" on every update.** A request whose sites are already in the lists for good (by hand, or from another request) is counted as "already covered" instead.
+
+### Changed
+- **One button name: *Push to UniFi*.** A firewall list or allow list that isn't in UniFi yet shows *Push to UniFi* too, with "Not in UniFi yet: the first push creates its IP list(s)". A failed push is shown in red next to the button, with its message.
+- **The feed row says what *Whole /24* costs.** For example: "covering 1.6 million addresses, 1.44 million more than the feed lists; without Whole /24: 162,606 entries (8 UniFi lists)". The number of UniFi lists is shown for the merged entries too.
+
 ## 2026.12.34
 
 ### Added

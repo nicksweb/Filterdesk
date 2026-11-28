@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Notifications\FilterSyncAlertNotification;
 use App\Services\AuditLogger;
 use App\Services\Network\FirewallRuleMode;
+use App\Services\Network\IpListTooLarge;
 use App\Services\Network\ManagesIpGroups;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Network\ProviderRequestFailed;
@@ -43,11 +44,18 @@ class FirewallListPusher
         return $this->manager() !== null && $this->providers->integration()?->mode === 'active';
     }
 
-    /** UniFi rejects an IP group above about 20,000 addresses (30,000 returned HTTP 400). */
+    /**
+     * The default addresses per UniFi IP list. UniFi's real limit is the list's stored size,
+     * about 126,000 bytes: roughly 24,000 typical internet addresses, more when they're
+     * sequential. 20,000 leaves room.
+     */
     public const GROUP_LIMIT = 20000;
 
-    /** The most the setting allows: reported to work on recent UniFi, not yet confirmed here (filterdesk:test-ip-list-size). */
+    /** The most the setting allows. A list UniFi refuses as too large is split further on its own. */
     public const MAX_GROUP_LIMIT = 100000;
+
+    /** Tries at a push when UniFi refuses a part for its size, each with smaller parts. */
+    private const SIZE_RETRIES = 4;
 
     /** Whether Filterdesk may write firewall rules, or keeps IP lists only (Settings → Network provider). */
     public function managesRules(): bool
@@ -60,6 +68,14 @@ class FirewallListPusher
         return min(self::MAX_GROUP_LIMIT, max(100, (int) ($this->providers->integration()?->configuration['max_ip_group_entries'] ?? self::GROUP_LIMIT)));
     }
 
+    /** Entries per part for this list: the setting, or fewer once UniFi has refused a larger part of it. */
+    public function partSize(FirewallList $list): int
+    {
+        $learned = (int) ($list->max_part_entries ?? 0);
+
+        return $learned > 0 ? min($this->groupLimit(), $learned) : $this->groupLimit();
+    }
+
     /**
      * Bring the list's controller groups (and the blocking rules the app
      * created for them) in step. A list larger than one group is split into
@@ -70,7 +86,18 @@ class FirewallListPusher
     public function push(FirewallList $list, ?User $actor, bool $force = false): array
     {
         return app(PolicyPublisher::class)->within('firewall', $actor, function () use ($list, $actor, $force): array {
-            $result = $this->pushNow($list, $actor, $force);
+            // UniFi limits a list by its stored size: when it refuses a part, split smaller and push again.
+            for ($attempt = 1; ; $attempt++) {
+                $result = $this->pushNow($list, $actor, $force || $attempt > 1);
+                $tooLarge = $result['too_large'] ?? null;
+                unset($result['too_large']);
+                if (! $tooLarge instanceof IpListTooLarge || $attempt >= self::SIZE_RETRIES) {
+                    break;
+                }
+                $fits = $tooLarge->entriesThatFit() ?: intdiv($this->partSize($list), 2);
+                $list->forceFill(['max_part_entries' => max(500, min($fits, $this->partSize($list) - 1))])->save();
+                $this->audit->log('firewall.list_split_smaller', $list, ['bytes' => $tooLarge->size, 'limit' => $tooLarge->limit, 'entries' => $tooLarge->entries, 'part_size' => $list->max_part_entries]);
+            }
             app(PolicyPublisher::class)->recordFirewall($list, $result);
 
             return $result;
@@ -99,7 +126,7 @@ class FirewallListPusher
     private function desiredHash(FirewallList $list, ?array $zoneIds = null): array
     {
         ['entries' => $entries, 'total' => $total] = $list->desiredEntries();
-        $chunks = array_chunk($entries, $this->groupLimit());
+        $chunks = array_chunk($entries, $this->partSize($list));
         $count = count($chunks);
         $names = array_map(fn (int $index) => $count === 1 ? $list->name : "{$list->name} (".($index + 1)." of {$count})", array_keys($chunks));
         $parts = [$chunks, $names, array_values($zoneIds ?? $list->rule_zones ?? []), (bool) $list->block_incoming];
@@ -233,7 +260,9 @@ class FirewallListPusher
                         report($exception);
                     }
 
-                    return $this->record($list, 'failed', $exception instanceof ProviderRequestFailed ? $exception->getMessage() : 'The controller could not be reached. Nothing more was changed.', $actor);
+                    $failed = $this->record($list, 'failed', $exception instanceof ProviderRequestFailed ? $exception->getMessage() : 'The controller could not be reached. Nothing more was changed.', $actor);
+
+                    return $exception instanceof IpListTooLarge ? $failed + ['too_large' => $exception] : $failed;
                 }
 
                 $list->forceFill([
@@ -241,7 +270,8 @@ class FirewallListPusher
                     'provider_reference' => $groups[0]['id'], 'provider_name' => $groups[0]['name'],
                 ])->save();
 
-                $message = number_format(count($entries)).' address(es) in '.($count === 1 ? $groups[0]['name'] : "{$count} groups of up to ".number_format($this->groupLimit())).'.'
+                $message = number_format(count($entries)).' address(es) in '.($count === 1 ? $groups[0]['name'] : "{$count} groups of up to ".number_format($this->partSize($list))).'.'
+                    .($this->partSize($list) < $this->groupLimit() ? ' UniFi took at most about '.number_format($this->partSize($list)).' of these entries per list (it limits a list by its stored size), so it is split into '.$count.' part(s).' : '')
                     .($total > count($entries) ? ' '.number_format($total - count($entries)).' more were left out by the limit of '.number_format($list->max_entries).'.' : '')
                     .($kept ? ' Kept '.implode(', ', $kept).' because a rule you made still uses it.' : '')
                     .($newParts ? ' NEW UniFi IP list: '.implode(', ', $newParts).'. Your firewall rules in UniFi don\'t use it yet, so its addresses aren\'t '.($list->isAllow() ? 'let through' : 'blocked').' until you add it to them.' : '')

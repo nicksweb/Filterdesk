@@ -29,7 +29,7 @@ class FirewallList extends Model
         'name', 'family', 'provider_reference', 'provider_name', 'manual_entries', 'enabled', 'max_entries',
         'last_pushed_at', 'last_push_status', 'last_push_message', 'live_count', 'referenced_by',
         'groups', 'rules', 'rule_zones', 'block_incoming', 'rules_first', 'pushed_hash',
-        'kind', 'allow_entries', 'all_zones', 'feed_token', 'source_networks', 'placement', 'verified_at', 'new_parts',
+        'kind', 'allow_entries', 'all_zones', 'feed_token', 'source_networks', 'placement', 'verified_at', 'new_parts', 'max_part_entries',
     ];
 
     protected function casts(): array

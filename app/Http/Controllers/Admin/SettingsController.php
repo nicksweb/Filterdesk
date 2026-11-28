@@ -8,6 +8,7 @@ use App\Models\ApiToken;
 use App\Models\BellPeriod;
 use App\Models\CalendarPeriod;
 use App\Models\FilterPolicy;
+use App\Models\FirewallList;
 use App\Models\IntegrationConfig;
 use App\Models\NetworkAssignment;
 use App\Models\NetworkProfile;
@@ -483,7 +484,11 @@ class SettingsController extends Controller
                 'firewall_rules' => $validated['firewall_rules'] ?? FirewallRuleMode::current($integration->exists ? $integration : null),
             ],
         ]);
-        $before = FirewallRuleMode::current($integration->exists ? IntegrationConfig::query()->find($integration->id) : null);
+        $stored = $integration->exists ? IntegrationConfig::query()->find($integration->id) : null;
+        if ((int) ($stored?->configuration['max_ip_group_entries'] ?? FirewallListPusher::GROUP_LIMIT) !== (int) $integration->configuration['max_ip_group_entries']) {
+            FirewallList::query()->update(['max_part_entries' => null]);
+        }
+        $before = FirewallRuleMode::current($stored);
         if ($before !== ($integration->configuration['firewall_rules'] ?? null)) {
             app(AuditLogger::class)->log('settings.firewall_rules_changed', $integration->exists ? $integration : null, ['from' => $before, 'to' => $integration->configuration['firewall_rules']]);
         }

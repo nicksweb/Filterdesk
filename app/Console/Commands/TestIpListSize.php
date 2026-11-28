@@ -16,8 +16,8 @@ use Illuminate\Console\Command;
 class TestIpListSize extends Command
 {
     protected $signature = 'filterdesk:test-ip-list-size
-        {--sizes=20000,50000,100000 : Comma-separated list sizes to try}
-        {--subnets : Use /30 subnets instead of single addresses, to see whether UniFi counts a subnet as one entry}
+        {--sizes=20000,30000,50000 : Comma-separated list sizes to try}
+        {--sequential : Use sequential 100.64.x.x addresses (the old test data; it overstates what real lists take)}
         {--force : Do not ask for confirmation}';
 
     protected $description = 'Try creating large UniFi IP lists (no rules), and report what the gateway accepts and how long it takes';
@@ -29,7 +29,7 @@ class TestIpListSize extends Command
             return self::SUCCESS;
         }
         try {
-            $rows = $tester->run($sizes, (bool) $this->option('subnets'));
+            $rows = $tester->run($sizes, (bool) $this->option('sequential'));
         } catch (ProviderRequestFailed $exception) {
             $this->error($exception->getMessage());
 
@@ -40,6 +40,9 @@ class TestIpListSize extends Command
             $row['read'] === null ? '—' : ($row['count'] === null ? '?' : number_format($row['count'])).' in '.$row['read'].' s',
             $row['rewrite'] === null ? '—' : $row['rewrite'].' s', $row['message'],
         ], $rows));
+        if ($suggested = $tester->suggested()) {
+            $this->info('Suggested Addresses per UniFi IP list, with a 10% margin: '.number_format($suggested).'.');
+        }
         $this->line('The results are also on Settings → Network provider. Check the gateway\'s CPU and memory in UniFi while larger lists are in use, and that the Firewall pages still load, before raising Addresses per UniFi IP list.');
 
         return self::SUCCESS;

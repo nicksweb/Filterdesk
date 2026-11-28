@@ -56,7 +56,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
     private const FIREWALL_CACHE = 'unifi.firewall.';
 
     /** Forget cached groups and rules after the app changes them. */
-    private function forgetFirewall(): void
+    public function forgetFirewall(): void
     {
         Cache::forget(self::FIREWALL_CACHE.'groups');
         Cache::forget(self::FIREWALL_CACHE.'policies');
@@ -406,11 +406,11 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
     {
         $path = $this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists/'.rawurlencode($id));
         $response = $this->client()->timeout(60)->put($path, $this->ipGroupBody($name, $family, $entries));
-        $this->ensureSuccessful($response, 'IP group changes', writing: true);
+        $this->ensureSuccessful($response, "the IP group \"{$name}\"", writing: true, entries: count($entries));
         $this->forgetFirewall();
 
         $saved = $this->client()->timeout(30)->get($path);
-        $this->ensureSuccessful($saved, 'the IP group');
+        $this->ensureSuccessful($saved, "the IP group \"{$name}\" back");
         $savedValues = collect($saved->json('items', []))->pluck('value')->map(fn ($value) => (string) $value)->sort()->values()->all();
         if ($savedValues !== collect($entries)->sort()->values()->all()) {
             throw new ProviderRequestFailed('UniFi accepted the IP group change but it read back differently ('.count($savedValues).' of '.count($entries).' entries). The controller may limit the group size.');
@@ -420,7 +420,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
     public function createIpGroup(string $name, string $family, array $entries): string
     {
         $response = $this->client()->timeout(60)->post($this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists'), $this->ipGroupBody($name, $family, $entries));
-        $this->ensureSuccessful($response, 'a new IP group', writing: true);
+        $this->ensureSuccessful($response, "the new IP group \"{$name}\"", writing: true, entries: count($entries));
         $this->forgetFirewall();
         $id = (string) ($response->json('id') ?? $response->json('data.id') ?? '');
         if ($id === '') {
@@ -434,7 +434,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
     {
         $response = $this->client()->timeout(30)->delete($this->path('/sites/'.rawurlencode($this->siteId()).'/traffic-matching-lists/'.rawurlencode($id)));
         if ($response->status() !== 404) {
-            $this->ensureSuccessful($response, 'deleting the IP group', writing: true);
+            $this->ensureSuccessful($response, 'the deletion of an IP group', writing: true);
         }
         $this->forgetFirewall();
     }
@@ -641,7 +641,7 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         FirewallRuleMode::guard($this->integration, 'delete firewall rules');
         $response = $this->client()->timeout(30)->delete($this->path('/sites/'.rawurlencode($this->siteId()).'/firewall/policies/'.rawurlencode($id)));
         if ($response->status() !== 404) {
-            $this->ensureSuccessful($response, 'deleting the firewall rule', writing: true);
+            $this->ensureSuccessful($response, 'the deletion of a firewall rule', writing: true);
         }
         $this->forgetFirewall();
     }
@@ -793,22 +793,30 @@ class UniFiNetworkProvider implements ManagesIpGroups, ManagesReservations, Netw
         return $this->siteReference = 'default';
     }
 
-    private function ensureSuccessful(Response $response, string $what, bool $writing = false): void
+    private function ensureSuccessful(Response $response, string $what, bool $writing = false, int $entries = 0): void
     {
         if ($response->successful()) {
             return;
         }
 
         $code = (string) $response->json('code', '');
+        $reason = trim((string) $response->json('message', ''));
+        // UniFi limits an IP list by its stored size, not by entries.
+        if (preg_match('/Message size (\d+) exceeds the maximum allowed size of (\d+) bytes/i', $reason, $size)) {
+            throw new IpListTooLarge("UniFi refused {$what}: it is ".number_format((int) $size[1]).' bytes as UniFi stores it, over its limit of '.number_format((int) $size[2]).' bytes'
+                .($entries ? ' ('.number_format($entries).' entries)' : '').'.', (int) $size[1], (int) $size[2], $entries);
+        }
+        $because = $reason !== '' && ! str_contains($reason, '<') ? ': '.str($reason)->limit(200) : '.';
         throw new ProviderRequestFailed(match (true) {
-            $response->status() === self::UNREACHABLE => 'The UniFi controller could not be reached ('.str((string) $response->json('message'))->before(' (see')->after(': ')->limit(120).'). Nothing was changed; it is retried automatically.',
+            $response->status() === self::UNREACHABLE => 'The UniFi controller could not be reached ('.str($reason)->before(' (see')->after(': ')->limit(120).'). Nothing was changed; it is retried automatically.',
             $code === 'device_offline' => 'Site Manager reports this console is offline.',
             $writing && in_array($response->status(), [401, 403], true) => "UniFi refused to save {$what} (HTTP {$response->status()}). The key's owner needs Network admin rights, and some Site Manager keys are read-only.",
             $writing && in_array($response->status(), [404, 405], true) => "This UniFi Network version does not accept {$what} at the expected address (HTTP {$response->status()}). Apply changes by hand.",
-            str_contains((string) $response->json('message'), 'host not found') => 'Site Manager has no console with this ID. Use the full console ID from Discover.',
+            str_contains($reason, 'host not found') => 'Site Manager has no console with this ID. Use the full console ID from Discover.',
             in_array($response->status(), [401, 403], true) => "UniFi refused to list {$what} (HTTP {$response->status()}). The key needs Network admin access.",
             $response->status() === 404 => "This UniFi Network version does not expose {$what} at the expected address. Paste the lists instead.",
-            default => "UniFi returned HTTP {$response->status()} when listing {$what}.",
+            $writing => "UniFi returned HTTP {$response->status()} when saving {$what}{$because}",
+            default => "UniFi returned HTTP {$response->status()} when reading {$what}{$because}",
         });
     }
 

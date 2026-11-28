@@ -36,9 +36,10 @@
                 </div>
                 <div class="button-row">
                     @if($canWrite && $list->provider_reference)<form method="post" action="{{ route('admin.policy.firewall-allow.push', $list) }}">@csrf<button class="button primary" data-confirm="Push {{ $list->name }}'s {{ number_format($desired['total']) }} address(es) and its Allow rules to UniFi?">Push to UniFi</button></form>@endif
-                    @if($canWrite && ! $list->provider_reference)<form method="post" action="{{ route('admin.policy.blocklists.firewall.create-group', $list) }}">@csrf<button class="button primary" data-confirm="Create the UniFi IP list for {{ $list->name }}, and its Allow rules for {{ count($plan['covered']) }} zone(s)?">Create in UniFi</button></form>@endif
+                    @if($canWrite && ! $list->provider_reference)<form method="post" action="{{ route('admin.policy.blocklists.firewall.create-group', $list) }}">@csrf<button class="button primary" data-confirm="Create the UniFi IP list for {{ $list->name }}, and its Allow rules for {{ count($plan['covered']) }} zone(s)?">Push to UniFi</button></form><span class="hint">Not in UniFi yet: the first push creates it.</span>@endif
                 </div>
             </div>
+            @if($list->last_push_status === 'failed')<div class="alert error push-failed"><strong>The last push failed{{ $list->last_pushed_at ? ' '.$list->last_pushed_at->diffForHumans() : '' }}:</strong> {{ $list->last_push_message }}</div>@endif
             <x-push-status :status="$firewallStatus[$list->id] ?? null" />
 
             <h3>Entries</h3>

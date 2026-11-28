@@ -271,7 +271,7 @@
                 <label class="choice compact"><input type="radio" name="firewall_rules" value="lists_only" @checked(old('firewall_rules', $ruleMode) === 'lists_only')><span><strong>IP lists only</strong><small>Filterdesk keeps its UniFi IP lists up to date and never creates, changes, reorders or deletes a firewall rule. You use the lists in your own rules in UniFi. Rules Filterdesk made before stay as they are, listed on the Protection page. Firewall checks still read your rules.</small></span></label>
                 <label class="choice compact"><input type="radio" name="firewall_rules" value="manage" @checked(old('firewall_rules', $ruleMode) === 'manage')><span><strong>Let Filterdesk create and order firewall rules</strong><small>Block and allow lists create their rules for the zones you tick, recreate rules deleted in UniFi, and move them to the top of each zone's order (your own rules keep their order below).</small></span></label>
             </fieldset>
-            <label>Addresses per UniFi IP list <span class="optional">entries</span><input type="number" name="max_ip_group_entries" min="1000" max="{{ \App\Services\Policy\FirewallListPusher::MAX_GROUP_LIMIT }}" value="{{ old('max_ip_group_entries', $network?->configuration['max_ip_group_entries'] ?? \App\Services\Policy\FirewallListPusher::GROUP_LIMIT) }}"><small>A list longer than this is split into "Name (1 of 3)", "Name (2 of 3)"… 20,000 is known to work. Larger lists (up to 100,000 is reported to work on recent UniFi) mean fewer lists and rules, but take longer to push and use more gateway memory. Try them on your gateway first with <a href="#ip-list-size-test">Test larger UniFi IP lists</a>, below.</small></label>
+            <label>Addresses per UniFi IP list <span class="optional">entries</span><input type="number" name="max_ip_group_entries" min="1000" max="{{ \App\Services\Policy\FirewallListPusher::MAX_GROUP_LIMIT }}" value="{{ old('max_ip_group_entries', $network?->configuration['max_ip_group_entries'] ?? \App\Services\Policy\FirewallListPusher::GROUP_LIMIT) }}"><small>A ceiling: a list longer than this is split into "Name (1 of 3)", "Name (2 of 3)"… UniFi's real limit is a list's stored size, about 126 KB: roughly 24,000 typical internet addresses (more when they're sequential). 20,000 is safe. When UniFi refuses a part as too large, Filterdesk splits that list smaller on its own and says so. <a href="#ip-list-size-test">Test larger UniFi IP lists</a> shows what your gateway takes.</small></label>
             <label class="choice compact"><input type="hidden" name="controller_authoritative" value="0"><input type="checkbox" name="controller_authoritative" value="1" @checked(old('controller_authoritative', $network?->configuration['controller_authoritative'] ?? true))><span><strong>The controller is the source of truth</strong><small>Entries added in UniFi are imported into the policy's own lists, and managed entries removed in UniFi are kept out of that filter, so pushes never undo changes made in UniFi (for example while this app was unavailable). Turn off to only report those changes for review.</small></span></label>
             <label class="choice compact"><input type="hidden" name="auto_push" value="0"><input type="checkbox" name="auto_push" value="1" @checked(old('auto_push', $network?->configuration['auto_push'] ?? false))><span><strong>Push automatically</strong><small>Active mode only. Approvals and revocations are pushed straight away; expiries, scheduled starts and list edits within five minutes. Entries added in UniFi by hand are never removed.</small></span></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
@@ -281,14 +281,14 @@
         @php($sizeStatus = \Illuminate\Support\Facades\Cache::get(\App\Services\Network\IpListSizeTester::STATUS_KEY))
         <section class="panel form-panel" id="ip-list-size-test">
             <div class="panel-heading"><div><h2>Test larger UniFi IP lists</h2><p>Finds how many addresses one UniFi IP list on this gateway takes, before you raise <em>Addresses per UniFi IP list</em>.</p></div></div>
-            <p class="hint">For each size, Filterdesk creates a temporary UniFi IP list called <em>Filterdesk size test …</em>, reads it back, rewrites a tenth of it, then deletes it. The addresses are from 100.64.0.0/10, which is never used on the internet, and no firewall rule uses the list, so nothing is blocked or let through. It stops at the first size UniFi refuses. Larger sizes can take a few minutes and load the gateway, so run it out of hours, and watch the gateway's CPU and memory, and that its Firewall pages still load, in UniFi while it runs.</p>
+            <p class="hint">UniFi limits a list by its stored size (about 126 KB), not by the number of entries, and how many fit depends on the addresses. So the test uses real data: your largest IP feed, topped up with random public addresses (about 7% subnets). For each size, Filterdesk creates a temporary UniFi IP list called <em>Filterdesk size test …</em>, reads it back, rewrites a tenth of it, then deletes it. No firewall rule uses the list, so nothing is blocked or let through. It stops at the first size UniFi refuses, and uses UniFi's figures to say how many entries fit. Larger sizes can take a few minutes and load the gateway, so run it out of hours, and watch the gateway's CPU and memory, and that its Firewall pages still load, in UniFi while it runs.</p>
             @if(($sizeStatus['state'] ?? null) === 'running')
                 <div class="notice"><strong>Running:</strong> {{ $sizeStatus['step'] ?? 'starting' }} · started {{ \Illuminate\Support\Carbon::parse($sizeStatus['since'])->diffForHumans() }}. <a href="{{ route('admin.settings.show', 'network') }}#ip-list-size-test">Refresh</a> for the results.</div>
             @elseif(($sizeStatus['state'] ?? null) === 'failed')
                 <div class="alert error"><strong>The test couldn't run:</strong> {{ $sizeStatus['message'] ?? '' }}</div>
             @endif
             @if($sizeTest)
-                <h3>Last test: {{ \Illuminate\Support\Carbon::parse($sizeTest['at'])->local()->format('j M Y g:i a') }}{{ $sizeTest['by'] ? ' by '.$sizeTest['by'] : '' }}{{ $sizeTest['subnets'] ? ' (with /30 subnets)' : '' }}</h3>
+                <h3>Last test: {{ \Illuminate\Support\Carbon::parse($sizeTest['at'])->local()->format('j M Y g:i a') }}{{ $sizeTest['by'] ? ' by '.$sizeTest['by'] : '' }}{{ ' · '.($sizeTest['data'] ?? 'sequential 100.64.x.x addresses (overstates what real lists take)') }}</h3>
                 <div class="table-wrap compact"><table>
                     <thead><tr><th>Entries</th><th>Result</th><th>Create</th><th>Read back</th><th>Rewrite 10%</th></tr></thead>
                     <tbody>@foreach($sizeTest['rows'] as $row)
@@ -296,24 +296,26 @@
                             <td>{{ $row['create'] === null ? '—' : $row['create'].' s' }}</td><td>{{ $row['read'] === null ? '—' : ($row['count'] === null ? '?' : number_format($row['count'])).' in '.$row['read'].' s' }}</td><td>{{ $row['rewrite'] === null ? '—' : $row['rewrite'].' s' }}</td></tr>
                     @endforeach</tbody>
                 </table></div>
-                @if($largest = $sizeTester->largestAccepted())
+                @if($largest = $sizeTester->suggested())
                     @php($current = (int) ($network?->configuration['max_ip_group_entries'] ?? \App\Services\Policy\FirewallListPusher::GROUP_LIMIT))
                     @if($largest !== $current)
                         <form method="post" action="{{ route('admin.settings.ip-list-size-test.use') }}" class="button-row">@csrf
                             <button class="button primary" data-confirm="Set Addresses per UniFi IP list to {{ number_format($largest) }}? Lists are split at that size from their next push{{ $largest > $current ? ', so they use fewer UniFi IP lists (and rules)' : '' }}.">Use {{ number_format($largest) }} per list</button>
-                            <small class="hint">Now {{ number_format($current) }}. Only do this if the gateway coped and its Firewall pages still loaded during the test.</small>
+                            <small class="hint">Suggested, with a 10% margin. Now {{ number_format($current) }}. Only do this if the gateway coped and its Firewall pages still loaded during the test.</small>
                         </form>
                     @endif
+                @elseif($sizeTest['sequential'] ?? true)
+                    <p class="hint">This test used sequential addresses, which UniFi stores far more compactly than real ones, so its sizes don't hold for real lists. Run it again to get a size to use.</p>
                 @endif
             @endif
             @if($network?->mode === 'active' && ($sizeStatus['state'] ?? null) !== 'running')
                 <form method="post" action="{{ route('admin.settings.ip-list-size-test') }}">@csrf
                     <fieldset><legend>Sizes to try</legend><div class="button-row">
                         @foreach(\App\Services\Network\IpListSizeTester::SIZES as $size)
-                            <label class="choice compact"><input type="checkbox" name="sizes[]" value="{{ $size }}" @checked(in_array($size, [20000, 50000, 100000], true))><span>{{ number_format($size) }}</span></label>
+                            <label class="choice compact"><input type="checkbox" name="sizes[]" value="{{ $size }}" @checked(in_array($size, [20000, 30000, 50000], true))><span>{{ number_format($size) }}</span></label>
                         @endforeach
                     </div></fieldset>
-                    <label class="choice compact"><input type="hidden" name="subnets" value="0"><input type="checkbox" name="subnets" value="1"><span><strong>Use /30 subnets instead of single addresses</strong><small>To see whether UniFi counts a subnet as one entry.</small></span></label>
+
                     <label class="choice compact"><input type="checkbox" name="understood" value="1"><span><strong>I'm watching the gateway in UniFi while this runs</strong></span></label>
                     @error('understood')<small class="field-error">{{ $message }}</small>@enderror @error('sizes')<small class="field-error">{{ $message }}</small>@enderror
                     <div class="form-actions"><button class="button secondary" data-confirm="Create (then delete) temporary UniFi IP lists on the gateway? No firewall rule uses them.">Run the test</button></div>

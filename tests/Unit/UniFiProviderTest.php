@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Models\IntegrationConfig;
+use App\Services\Network\IpListTooLarge;
 use App\Services\Network\ProviderRequestFailed;
 use App\Services\Network\UniFiNetworkProvider;
 use Illuminate\Support\Facades\Cache;
@@ -191,5 +192,31 @@ class UniFiProviderTest extends TestCase
             ->placeRulesFirst('zone-in', 'zone-out', ['ours-1']);
 
         Http::assertNotSent(fn ($request) => $request->method() === 'PUT');
+    }
+
+    public function test_ip_list_errors_carry_unifis_reason_and_the_size_limit_is_recognised(): void
+    {
+        Cache::flush();
+        Http::fake([
+            'unifi.example.test/proxy/network/integration/v1/sites?*' => Http::response(['data' => [['id' => 'site-uuid', 'internalReference' => 'default', 'name' => 'Default']]]),
+            'unifi.example.test/proxy/network/integration/v1/sites' => Http::response(['data' => [['id' => 'site-uuid', 'internalReference' => 'default', 'name' => 'Default']]]),
+            'unifi.example.test/proxy/network/integration/v1/sites/site-uuid/traffic-matching-lists' => Http::sequence()
+                ->push(['code' => 'BAD_REQUEST', 'message' => 'Message size 206251 exceeds the maximum allowed size of 126000 bytes'], 400)
+                ->push(['code' => 'BAD_REQUEST', 'message' => 'Name already in use'], 400),
+        ]);
+        $provider = $this->provider(['connection' => 'local', 'controller_url' => 'https://unifi.example.test'], 'active');
+        $entries = array_map(fn (int $i) => long2ip(ip2long('8.8.0.0') + $i), range(0, 39999));
+
+        try {
+            $provider->createIpGroup('Threats (1 of 2)', 'ipv4', $entries);
+            $this->fail('Expected the size limit');
+        } catch (IpListTooLarge $exception) {
+            $this->assertSame([206251, 126000, 40000], [$exception->size, $exception->limit, $exception->entries]);
+            $this->assertSame(21992, $exception->entriesThatFit());
+            $this->assertStringContainsString('the new IP group "Threats (1 of 2)"', $exception->getMessage());
+        }
+
+        $this->expectExceptionMessage('UniFi returned HTTP 400 when saving the new IP group "Threats": Name already in use');
+        $provider->createIpGroup('Threats', 'ipv4', ['8.8.8.8']);
     }
 }

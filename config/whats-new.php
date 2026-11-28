@@ -7,6 +7,9 @@
  * optionally a route name (and its parameters) for "where".
  */
 return [
+    '2026.12.35' => [
+        ['text' => 'UniFi limits an IP list by its stored size (about 24,000 real addresses), so a list it refuses is now split smaller on its own. The size test uses real data.', 'route' => 'admin.policy.blocklists.index'],
+    ],
     '2026.12.34' => [
         ['text' => 'Emails are only sent Monday to Friday, 7 am to 5 pm, unless you change it; others wait for the next opening.', 'route' => 'admin.settings.show', 'params' => ['section' => 'email', 'find' => 'When emails are sent']],
     ],

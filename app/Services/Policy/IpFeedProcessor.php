@@ -84,6 +84,14 @@ class IpFeedProcessor
             }
         }
         $stats['merged_to'] = count($cidrs);
+        // What the /24 merge costs: every address it covers, against the feed's own, and the entries without it.
+        $size = fn (array $ranges) => array_sum(array_map(fn (array $range) => $range[1] - $range[0] + 1, $ranges));
+        $stats['covered'] = $size($merged);
+        if ($stats['collapsed']) {
+            $plain = $this->merge(array_map(fn (string $value) => $this->range($value), $kept));
+            $stats['listed'] = $size($plain);
+            $stats['without_collapse'] = array_sum(array_map(fn (array $range) => count($this->toCidrs($range[0], $range[1])), $plain));
+        }
 
         if (count($cidrs) > $limit) {
             // Widest first; single addresses in an even spread (by a hash, so the choice is stable between refreshes).
@@ -98,7 +106,7 @@ class IpFeedProcessor
     }
 
     /** One line about what processing did, for the feed's row. */
-    public static function describe(array $stats): string
+    public static function describe(array $stats, ?int $partSize = null): string
     {
         $parts = ['read '.number_format($stats['read'])];
         if ($stats['dropped_reserved']) {
@@ -110,12 +118,31 @@ class IpFeedProcessor
         if ($stats['collapsed']) {
             $parts[] = number_format($stats['collapsed']).' busy /24s taken whole';
         }
-        $parts[] = 'merged into '.number_format($stats['merged_to']).' entries';
+        $parts[] = 'merged into '.number_format($stats['merged_to']).' entries'.($partSize ? ' ('.self::lists($stats['merged_to'], $partSize).')' : '');
+        if (($stats['collapsed'] ?? 0) && isset($stats['covered'], $stats['listed'])) {
+            $parts[] = 'covering '.self::addresses($stats['covered']).' addresses, '.self::addresses($stats['covered'] - $stats['listed']).' more than the feed lists';
+            if (isset($stats['without_collapse'])) {
+                $parts[] = 'without Whole /24: '.number_format($stats['without_collapse']).' entries'.($partSize ? ' ('.self::lists($stats['without_collapse'], $partSize).')' : '');
+            }
+        }
         if ($stats['cut']) {
             $parts[] = number_format($stats['cut']).' single addresses left out by the limit';
         }
 
         return ucfirst(implode(', ', $parts)).'.';
+    }
+
+    private static function lists(int $entries, int $partSize): string
+    {
+        $lists = (int) ceil($entries / max(1, $partSize));
+
+        return $lists.' UniFi list'.($lists === 1 ? '' : 's');
+    }
+
+    /** 1,436,795 as "1.44 million"; smaller numbers in full. */
+    private static function addresses(int $count): string
+    {
+        return $count >= 1000000 ? rtrim(rtrim(number_format($count / 1000000, 2), '0'), '.').' million' : number_format($count);
     }
 
     /** @return list<string> addresses and subnets firewall allow lists let through */

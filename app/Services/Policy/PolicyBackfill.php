@@ -29,15 +29,18 @@ class PolicyBackfill
         $this->engine->ensureDefaults();
         $imported = $this->importLegacyMasterLists();
         $granted = 0;
+        $covered = 0;
 
         WebsiteRequest::query()->whereIn('status', RequestStatus::granted())->whereDoesntHave('policyEntries')
             ->where(fn ($query) => $query->whereNull('requested_until')->orWhere('requested_until', '>', now()))
-            ->each(function (WebsiteRequest $request) use (&$granted): void {
+            ->each(function (WebsiteRequest $request) use (&$granted, &$covered): void {
                 $this->engine->grant($request, $request->effectiveDomains(), $request->effectiveScope(), $request->approvedBy);
-                $granted++;
+                // Its sites may already be in the lists for good (by hand, or from another request): nothing new to place.
+                $request->policyEntries()->exists() ? $granted++ : $covered++;
             });
 
-        return "Defaults ensured; {$fixed} request window(s) converted to UTC; {$imported} legacy entries imported; {$granted} approved request(s) placed into lists.";
+        return "Defaults ensured; {$fixed} request window(s) converted to UTC; {$imported} legacy entries imported; {$granted} approved request(s) placed into lists"
+            .($covered ? "; {$covered} already covered by entries that don't end" : '').'.';
     }
 
     /**

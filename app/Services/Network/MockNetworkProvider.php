@@ -127,8 +127,21 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
         return array_values(array_map(fn (array $group) => ['id' => $group['id'], 'name' => $group['name'], 'family' => $group['family'], 'count' => count($group['items']), 'items' => $group['items']], $this->rawIpGroups()));
     }
 
+    /** Tests can give the simulation UniFi's limit on a list's stored size (about 5 bytes an address). */
+    public const BYTE_LIMIT_KEY = 'mock.ip_group_max_bytes';
+
+    private function checkSize(string $name, array $entries): void
+    {
+        $limit = (int) Cache::get(self::BYTE_LIMIT_KEY, 0);
+        $size = count($entries) * 5 + 2 * count(array_filter($entries, fn ($entry) => str_contains((string) $entry, '/')));
+        if ($limit > 0 && $size > $limit) {
+            throw new IpListTooLarge("UniFi refused the IP group \"{$name}\": it is {$size} bytes as UniFi stores it, over its limit of {$limit} bytes.", $size, $limit, count($entries));
+        }
+    }
+
     public function writeIpGroup(string $id, string $name, string $family, array $entries): void
     {
+        $this->checkSize($name, $entries);
         $groups = $this->rawIpGroups();
         if (! isset($groups[$id])) {
             throw new ProviderRequestFailed('That IP group no longer exists in the simulation.');
@@ -139,6 +152,7 @@ class MockNetworkProvider implements ManagesIpGroups, ManagesReservations, Netwo
 
     public function createIpGroup(string $name, string $family, array $entries): string
     {
+        $this->checkSize($name, $entries);
         $groups = $this->rawIpGroups();
         $id = 'sim-group-'.(count($groups) + 1);
         $groups[$id] = ['id' => $id, 'name' => $name, 'family' => $family, 'items' => array_values($entries)];

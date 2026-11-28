@@ -24,12 +24,12 @@ class RunIpListSizeTest implements ShouldBeUnique, ShouldQueue
     public int $uniqueFor = 1800;
 
     /** @param list<int> $sizes */
-    public function __construct(public readonly array $sizes, public readonly bool $subnets, public readonly ?int $actorId) {}
+    public function __construct(public readonly array $sizes, public readonly bool $sequential, public readonly ?int $actorId) {}
 
     public function handle(IpListSizeTester $tester): void
     {
         try {
-            $tester->run($this->sizes, $this->subnets, $this->actorId ? User::query()->find($this->actorId) : null);
+            $tester->run($this->sizes, $this->sequential, $this->actorId ? User::query()->find($this->actorId) : null);
         } catch (Throwable $exception) {
             Cache::put(IpListSizeTester::STATUS_KEY, ['state' => 'failed', 'since' => now()->toIso8601String(), 'message' => str($exception->getMessage())->limit(200)->toString()], 1800);
         }
