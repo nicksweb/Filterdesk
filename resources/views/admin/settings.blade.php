@@ -5,6 +5,21 @@
         <div><p class="eyebrow">Administration</p><h1>Settings</h1><p>Reconfigure the installation. Secrets are write-only: leave a secret blank to keep the stored value.</p></div>
     </div>
 
+    <form class="settings-search" method="get" action="{{ route('admin.settings.show', $section) }}" role="search" data-settings-search>
+        <label><span class="sr-only">Search settings</span><input type="search" name="q" value="{{ $searchQuery }}" placeholder="Search settings, for example privacy, digest, IP list, two-factor" autocomplete="off" data-settings-search-input></label>
+        <button class="button secondary small">Search</button>
+        <script type="application/json" data-settings-index>{!! json_encode($searchIndex, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) !!}</script>
+        <ol class="settings-search-results" data-settings-search-results @if($searchResults === null) hidden @endif>
+            @if($searchResults !== null)
+                @forelse($searchResults as $result)
+                    <li><a href="{{ $result['url'] }}"><strong>{{ $result['title'] }}</strong><small>{{ $result['where'] }}@if($result['help']) · {{ $result['help'] }}@endif</small></a></li>
+                @empty
+                    <li class="empty">No settings match "{{ $searchQuery }}".</li>
+                @endforelse
+            @endif
+        </ol>
+    </form>
+
     <nav class="tabs" aria-label="Settings sections">
         @foreach($sections as $key => $label)
             <a href="{{ route('admin.settings.show', $key) }}" @class(['active' => $section === $key])>{{ $label }}</a>
@@ -38,6 +53,10 @@
             <div class="fields two">
                 <label>Timezone<select name="timezone">@foreach(timezone_identifiers_list() as $zone)<option @selected(old('timezone', $settings->get('school.timezone', config('app.timezone'))) === $zone)>{{ $zone }}</option>@endforeach</select></label>
                 <label>Public application URL<input name="app_url" type="url" required value="{{ old('app_url', $settings->get('school.app_url', config('app.url'))) }}"><small>Used for email links and the OIDC redirect URI.</small></label>
+            </div>
+            <div class="fields two">
+                <label>Privacy policy link <span class="optional">optional</span><input name="privacy_url" type="url" maxlength="500" placeholder="https://www.example.edu.au/privacy" value="{{ old('privacy_url', $settings->get('school.privacy_url')) }}"><small>Shown at the foot of every page, including sign-in, and on the request form and the website check without signing in.</small></label>
+                <label>Link text <span class="optional">blank: "Privacy policy"</span><input name="privacy_label" maxlength="60" placeholder="Privacy policy" value="{{ old('privacy_label', $settings->get('school.privacy_label')) }}"></label>
             </div>
             <label>Embedding origin (Schoolbox or another portal) <span class="optional">optional</span><input name="schoolbox_origin" type="url" placeholder="https://schoolbox.example.edu.au" value="{{ old('schoolbox_origin', $settings->get('school.schoolbox_origin')) }}"><small>Only this exact origin may embed the app. Setting it switches session cookies to SameSite=None; Secure.</small></label>
             <div class="form-actions"><button class="button primary">Save</button></div>
@@ -172,15 +191,26 @@
                 @endforeach
             </fieldset>
             <fieldset><legend>Email requesters when</legend>
-                <p class="hint">Requesters are always emailed when it's allowed (or blocked) on the network, declined, or IT needs more information. Every requester email ends with your helpdesk's contact (Settings → Help and support), when one is set.</p>
+                <p class="hint">Requesters are always emailed when it's allowed (or blocked) on the network, declined, or IT needs more information. Every requester email ends with your helpdesk's contact (Settings → Help and support), when one is set. Each person can also choose fewer emails (only the outcome) on their profile, or with the link in the emails.</p>
                 @foreach(['submitted' => 'Their request is received (confirmation)', 'approved' => 'It is approved, before it works on the network (untick to send one email, when it works)', 'scheduled' => 'It is approved for a later start', 'expiry_reminder' => 'Temporary access longer than a day ends within 24 hours', 'expired' => 'Temporary access has ended', 'revoked' => 'IT removes access'] as $event => $label)
                     <label class="choice compact"><input type="checkbox" name="requester_events[]" value="{{ $event }}" @checked($settings->get("notifications.requester.{$event}", true))><span>{{ $label }}</span></label>
                 @endforeach
             </fieldset>
-            <div class="fields two">
-                <label class="choice compact"><input type="hidden" name="daily_digest" value="0"><input type="checkbox" name="daily_digest" value="1" @checked($settings->get('notifications.daily_digest', true))><span><strong>Daily reconciliation digest</strong><small>Sent only when there are changes to apply.</small></span></label>
-                <label>Digest time<input type="time" name="digest_time" value="{{ old('digest_time', $settings->get('notifications.digest_time', '07:30')) }}"></label>
-            </div>
+            @php($summary = \App\Console\Commands\SendPolicyDigest::frequency($settings))
+            <fieldset><legend>Summary for IT</legend>
+                <p class="hint">One email (the digest) when something may need IT: requests waiting, exceptions due, filters with changes to push, and the alerts below. Nothing is sent when there's nothing to look at. New requests and replies are still emailed as they happen (above).</p>
+                <div class="fields three">
+                    <label>How often<select name="summary">@foreach(['weekly' => 'Weekly (recommended)', 'daily' => 'Daily', 'off' => 'Never'] as $value => $label)<option value="{{ $value }}" @selected(old('summary', $summary) === $value)>{{ $label }}</option>@endforeach</select></label>
+                    <label>Day <span class="optional">weekly</span><select name="summary_day">@foreach([1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday', 6 => 'Saturday', 7 => 'Sunday'] as $value => $label)<option value="{{ $value }}" @selected((int) old('summary_day', \App\Console\Commands\SendPolicyDigest::weekday($settings)) === $value)>{{ $label }}</option>@endforeach</select></label>
+                    <label>Time<input type="time" name="digest_time" value="{{ old('digest_time', $settings->get('notifications.digest_time', '07:30')) }}"></label>
+                </div>
+            </fieldset>
+            <fieldset><legend>System alerts</legend>
+                <p class="hint">Filters changed outside Filterdesk, new IP list parts, firewall allow list entries that moved, new device networks, exceptions due for review.</p>
+                @php($alertsMode = \App\Services\Requests\RequestNotifier::alertsMode($settings))
+                <label class="choice compact"><input type="radio" name="alerts" value="summary" @checked(old('alerts', $alertsMode) === 'summary')><span><strong>Put them in the summary</strong><small>Fewest emails. If the summary is off, nothing is emailed: they're on the pages concerned.</small></span></label>
+                <label class="choice compact"><input type="radio" name="alerts" value="now" @checked(old('alerts', $alertsMode) === 'now')><span><strong>Email each one when it happens</strong><small>Turn off "A controller content filter is changed outside Filterdesk" above to stop these entirely.</small></span></label>
+            </fieldset>
             <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
         <form class="panel form-panel" method="post" action="{{ route('admin.settings.test-email') }}">@csrf

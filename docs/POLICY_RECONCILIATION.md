@@ -113,6 +113,15 @@ UniFi content filtering works at the DNS level. The rules:
 4. Paste the **desired lists** (or just the changes) into UniFi, then click **Mark controller in sync**.
 5. Mark any *Action required* requests as applied.
 
-A daily digest (*Settings → Email and notifications*) emails IT when approvals
-are waiting, temporary entries expire within 24 hours, or a policy's last
-snapshot differs from its desired state.
+The summary for IT (*Settings → Email and notifications*, weekly by default,
+or daily) emails IT when requests or approvals are waiting, exceptions are due
+for review, temporary entries end before the next summary, or a policy's last
+snapshot differs from its desired state. System alerts (filters changed in
+UniFi, new IP list parts and so on) are held for it unless you choose to have
+each one emailed when it happens.
+
+To put content filters and firewall allow lists back to how they were at a
+date and time, use *Changes → Restore to a point in time* (administrators).
+A version of each filter is kept whenever it changes (read from UniFi every
+15 minutes and at every push), and of each allow list when its entries
+change, for 400 days. Imported IP block lists are not versioned.

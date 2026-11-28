@@ -15,6 +15,7 @@ use App\Notifications\FilterSyncAlertNotification;
 use App\Services\Network\MockNetworkProvider;
 use App\Services\Policy\PolicyEngine;
 use App\Services\Requests\RequestWorkflow;
+use App\Services\SettingsRepository;
 use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -153,6 +154,7 @@ class ControllerPushTest extends TestCase
     public function test_sync_check_tells_pending_changes_apart_from_edits_made_in_the_controller(): void
     {
         IntegrationConfig::query()->where('provider', 'mock')->update(['configuration' => ['controller_authoritative' => false]]);
+        app(SettingsRepository::class)->set('notifications.alerts', 'now');
         $it = User::factory()->it()->create();
         $this->engine->upsertEntry($this->engine->defaultAllowList('student'), 'managed.example.org', ['source' => 'manual']);
         $this->artisan('policy:check-sync')->assertSuccessful();

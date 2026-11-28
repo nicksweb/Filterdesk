@@ -4,6 +4,7 @@
         <label><span>Website <span class="optional">up to {{ \App\Http\Controllers\PublicCheckController::MAX_SITES }}</span></span>
             <input name="websites" required value="{{ old('websites', $websites) }}" placeholder="example.com">
             @error('websites')<small class="field-error">{{ $message }}</small>@enderror</label>
+        <x-privacy-note>The websites you check are recorded.</x-privacy-note>
         <div class="form-actions"><button class="button primary">Check</button></div>
     </form>
 </section>

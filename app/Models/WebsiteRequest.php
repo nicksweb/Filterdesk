@@ -17,7 +17,7 @@ class WebsiteRequest extends Model
         'reference', 'hours', 'request_type', 'domain_categories', 'access_plan', 'schedule', 'requester_id', 'assigned_to_id', 'domains', 'access_scope',
         'category', 'use_case', 'standards_confirmed', 'status', 'requested_from',
         'requested_until', 'approved_at', 'access_from', 'expires_at', 'expiry_reminded_at', 'resolved_at', 'resolution',
-        'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at', 'first_approval', 'department',
+        'provider_state', 'approved_domains', 'related_domains', 'applied_scope', 'approved_by_id', 'assigned_at', 'first_approval', 'department', 'submitted_by_id',
     ];
 
     protected function casts(): array
@@ -55,6 +55,12 @@ class WebsiteRequest extends Model
     public function assignedTo(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to_id');
+    }
+
+    /** Who sent it, when someone in IT submitted it for the requester. */
+    public function submittedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'submitted_by_id');
     }
 
     public function approvedBy(): BelongsTo

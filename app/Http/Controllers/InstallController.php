@@ -350,7 +350,9 @@ class InstallController extends Controller
             $settings->set('notifications', [
                 'it_address' => strtolower($data['it_notification_address']),
                 'events' => ['new_request' => true, 'requester_reply' => true, 'assignment' => true],
-                'daily_digest' => true,
+                'summary' => 'weekly',
+                'summary_day' => 1,
+                'alerts' => 'summary',
                 'digest_time' => '07:30',
             ]);
             $settings->set('approval', [

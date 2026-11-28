@@ -26,7 +26,7 @@
                     <a href="{{ route('requests.index') }}" @class(['active' => request()->routeIs('requests.*', 'reviews.*')])>Inbox @if($inboxCount + $reviewCount)<span class="nav-count" aria-label="{{ $inboxCount }} open requests, {{ $reviewCount }} reviews due">{{ $inboxCount + $reviewCount }}</span>@endif</a>
                     <a href="{{ route('checks.create') }}" @class(['active' => request()->routeIs('checks.*')])>Check a website</a>
                     <a href="{{ route('admin.policy.index') }}" @class(['active' => request()->routeIs('admin.policy.*') && ! request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.policy.blocklists.*')])>Policies</a>
-                    <a href="{{ route('admin.policy.changes.index') }}" @class(['active' => request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*')])>Changes @if($changesCount)<span class="nav-count" aria-label="{{ $changesCount }} waiting for a second officer">{{ $changesCount }}</span>@endif</a>
+                    <a href="{{ route('admin.policy.changes.index') }}" @class(['active' => request()->routeIs('admin.policy.changes.*', 'admin.policy.versions.*', 'admin.restore.*')])>Changes @if($changesCount)<span class="nav-count" aria-label="{{ $changesCount }} waiting for a second officer">{{ $changesCount }}</span>@endif</a>
                     <a href="{{ route('admin.insights') }}" @class(['active' => request()->routeIs('admin.insights*')])>Insights</a>
                     <a href="{{ route('admin.health') }}" @class(['active' => request()->routeIs('admin.health', 'admin.diagnostics')])>Health</a>
                     @if($navUser->isAdmin())
@@ -86,7 +86,7 @@
             </nav>
         @endif
         {{ $slot }}
-        <footer class="app-footer">{{ config('app.product_name', 'Filterdesk') }} {{ config('version.app') }}@if(app(\App\Services\SettingsRepository::class)->get('branding.project_link', true)) · <a href="{{ config('app.project_url') }}" target="_blank" rel="noopener">Built with Filterdesk, open source on GitHub</a>@endif</footer>
+        <footer class="app-footer">@if($privacyUrl = app(\App\Services\SettingsRepository::class)->get('school.privacy_url'))<a href="{{ $privacyUrl }}" target="_blank" rel="noopener">{{ app(\App\Services\SettingsRepository::class)->get('school.privacy_label') ?: 'Privacy policy' }}</a> · @endif{{ config('app.product_name', 'Filterdesk') }} {{ config('version.app') }}@if(app(\App\Services\SettingsRepository::class)->get('branding.project_link', true)) · <a href="{{ config('app.project_url') }}" target="_blank" rel="noopener">Built with Filterdesk, open source on GitHub</a>@endif</footer>
     </main>
 </body>
 </html>

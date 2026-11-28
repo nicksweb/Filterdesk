@@ -35,6 +35,7 @@ use App\Services\Policy\ProbePlanner;
 use App\Services\Policy\ProtectedSites;
 use App\Services\Requests\RequestFormSettings;
 use App\Services\SchoolCalendar;
+use App\Services\SettingsIndex;
 use App\Services\SettingsRepository;
 use App\Services\Support;
 use App\Services\Website\ProbeDiagnostics;
@@ -82,9 +83,14 @@ class SettingsController extends Controller
         $smtp = IntegrationConfig::query()->where('provider', 'smtp')->first();
         $network = $providers->integration() ?? IntegrationConfig::query()->whereIn('provider', NetworkProviderManager::PROVIDERS)->first();
 
+        $index = app(SettingsIndex::class);
+
         return view('admin.settings', [
             'section' => $section,
             'sections' => self::SECTIONS,
+            'searchQuery' => $query = trim((string) $request->query('q', '')),
+            'searchResults' => $query !== '' ? $index->search($query) : null,
+            'searchIndex' => array_map(fn (array $entry) => ['t' => $entry['title'], 'h' => $entry['help'], 'w' => $entry['where'], 'u' => $entry['url']], $index->all()),
             'settings' => $settings,
             'oidc' => $oidc,
             'oidcHasSecret' => filled($oidc?->credentials['client_secret'] ?? null),
@@ -236,6 +242,8 @@ class SettingsController extends Controller
             'timezone' => ['required', 'timezone'],
             'app_url' => ['required', 'url', 'max:255'],
             'schoolbox_origin' => ['nullable', 'url', 'max:255', 'starts_with:https://'],
+            'privacy_url' => ['nullable', 'url', 'max:500', 'starts_with:https://,http://'],
+            'privacy_label' => ['nullable', 'string', 'max:60'],
             'app_name' => ['nullable', 'string', 'max:60'],
             'brand_mark' => ['nullable', 'string', 'max:3'],
             'icon' => ['nullable', 'file', 'max:512', 'mimetypes:image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon,image/vnd.microsoft.icon'],
@@ -272,6 +280,8 @@ class SettingsController extends Controller
             'timezone' => $validated['timezone'],
             'app_url' => rtrim($validated['app_url'], '/'),
             'schoolbox_origin' => filled($validated['schoolbox_origin'] ?? null) ? rtrim($validated['schoolbox_origin'], '/') : null,
+            'privacy_url' => filled($validated['privacy_url'] ?? null) ? trim($validated['privacy_url']) : null,
+            'privacy_label' => filled($validated['privacy_label'] ?? null) ? trim($validated['privacy_label']) : null,
         ]);
     }
 
@@ -372,7 +382,9 @@ class SettingsController extends Controller
             'events.*' => ['in:new_request,requester_reply,assignment,filter_sync'],
             'requester_events' => ['nullable', 'array'],
             'requester_events.*' => ['in:submitted,approved,scheduled,expiry_reminder,expired,revoked'],
-            'daily_digest' => ['nullable', 'boolean'],
+            'summary' => ['nullable', 'in:weekly,daily,off'],
+            'summary_day' => ['nullable', 'integer', 'between:1,7'],
+            'alerts' => ['nullable', 'in:summary,now'],
             'digest_time' => ['required', 'date_format:H:i'],
         ]);
 
@@ -404,7 +416,9 @@ class SettingsController extends Controller
             'it_address' => strtolower($validated['it_notification_address']),
             'events' => collect(['new_request', 'requester_reply', 'assignment', 'filter_sync'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $events, true)])->all(),
             'requester' => collect(['submitted', 'approved', 'scheduled', 'expiry_reminder', 'expired', 'revoked'])->mapWithKeys(fn (string $event) => [$event => in_array($event, $validated['requester_events'] ?? [], true)])->all(),
-            'daily_digest' => $request->boolean('daily_digest'),
+            'summary' => $validated['summary'] ?? 'weekly',
+            'summary_day' => (int) ($validated['summary_day'] ?? 1),
+            'alerts' => $validated['alerts'] ?? 'summary',
             'digest_time' => $validated['digest_time'],
         ]);
     }

@@ -194,7 +194,7 @@ class SetupFlowTest extends TestCase
 
         $teacher = User::factory()->teacher()->create();
         $this->actingAs($teacher)->withServerVariables(['REMOTE_ADDR' => '10.0.20.57'])->post(route('checks.store'), ['websites' => 'example.com'])->assertOk()
-            ->assertSee('Staff Access')->assertSee('You\'re on <strong>Student Access</strong> (VLAN 20), which gets <strong>Students filtering</strong>', false)
+            ->assertSee('Staff Access')->assertSee('You\'re connected with <strong>Students filtering</strong>', false)->assertDontSee('VLAN 20')
             ->assertSeeInOrder(['Student Access', 'Your network', 'Staff Access']);
 
         $this->actingAs($teacher)->withServerVariables(['REMOTE_ADDR' => '192.0.2.9'])->get(route('checks.create'))->assertOk()->assertDontSee('here-notice', false);
@@ -205,6 +205,7 @@ class SetupFlowTest extends TestCase
         $this->actingAs($this->admin)->post(route('admin.policy.setup.import-all'));
         app(SettingsRepository::class)->set(BaselineGuard::STARTED_KEY, now()->toIso8601String());
         app(SettingsRepository::class)->set('notifications.it_address', 'it@example.test');
+        app(SettingsRepository::class)->set('notifications.alerts', 'now');
         $filters = app(MockNetworkProvider::class)->contentFilters();
         $filters[1]['enabled'] = false; // Staff, paused in UniFi
         Cache::forever('mock.content_filters', $filters);

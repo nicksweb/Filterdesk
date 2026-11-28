@@ -107,7 +107,21 @@
                 </details></div>
         </div>
         @if($groupsError)<div class="alert error">Controller IP groups could not be read: {{ $groupsError }}</div>@endif
-        <p class="notice"><strong>On the gateway:</strong> {{ $totals['lists'] }} UniFi IP list(s) kept by Filterdesk, {{ number_format($totals['addresses']) }} addresses in total (block and allow lists), up to {{ number_format($groupLimit) }} per list (Settings → Network provider). {{ $managesRules ? 'Filterdesk creates and orders the firewall rules for them.' : 'IP lists only: the firewall rules are yours, in UniFi.' }}</p>
+        <p class="notice"><strong>On the gateway:</strong> {{ $totals['lists'] }} UniFi IP list(s) kept by Filterdesk, {{ number_format($totals['addresses']) }} addresses in total (block and allow lists), up to {{ number_format($groupLimit) }} per list (<a href="#firewall-list-options">change</a>). {{ $managesRules ? 'Filterdesk creates and orders the firewall rules for them.' : 'IP lists only: the firewall rules are yours, in UniFi.' }}</p>
+        @if(auth()->user()->isAdmin())
+        <form class="panel-inline firewall-list-options" method="post" action="{{ route('admin.settings.firewall-lists') }}" id="firewall-list-options">@csrf @method('PUT')
+            <details @if($errors->has('max_ip_group_entries') || $errors->has('firewall_rules')) open @endif><summary><strong>Firewall list options</strong> · {{ number_format($groupLimit) }} addresses per UniFi IP list · {{ $managesRules ? 'Filterdesk manages the rules' : 'IP lists only' }}</summary>
+                <div class="fields two">
+                    <label>Addresses per UniFi IP list <span class="optional">1,000 to {{ number_format(\App\Services\Policy\FirewallListPusher::MAX_GROUP_LIMIT) }}</span><input type="number" name="max_ip_group_entries" min="1000" max="{{ \App\Services\Policy\FirewallListPusher::MAX_GROUP_LIMIT }}" value="{{ old('max_ip_group_entries', $groupLimit) }}"><small>A longer list is split into "Name (1 of 3)", "Name (2 of 3)"… 20,000 is known to work. Try larger sizes on your gateway first: <a href="{{ route('admin.settings.show', 'network') }}#ip-list-size-test">Test larger UniFi IP lists</a>.</small></label>
+                    <fieldset><legend>Firewall rules</legend>
+                        <label class="choice compact"><input type="radio" name="firewall_rules" value="lists_only" @checked(! $managesRules)><span><strong>IP lists only</strong><small>Filterdesk keeps the lists up to date; you use them in your own UniFi rules.</small></span></label>
+                        <label class="choice compact"><input type="radio" name="firewall_rules" value="manage" @checked($managesRules)><span><strong>Filterdesk creates and orders the rules</strong><small>For the zones you tick on each list.</small></span></label>
+                    </fieldset>
+                </div>
+                <div class="form-actions"><button class="button primary small">Save</button></div>
+            </details>
+        </form>
+        @endif
         @foreach($firewallLists as $list)
             @php($desired = $list->desiredEntries())
             <article class="probe-plan">

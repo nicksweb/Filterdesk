@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here. From 2026.11.0, versions are calendar versions `YYYY.MM.N`: the year and month of the release, then a number that counts releases within that month (`2026.11.0`, `2026.11.1`, then `2026.12.0`). Earlier releases used `0.x`.
 
+## 2026.12.33
+
+### Added
+- **Search settings** from the box at the top of every Settings page. It covers every heading, field and switch (read from the page itself, so new settings are found too), the email templates and wording, and the admin pages that hold settings of their own (Protection, Firewall allow lists, Users, Restore). A result opens the section and highlights the setting.
+- **Privacy policy link** (Settings → School): a link and its text, shown at the foot of every page (sign-in included), on the request forms and on the website check without signing in.
+- **What's new** for administrators on the dashboard, once per release: a few lines on what's new and where each setting is, with a link to the release notes. *Got it* hides it until the next release.
+- **Restore to a point in time** (Changes → Restore to a point in time, administrators). Choose a date and time to see what each content filter (allow and block lists, on every network that uses it) and each firewall allow list would go back to, tick the ones to restore, and confirm.
+  - Versions are kept whenever something changes: each filter as UniFi has it (every 15 minutes and at every push), and each allow list when its entries change. They're kept for 400 days, and the newest of each is always kept.
+  - Restores run in the background and are in the push history and audit log. Protected sites are still never blocked. A policy whose own lists still differ from the restored filter is put on hold until someone checks it and pushes.
+  - Imported IP block lists (feeds) aren't versioned: they're rebuilt from their sources.
+- **Submit a request for someone** (Users). Enter their email address: you switch to them and the request form opens. The request is theirs, and its page shows who sent it. Someone who hasn't signed in yet gets an account without a password, and single sign-on takes it over by email when they first sign in. Administrator accounts can't be used.
+- **Fewer emails for requesters.** Each person can choose *Only what matters* on their profile, or with the link at the foot of the in-between emails, without signing in. They then hear only when a request is decided, IT has a question, a later start is booked or access is removed. They no longer get *received*, *approved before it works*, *ends soon* or *has ended*.
+- **Firewall list options on the Protection page** (administrators): *Addresses per UniFi IP list* and *Firewall rules* (IP lists only, or Filterdesk manages the rules), with a link to the size test.
+
+### Changed
+- **One summary email for IT, weekly by default** (Settings → Email and notifications → *Summary for IT*). It replaces the daily digest and can be weekly (choose the day), daily or never.
+  - It's sent only when something may need IT: requests waiting for a decision or to be applied, exceptions due for review, filters with changes to push, or temporary entries ending before the next summary.
+  - **System alerts** (filters changed outside Filterdesk, new IP list parts, allow list entries that moved, new device networks, exceptions due) now wait for the summary by default. Choose *Email each one when it happens* for the old behaviour.
+  - New requests and replies are still emailed as they happen. Installs that had turned the daily digest off stay off.
+- **Students and staff no longer see network details** on the website check page. The notice says only which filtering applies ("You're connected with Staff filtering"), with no network name, VLAN or filter. IT still sees the full detail.
+
 ## 2026.12.32
 
 ### Added

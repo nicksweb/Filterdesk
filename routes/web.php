@@ -22,12 +22,14 @@ use App\Http\Controllers\Admin\PolicyLayerController;
 use App\Http\Controllers\Admin\PolicyListController;
 use App\Http\Controllers\Admin\ProbeSetupController;
 use App\Http\Controllers\Admin\QuickChangeController;
+use App\Http\Controllers\Admin\RestoreController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BrandIconController;
 use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\EmailPreferenceController;
 use App\Http\Controllers\ExceptionReviewController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstallController;
@@ -64,6 +66,9 @@ Route::middleware('installed')->group(function (): void {
     Route::post('/check/public', [PublicCheckController::class, 'store'])->middleware('throttle:public-check')->name('checks.public.store');
     Route::get('/check/embed', [PublicCheckController::class, 'show'])->name('checks.embed');
     Route::post('/check/embed', [PublicCheckController::class, 'store'])->middleware('throttle:public-check')->name('checks.embed.store');
+    // "Fewer emails" from the link in a request email: signed for one person, no sign-in needed.
+    Route::get('/email/preferences/{user}', [EmailPreferenceController::class, 'show'])->middleware(['signed', 'throttle:20,1'])->name('email.preferences');
+    Route::put('/email/preferences/{user}', [EmailPreferenceController::class, 'update'])->middleware(['signed', 'throttle:20,1'])->name('email.preferences.update');
     Route::get('/login', [AuthController::class, 'login'])->name('login');
     Route::post('/login', [AuthController::class, 'local'])->middleware('throttle:login')->name('auth.local');
     Route::get('/auth/oidc', [AuthController::class, 'oidcRedirect'])->middleware('throttle:20,1')->name('auth.oidc');
@@ -77,6 +82,7 @@ Route::middleware('installed')->group(function (): void {
         Route::get('/', DashboardController::class)->name('dashboard');
         Route::post('/setup-checklist', [DashboardController::class, 'setup'])->middleware('role:admin')->name('setup.done');
         Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+        Route::post('/whats-new/dismiss', [ProfileController::class, 'dismissWhatsNew'])->name('whats-new.dismiss');
         Route::get('/profile/two-factor', [TwoFactorController::class, 'show'])->name('profile.two-factor');
         Route::post('/profile/two-factor', [TwoFactorController::class, 'start'])->name('profile.two-factor.start');
         Route::post('/profile/two-factor/confirm', [TwoFactorController::class, 'confirm'])->middleware('throttle:10,1')->name('profile.two-factor.confirm');
@@ -209,9 +215,13 @@ Route::middleware('installed')->group(function (): void {
             Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
             Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
             Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])->name('users.impersonate');
+            Route::post('/users/on-behalf', [ImpersonationController::class, 'onBehalf'])->name('users.on-behalf');
+            Route::get('/restore', [RestoreController::class, 'index'])->name('restore.index');
+            Route::post('/restore', [RestoreController::class, 'store'])->middleware('throttle:5,10')->name('restore.store');
             Route::post('/users/{user}/two-factor-reset', [TwoFactorController::class, 'reset'])->name('users.two-factor-reset');
             Route::post('/preview/{role}', [ImpersonationController::class, 'preview'])->name('preview');
             Route::get('/settings/{section?}', [SettingsController::class, 'show'])->defaults('section', 'general')->name('settings.show');
+            Route::put('/settings/firewall-lists', [IpListSizeTestController::class, 'update'])->name('settings.firewall-lists');
             Route::put('/settings/{section}', [SettingsController::class, 'update'])->name('settings.update');
             Route::post('/settings/email/test', [SettingsController::class, 'testEmail'])->middleware('throttle:6,1')->name('settings.test-email');
             Route::post('/settings/authentication/try', [SettingsController::class, 'tryRules'])->middleware('throttle:30,1')->name('settings.try-rules');

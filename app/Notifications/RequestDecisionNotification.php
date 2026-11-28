@@ -2,6 +2,8 @@
 
 namespace App\Notifications;
 
+use App\Http\Controllers\EmailPreferenceController;
+use App\Models\User;
 use App\Models\WebsiteRequest;
 use App\Services\Notifications\EmailTemplates;
 use Illuminate\Bus\Queueable;
@@ -27,9 +29,15 @@ class RequestDecisionNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $request = $this->websiteRequest;
-
-        return app(EmailTemplates::class)->mail(self::templateFor($request, $this->stage), RequestTemplateValues::for($request, $notifiable)
+        $template = self::templateFor($request, $this->stage);
+        $mail = app(EmailTemplates::class)->mail($template, RequestTemplateValues::for($request, $notifiable)
             + ['message' => $this->message, 'note' => trim((string) $this->note)], route('requests.show', $request));
+        // The in-between emails say how to get fewer of them.
+        if ($notifiable instanceof User && in_array($template, ['request_received', 'request_approved', 'request_ending', 'request_expired'], true)) {
+            $mail->line('Fewer emails? Choose to hear only when a request is decided: '.EmailPreferenceController::link($notifiable));
+        }
+
+        return $mail;
     }
 
     /** Which email a request gets at this point. */

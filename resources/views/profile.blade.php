@@ -11,10 +11,12 @@
         <form method="post" action="{{ route('profile.update') }}">@csrf @method('PUT')
             @if($user->isIt())
                 <label class="choice"><input type="hidden" name="notify_new_requests" value="0"><input type="checkbox" name="notify_new_requests" value="1" @checked($user->notify_new_requests)><span><strong>Email me about new requests and replies</strong><small>In addition to the shared IT notification address.</small></span></label>
-            @else
-                <p class="section-copy">You are emailed when IT decides on your requests or asks a question.</p>
             @endif
-            @if($user->isIt())<div class="form-actions"><button class="button primary">Save</button></div>@endif
+            <fieldset><legend>Emails about my requests</legend>
+                <label class="choice compact"><input type="radio" name="email_updates" value="essential" @checked($user->email_updates === 'essential')><span><strong>Only what matters</strong><small>When a request is decided, IT has a question, a later start is booked, or access is removed.</small></span></label>
+                <label class="choice compact"><input type="radio" name="email_updates" value="all" @checked($user->email_updates !== 'essential')><span><strong>Every update</strong><small>Also when a request is received, approved before it works, ends soon and has ended.</small></span></label>
+            </fieldset>
+            <div class="form-actions"><button class="button primary">Save</button></div>
         </form>
     </section>
 </x-layouts.app>

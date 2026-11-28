@@ -13,6 +13,19 @@
         </div>
     </section>
 
+    <section class="panel form-panel admin-create-panel" id="on-behalf">
+        <h2>Submit a request for someone</h2>
+        <p class="section-copy">For someone who rang or emailed the helpdesk. You switch to them and fill in the request form; it's recorded as theirs, with you as the sender, and they get the usual emails. Someone who hasn't signed in yet gets an account now (no password); it becomes their single sign-on account when they first sign in.</p>
+        <form method="post" action="{{ route('admin.users.on-behalf') }}">@csrf
+            <div class="fields three">
+                <label>Email address<input type="email" name="email" required maxlength="255" value="{{ old('email') }}" autocomplete="off"></label>
+                <label>Name <span class="optional">for someone new</span><input name="name" maxlength="120" value="{{ old('name') }}"></label>
+                <label>They are<select name="role"><option value="teacher" @selected(old('role') === 'teacher')>Staff</option><option value="student" @selected(old('role') === 'student')>A student</option></select><small>Only used for someone new.</small></label>
+            </div>
+            <div class="form-actions"><button class="button primary">Switch to them and open the request form</button></div>
+        </form>
+    </section>
+
     <section class="panel form-panel admin-create-panel">
         <h2>Create user</h2>
         <p class="section-copy">Set a password for a local or dummy account. Leave it blank to create an OIDC-only placeholder.</p>

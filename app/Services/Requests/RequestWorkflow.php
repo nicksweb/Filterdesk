@@ -5,6 +5,7 @@ namespace App\Services\Requests;
 use App\Enums\EntrySource;
 use App\Enums\ListKind;
 use App\Enums\RequestStatus;
+use App\Http\Controllers\Admin\ImpersonationController;
 use App\Jobs\PushAfterRequestChange;
 use App\Models\FilterPolicy;
 use App\Models\NetworkType;
@@ -53,6 +54,8 @@ class RequestWorkflow
             $websiteRequest = WebsiteRequest::query()->create($attributes + [
                 'reference' => 'PENDING-'.str()->uuid(),
                 'requester_id' => $requester->id,
+                // Submitted by an administrator viewing as the requester (Users → Submit for someone).
+                'submitted_by_id' => request()->hasSession() ? request()->session()->get(ImpersonationController::SESSION_KEY) : null,
                 'standards_confirmed' => true,
                 'status' => RequestStatus::Pending,
                 'related_domains' => $this->relatedFromRecentChecks($requester, $attributes['domains']),

@@ -5,7 +5,7 @@
         <div>
             <p class="eyebrow">{{ $websiteRequest->reference }} · {{ $websiteRequest->isBlock() ? 'Block request' : 'Access request' }}</p>
             <h1>{{ implode(', ', $websiteRequest->domains) }}</h1>
-            <p>Requested by {{ $websiteRequest->requester->name }}{{ $websiteRequest->department ? ' ('.$websiteRequest->department.')' : '' }} · {{ $websiteRequest->created_at->local()->format('j M Y, g:i a') }}</p>
+            <p>Requested by {{ $websiteRequest->requester->name }}{{ $websiteRequest->department ? ' ('.$websiteRequest->department.')' : '' }}@if($websiteRequest->submittedBy) · sent for them by {{ $websiteRequest->submittedBy->name }}@endif · {{ $websiteRequest->created_at->local()->format('j M Y, g:i a') }}</p>
         </div>
         <x-status :status="$status" />
     </div>

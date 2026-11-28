@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\RequestStatus;
 use App\Models\FilterPolicy;
+use App\Models\PendingAlert;
 use App\Models\PolicyEntry;
 use App\Models\User;
 use App\Notifications\ExceptionsDueNotification;
@@ -11,6 +12,7 @@ use App\Services\Policy\PolicyEngine;
 use App\Services\SettingsRepository;
 use App\Support\Reach;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use Tests\Concerns\BuildsPolicies;
@@ -63,7 +65,9 @@ class ExceptionReviewTest extends TestCase
         $this->travel(1)->day();
         $this->artisan('exceptions:review')->assertSuccessful();
         Notification::assertSentTo($owner, ExceptionsDueNotification::class);
-        Notification::assertSentOnDemand(ExceptionsDueNotification::class);
+        // IT hears in the next summary, not in an email of its own.
+        Notification::assertNotSentTo(new AnonymousNotifiable, ExceptionsDueNotification::class);
+        $this->assertStringContainsString('2 exception(s) due for review', PendingAlert::query()->where('kind', 'exceptions_due')->value('line'));
 
         $this->actingAs($owner)->get(route('reviews.index'))->assertOk()->assertSee('keep.example.org')->assertSee('left.example.org');
         $this->actingAs($owner)->post(route('reviews.keep'), ['entries' => [$kept->id]])->assertSessionHas('success');

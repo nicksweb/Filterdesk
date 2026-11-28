@@ -244,3 +244,77 @@ document.addEventListener('click', event => {
     });
   }
 })();
+
+// Settings search: live results from the index on the page, and the found setting highlighted after a jump.
+(() => {
+  const form = document.querySelector('[data-settings-search]');
+  if (form) {
+    const input = form.querySelector('[data-settings-search-input]');
+    const list = form.querySelector('[data-settings-search-results]');
+    let index = [];
+    try { index = JSON.parse(form.querySelector('[data-settings-index]')?.textContent || '[]'); } catch { index = []; }
+    const render = () => {
+      const words = input.value.toLowerCase().split(/\s+/).filter(word => word.length >= 2);
+      list.replaceChildren();
+      if (!words.length) { list.hidden = true; return; }
+      const results = index.map(entry => {
+        const title = entry.t.toLowerCase();
+        const text = `${title} ${(entry.h + ' ' + entry.w).toLowerCase()}`;
+        let score = 0;
+        for (const word of words) {
+          if (!text.includes(word)) return null;
+          score += title.includes(word) ? (title.startsWith(word) ? 4 : 3) : 1;
+        }
+        return [score, entry];
+      }).filter(Boolean).sort((a, b) => b[0] - a[0]).slice(0, 15);
+      if (!results.length) {
+        const empty = document.createElement('li');
+        empty.className = 'empty';
+        empty.textContent = 'No settings match.';
+        list.append(empty);
+      }
+      for (const [, entry] of results) {
+        const item = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = entry.u;
+        const strong = document.createElement('strong');
+        strong.textContent = entry.t;
+        const small = document.createElement('small');
+        small.textContent = entry.h ? `${entry.w} · ${entry.h}` : entry.w;
+        link.append(strong, small);
+        item.append(link);
+        list.append(item);
+      }
+      list.hidden = false;
+    };
+    input.addEventListener('input', render);
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { input.value = ''; render(); }
+      if (event.key === 'ArrowDown') { event.preventDefault(); list.querySelector('a')?.focus(); }
+    });
+    list.addEventListener('keydown', event => {
+      const links = [...list.querySelectorAll('a')];
+      const at = links.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' && at < links.length - 1) { event.preventDefault(); links[at + 1].focus(); }
+      if (event.key === 'ArrowUp') { event.preventDefault(); (at > 0 ? links[at - 1] : input).focus(); }
+    });
+    document.addEventListener('click', event => { if (!form.contains(event.target)) list.hidden = true; });
+  }
+
+  const find = new URLSearchParams(location.search).get('find');
+  if (find) {
+    const wanted = find.trim().toLowerCase();
+    const candidates = document.querySelectorAll('main h2, main h3, main legend, main summary, main label strong, main label');
+    const target = [...candidates].find(element => (element.firstChild?.textContent || element.textContent).trim().toLowerCase().startsWith(wanted))
+      || [...candidates].find(element => element.textContent.toLowerCase().includes(wanted));
+    if (target) {
+      for (let parent = target.parentElement; parent; parent = parent.parentElement) {
+        if (parent.tagName === 'DETAILS') parent.open = true;
+      }
+      const box = target.closest('label, fieldset, h2, h3, details') || target;
+      box.scrollIntoView({ block: 'center' });
+      box.classList.add('setting-found');
+      setTimeout(() => box.classList.remove('setting-found'), 4000);
+    }
+  }
+})();

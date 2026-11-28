@@ -4,7 +4,7 @@
         <div>
             <p class="eyebrow">Policy</p>
             <h1>Changes</h1>
-            <p>What is waiting for a second IT officer, what publishing would change in the controller, and every published version.</p>
+            <p>What is waiting for a second IT officer, what publishing would change in the controller, and every published version.@if(auth()->user()->isAdmin()) To put every content filter and firewall allow list back to how it was at a date and time, use <a href="{{ route('admin.restore.index') }}">Restore to a point in time</a>.@endif</p>
         </div>
         @if($canPublish)
             <form method="post" action="{{ route('admin.policy.changes.publish') }}">@csrf

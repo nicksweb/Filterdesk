@@ -49,6 +49,42 @@ class ImpersonationController extends Controller
         return $this->switchTo($request, $request->user(), $user, $audit);
     }
 
+    /**
+     * Submit a request for someone: switch to them and open the request
+     * form. Someone who has never signed in gets an account now, without a
+     * password; single sign-on takes it over by email when they first sign in.
+     */
+    public function onBehalf(Request $request, AuditLogger $audit): RedirectResponse
+    {
+        abort_if($request->session()->has(self::SESSION_KEY), 409, 'Return to your own account first.');
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'name' => ['nullable', 'string', 'max:120'],
+            'role' => ['required', 'in:student,teacher'],
+        ]);
+        $email = strtolower(trim($validated['email']));
+        $user = User::query()->whereRaw('lower(email) = ?', [$email])->first();
+        if ($user && ($user->isAdmin() || $user->is($request->user()))) {
+            return back()->withInput()->with('error', 'Administrator accounts cannot be used. Submit the request as yourself instead.');
+        }
+        if ($user && ! $user->enabled) {
+            return back()->withInput()->with('error', "{$user->name}'s account is disabled. Enable it first.");
+        }
+        if (! $user) {
+            $name = trim((string) ($validated['name'] ?? '')) ?: Str::of(Str::before($email, '@'))->replace(['.', '_', '-'], ' ')->title()->value();
+            $user = User::query()->create([
+                'name' => $name, 'email' => $email, 'role' => $validated['role'], 'enabled' => true,
+                'auth_source' => 'local', 'password_login_enabled' => false, 'notify_new_requests' => false,
+                'password' => Hash::make(Str::random(64)),
+            ]);
+            $audit->log('user.created_for_request', $user, ['role' => $user->role, 'by' => $request->user()->id]);
+        }
+
+        $this->switchTo($request, $request->user(), $user, $audit);
+
+        return redirect()->route('requests.create')->with('success', "You're submitting a request for {$user->name} ({$user->email}). It's recorded as theirs, sent by you, and they're emailed about it. Use Return to my account when you're done.");
+    }
+
     public function stop(Request $request, AuditLogger $audit): RedirectResponse
     {
         $impersonatorId = $request->session()->pull(self::SESSION_KEY);

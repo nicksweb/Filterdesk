@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\RunIpListSizeTest;
 use App\Models\IntegrationConfig;
 use App\Services\AuditLogger;
+use App\Services\Network\FirewallRuleMode;
 use App\Services\Network\IpListSizeTester;
 use App\Services\Network\NetworkProviderManager;
 use App\Services\Policy\FirewallListPusher;
@@ -53,5 +54,30 @@ class IpListSizeTestController extends Controller
         $audit->log('settings.ip_list_size_changed', $integration, ['from' => $before, 'to' => $size, 'from_test' => true]);
 
         return back()->with('success', 'Addresses per UniFi IP list is now '.number_format($size).'. Lists are split at that size from their next push.');
+    }
+
+    /** The firewall list options, from the Protection page: addresses per UniFi IP list and who manages the rules. */
+    public function update(Request $request, NetworkProviderManager $providers, AuditLogger $audit): RedirectResponse
+    {
+        $validated = $request->validate([
+            'max_ip_group_entries' => ['required', 'integer', 'min:1000', 'max:'.FirewallListPusher::MAX_GROUP_LIMIT],
+            'firewall_rules' => ['required', Rule::in([FirewallRuleMode::MANAGE, FirewallRuleMode::LISTS_ONLY])],
+        ]);
+        $integration = $providers->integration();
+        if (! $integration instanceof IntegrationConfig) {
+            return back()->with('error', 'Set up the network provider first (Settings → Network provider).');
+        }
+        $configuration = (array) $integration->configuration;
+        $size = ['from' => $configuration['max_ip_group_entries'] ?? FirewallListPusher::GROUP_LIMIT, 'to' => (int) $validated['max_ip_group_entries']];
+        $rules = ['from' => FirewallRuleMode::current($integration), 'to' => $validated['firewall_rules']];
+        $integration->forceFill(['configuration' => ['max_ip_group_entries' => $size['to'], 'firewall_rules' => $rules['to']] + $configuration])->save();
+        if ($size['from'] !== $size['to']) {
+            $audit->log('settings.ip_list_size_changed', $integration, $size);
+        }
+        if ($rules['from'] !== $rules['to']) {
+            $audit->log('settings.firewall_rules_changed', $integration, $rules);
+        }
+
+        return back()->with('success', 'Firewall list options saved. Lists use them from their next push.');
     }
 }

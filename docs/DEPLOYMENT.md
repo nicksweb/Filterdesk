@@ -214,7 +214,7 @@ Password sign-in is for emergencies; day-to-day sign-in should be single sign-on
 | Assignee (or IT) | Requester replied | Settings → Email |
 | Assignee | Request assigned to them | Settings → Email |
 | IT address and opted-in IT staff | A content filter changed outside the app or cannot be read | Settings → Email |
-| IT address | Daily reconciliation digest (only when there is something to do) | Settings → Email |
+| IT address | Summary for IT, weekly by default (only when something may need attention), with system alerts held for it | Settings → Email |
 | Account owner and IT address | Password sign-in locked after failed attempts | No |
 | Requester | Request received | Settings → Email |
 | Requester | Approved (or approved and scheduled), declined, more information needed, access live, access window changed, revoked | No |

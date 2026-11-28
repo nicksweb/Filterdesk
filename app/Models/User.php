@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'oidc_subject', 'role', 'enabled', 'last_login_at', 'notify_new_requests', 'auth_source', 'password_login_enabled', 'network_types', 'department', 'sso_groups', 'name_locked'])]
+#[Fillable(['name', 'email', 'password', 'oidc_subject', 'role', 'enabled', 'last_login_at', 'notify_new_requests', 'auth_source', 'password_login_enabled', 'network_types', 'department', 'sso_groups', 'name_locked', 'email_updates', 'whats_new_seen'])]
 #[Hidden(['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'])]
 class User extends Authenticatable
 {
@@ -25,7 +25,17 @@ class User extends Authenticatable
         'notify_new_requests' => true,
         'auth_source' => 'local',
         'password_login_enabled' => true,
+        'email_updates' => 'all',
     ];
+
+    /** Request emails someone can turn off (Profile → Notifications): the steps in between, not the outcome. */
+    public const OPTIONAL_EMAILS = ['submitted', 'approved', 'expiry_reminder', 'expired'];
+
+    /** Whether this person wants an optional request email (all updates, or only the ones that matter). */
+    public function wantsEmail(string $event): bool
+    {
+        return $this->email_updates !== 'essential' || ! in_array($event, self::OPTIONAL_EMAILS, true);
+    }
 
     /**
      * Get the attributes that should be cast.

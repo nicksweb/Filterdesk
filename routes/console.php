@@ -41,3 +41,4 @@ Schedule::command('probes:check')->everyTenMinutes()->withoutOverlapping()->runI
 Schedule::command('exceptions:review')->dailyAt('06:15')->withoutOverlapping();
 Schedule::command('firewall:verify-allow')->dailyAt('02:40')->withoutOverlapping()->runInBackground();
 Schedule::command('categories:guard --refresh')->dailyAt('05:30')->withoutOverlapping()->runInBackground();
+Schedule::command('policy:history')->hourlyAt(7)->withoutOverlapping()->runInBackground();

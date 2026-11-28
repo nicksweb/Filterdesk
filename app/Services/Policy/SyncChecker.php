@@ -57,6 +57,9 @@ class SyncChecker
         }
 
         $state = $this->sync->state(true);
+        if (! $state['error']) {
+            app(StateHistory::class)->recordFilters($state['filters'], 'sync');
+        }
         $networks = $state['error'] ? collect() : $this->sync->networkReport($state);
         // The controller is the source of truth: mappings it no longer agrees with follow it.
         if (! $state['error'] && $this->authoritative() && $this->sync->followController($networks) !== []) {

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Policy\StateHistory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -14,6 +15,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class FirewallList extends Model
 {
+    /** Allow lists keep a version of their entries each time they change (Changes → Restore to a point in time). */
+    protected static function booted(): void
+    {
+        static::saved(function (FirewallList $list): void {
+            if ($list->kind === 'allow' && ($list->wasRecentlyCreated || $list->wasChanged('allow_entries'))) {
+                rescue(fn () => app(StateHistory::class)->recordAllowList($list, 'change'), null, true);
+            }
+        });
+    }
+
     protected $fillable = [
         'name', 'family', 'provider_reference', 'provider_name', 'manual_entries', 'enabled', 'max_entries',
         'last_pushed_at', 'last_push_status', 'last_push_message', 'live_count', 'referenced_by',

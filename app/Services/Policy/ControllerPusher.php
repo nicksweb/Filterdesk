@@ -239,6 +239,79 @@ class ControllerPusher
         return ['ok' => true, 'message' => "{$push->provider_name} is back to its lists from before push #{$push->id}. Entries managed here will show as changes due until you push again or change the lists."];
     }
 
+    /**
+     * Put a content filter's lists back to an earlier version (Changes →
+     * Restore to a point in time). Protected sites are still never blocked.
+     * The policy then follows what is in UniFi; anything a push would still
+     * change puts the policy on hold, so an automatic push can't undo the
+     * restore before someone has looked.
+     *
+     * @param  list<string>  $allow
+     * @param  list<string>  $block
+     * @return array{ok: bool, message: string}
+     */
+    public function restoreLists(string $reference, array $allow, array $block, ?User $actor, string $when): array
+    {
+        return $this->publisher()->within('restore', $actor, function () use ($reference, $allow, $block, $actor, $when): array {
+            $writer = $this->writer();
+            if (! $writer || ! $this->enabled()) {
+                return ['ok' => false, 'message' => 'Pushing is off (Settings → Network provider → Mode), so content filters cannot be restored from here.'];
+            }
+            $this->sync->forget();
+            $live = collect($this->sync->state(true)['filters'])->firstWhere('id', $reference);
+            if (! $live) {
+                return ['ok' => false, 'message' => 'That content filter is no longer in the controller.'];
+            }
+            $block = app(ProtectedSites::class)->partition(array_values($block))['allowed'];
+            $allow = array_values($allow);
+            if ($this->sameLists($live['allow'], $allow) && $this->sameLists($live['block'], $block)) {
+                return ['ok' => true, 'message' => "{$live['name']}: already as it was."];
+            }
+
+            try {
+                $writer->writeContentFilterLists($reference, $allow, $block);
+            } catch (ProviderRequestFailed $exception) {
+                return ['ok' => false, 'message' => "{$live['name']}: {$exception->getMessage()}"];
+            }
+
+            $policy = FilterPolicy::query()->where('provider_reference', $reference)->first();
+            $changes = [
+                'allow_add' => array_values(array_diff($allow, $live['allow'])), 'allow_remove' => array_values(array_diff($live['allow'], $allow)),
+                'block_add' => array_values(array_diff($block, $live['block'])), 'block_remove' => array_values(array_diff($live['block'], $block)),
+            ];
+            ControllerPush::query()->create([
+                'policy_release_id' => $this->publisher()->current()?->id,
+                'filter_policy_id' => $policy?->id, 'user_id' => $actor?->id, 'provider_reference' => $reference,
+                'provider_name' => $live['name'], 'trigger' => 'restore', 'status' => 'ok',
+                'before_allow' => $live['allow'], 'before_block' => $live['block'], 'after_allow' => $allow, 'after_block' => $block,
+                'changes' => $changes, 'message' => "Restored to how it was at {$when}.",
+            ]);
+            $held = false;
+            if ($policy) {
+                $managed = $policy->managed();
+                $policy->forceFill(['controller_managed' => [
+                    'allow' => array_values(array_intersect($managed['allow'], $allow)),
+                    'block' => array_values(array_intersect($managed['block'], $block)),
+                ]])->save();
+                $this->sync->forget();
+                $this->sync->pull($policy, $actor);
+                $this->checker()->setBaseline($policy, $allow, $block);
+                $this->checker()->checkOne($policy->refresh(), refresh: false);
+                $plan = $this->plan($policy->refresh(), $actor, refresh: false);
+                if (($plan['ok'] ?? false) && collect($plan['changes'] ?? [])->flatten()->isNotEmpty()) {
+                    $policy->forceFill(['push_hold' => "Restored to how it was at {$when}; its lists still differ from that."])->save();
+                    $held = true;
+                }
+            }
+            $this->audit->log('policy.controller_restored', $policy, ['filter' => $live['name'], 'reference' => $reference, 'at' => $when,
+                'counts' => array_map('count', $changes)]);
+
+            return ['ok' => true, 'message' => "{$live['name']}: restored (allow +".count($changes['allow_add']).' / −'.count($changes['allow_remove'])
+                .', block +'.count($changes['block_add']).' / −'.count($changes['block_remove']).').'
+                .($held ? " {$policy->name} is on hold until someone checks it and pushes." : '')];
+        });
+    }
+
     /** @return array{ok: bool, message: string, push?: ControllerPush} */
     private function pushLocked(FilterPolicy $policy, ?User $actor, string $trigger, bool $reviewed = false): array
     {

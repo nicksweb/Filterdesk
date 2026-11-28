@@ -10,7 +10,12 @@
     </div>
 
     @if($here ?? null)
-        <p class="notice here-notice">You're on <strong>{{ $here['network']->name }}</strong>{{ $here['network']->vlan ? ' (VLAN '.$here['network']->vlan.')' : '' }}, which gets <strong>{{ $here['type'] ? \App\Models\NetworkType::labelFor($here['type']).' filtering' : 'no managed filtering' }}</strong>{{ auth()->user()->isIt() && $here['policy'] ? ' from '.$here['policy']->name : '' }}.@if($here['profile'] && !auth()->user()->isStudent()) Its result is shown first.@endif</p>
+        @if(auth()->user()->isIt())
+            <p class="notice here-notice">You're on <strong>{{ $here['network']->name }}</strong>{{ $here['network']->vlan ? ' (VLAN '.$here['network']->vlan.')' : '' }}, which gets <strong>{{ $here['type'] ? \App\Models\NetworkType::labelFor($here['type']).' filtering' : 'no managed filtering' }}</strong>{{ $here['policy'] ? ' from '.$here['policy']->name : '' }}.@if($here['profile']) Its result is shown first.@endif</p>
+        @elseif($here['type'])
+            {{-- No network names, VLANs or filter names for students and staff: only which filtering applies. --}}
+            <p class="notice here-notice">You're connected with <strong>{{ \App\Models\NetworkType::labelFor($here['type']) }} filtering</strong>.@if($here['profile'] && !auth()->user()->isStudent()) That result is shown first.@endif</p>
+        @endif
     @endif
 
     <section class="panel check-form">

@@ -1,5 +1,10 @@
 <x-layouts.app title="Overview">
     <div class="page-heading"><div><p class="eyebrow">{{ app(\App\Services\Wording::class)->get('dashboard_eyebrow') }}</p><h1>Good {{ now()->hour < 12 ? 'morning' : (now()->hour < 17 ? 'afternoon' : 'evening') }}, {{ str(auth()->user()->name)->before(' ') }}</h1><p>{{ app(\App\Services\Wording::class)->get('dashboard_intro') }}</p></div>@unless(auth()->user()->isStudent())<a class="button primary" href="{{ route('requests.create') }}">Request website access</a>@endunless</div>
+    @foreach(app(\App\Services\WhatsNew::class)->for(auth()->user()) as $release)
+        @if($loop->first)<section class="panel whats-new" aria-label="What's new"><div class="panel-heading"><div><h2>What's new in {{ config('app.product_name', 'Filterdesk') }} {{ $release['version'] }}</h2><p>New settings and where they are. <a href="{{ $release['notes'] }}" target="_blank" rel="noopener">Read the release notes</a></p></div><form method="post" action="{{ route('whats-new.dismiss') }}">@csrf<button class="button secondary small">Got it</button></form></div>@else<h3>Also in {{ $release['version'] }} <small><a href="{{ $release['notes'] }}" target="_blank" rel="noopener">release notes</a></small></h3>@endif
+        <ul>@foreach($release['items'] as $item)<li>{{ $item['text'] }}@if($item['url']) <a href="{{ $item['url'] }}">Open</a>@endif</li>@endforeach</ul>
+        @if($loop->last)</section>@endif
+    @endforeach
     @if($needsControllerSetup)
         <div class="alert success setup-callout"><strong>Next: bring your UniFi setup in.</strong> The controller is connected but none of its content filters are in the tool yet. <a class="button small primary" href="{{ route('admin.policy.setup.show') }}">Open guided setup</a> to import every filter, list and network in one step, then set up the probes.</div>
     @endif

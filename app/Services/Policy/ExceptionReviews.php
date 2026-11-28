@@ -6,10 +6,10 @@ use App\Models\PolicyEntry;
 use App\Models\User;
 use App\Notifications\ExceptionsDueNotification;
 use App\Services\AuditLogger;
+use App\Services\Requests\RequestNotifier;
 use App\Services\SettingsRepository;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Notification;
 use Throwable;
 
 /**
@@ -68,7 +68,9 @@ class ExceptionReviews
         }
         $address = $this->settings->get('notifications.it_address');
         if (filled($address)) {
-            rescue(fn () => Notification::route('mail', $address)->notify(new ExceptionsDueNotification('IT team', $entries->map(fn (PolicyEntry $entry) => $line($entry).' · owner '.($entry->owner?->name ?? 'none'))->all(), $expires($entries))), null, true);
+            $itLines = $entries->map(fn (PolicyEntry $entry) => $line($entry).' · owner '.($entry->owner?->name ?? 'none'))->all();
+            app(RequestNotifier::class)->itAlert('exceptions_due', count($itLines).' exception(s) due for review, removed on '.$expires($entries).' if nobody keeps them: '.implode(', ', array_slice($itLines, 0, 10)).(count($itLines) > 10 ? '…' : '').'.',
+                new ExceptionsDueNotification('IT team', $itLines, $expires($entries)));
         }
         PolicyEntry::query()->whereKey($entries->pluck('id'))->update(['review_notified_at' => now()]);
 
